@@ -1,0 +1,23 @@
+# Local state — contains installed-at timestamps, dismissed prompts, etc.
+.skill-lock.json
+
+# OS / editor artifacts
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+
+# Node (some skills have JS scripts with dev deps)
+node_modules/
+
+# Personal asset indexes
+**/personal-asset-index.json
+
+# Video render temp files
+.video-tmp-*/
+**/_frames_*.png
+**/_verify.js
+**/_verify.mjs
