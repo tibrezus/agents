@@ -1,6 +1,6 @@
 ---
 name: wiki
-description: Operate on an LLM Wiki knowledge base. Commands: read (search and read wiki pages about a topic), update (ingest new information into wiki pages), create (add new wiki pages), prune (remove outdated pages), list (summarize wiki contents). Use when the user asks to look something up in the wiki, update wiki content, add/remove pages, or get an overview of the knowledge base.
+description: "Operate on an LLM Wiki knowledge base. Commands: read (search and read wiki pages about a topic), update (ingest new information into wiki pages), create (add new wiki pages), prune (remove outdated pages), list (summarize wiki contents). Use when the user asks to look something up in the wiki, update wiki content, add/remove pages, or get an overview of the knowledge base."
 ---
 
 # LLM Wiki Operations
