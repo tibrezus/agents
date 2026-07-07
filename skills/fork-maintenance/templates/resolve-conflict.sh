@@ -58,9 +58,15 @@ git clone --depth 100 "$FORK_URL" "$WORKDIR"
 cd "$WORKDIR"
 
 SYNC_BRANCH="rezus/sync-$(date +%Y-%m-%d)"
-# sync-fork.sh concluded the merge WITH markers and pushed this branch.
-git fetch origin "$SYNC_BRANCH" 2>/dev/null || true
-git checkout "$SYNC_BRANCH" 2>/dev/null || git checkout -b "$SYNC_BRANCH" "origin/$SYNC_BRANCH"
+# sync-fork.sh concluded the merge WITH markers and pushed this branch. A shallow
+# clone only brings the default branch, so fetch the sync branch explicitly with
+# a refspec that creates origin/<branch> (a bare `git fetch origin <branch>` only
+# updates FETCH_HEAD and leaves no remote-tracking ref → checkout would fail).
+git fetch --depth 100 origin "refs/heads/${SYNC_BRANCH}:refs/remotes/origin/${SYNC_BRANCH}" 2>/dev/null || true
+git checkout -B "$SYNC_BRANCH" "origin/${SYNC_BRANCH}" 2>/dev/null || {
+  echo "=== No sync branch '$SYNC_BRANCH' on origin — nothing to resolve (or not a conflict PR) ==="
+  exit 0
+}
 
 MARKER_FILES=$(git grep -l -E '^(<<<<<<<|>>>>>>>|=======) ' -- . 2>/dev/null || true)
 if [ -z "$MARKER_FILES" ]; then
