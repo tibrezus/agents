@@ -143,8 +143,37 @@ def ensure_yq():
         log(f"WARN: could not install yq ({e}); resolve-conflict.sh will fail on fork defs")
 
 
+def ensure_gh():
+    """Download the GitHub CLI if missing so the agent has `gh`, authenticated via
+    GH_TOKEN (= FORK_MAINTENANCE_GITHUB_TOKEN from BWS). gh reads GH_TOKEN
+    automatically — no `gh auth login` needed."""
+    import shutil
+    import tarfile
+    import urllib.request
+    if shutil.which("gh"):
+        return
+    import json as _json
+    try:
+        with urllib.request.urlopen(
+            "https://api.github.com/repos/cli/cli/releases/latest", timeout=15
+        ) as r:
+            ver = _json.load(r)["tag_name"].lstrip("v")
+        url = f"https://github.com/cli/cli/releases/download/v{ver}/gh_{ver}_linux_amd64.tar.gz"
+        tgz = "/tmp/gh.tar.gz"
+        urllib.request.urlretrieve(url, tgz)
+        with tarfile.open(tgz) as t:
+            t.extract(f"gh_{ver}_linux_amd64/bin/gh", "/tmp")
+        src = f"/tmp/gh_{ver}_linux_amd64/bin/gh"
+        os.chmod(src, 0o755)
+        os.replace(src, "/usr/local/bin/gh")
+        log(f"installed gh v{ver} → /usr/local/bin/gh")
+    except Exception as e:  # noqa: BLE001
+        log(f"WARN: could not install gh ({e}); PR operations will be unavailable")
+
+
 def main():
     ensure_yq()
+    ensure_gh()
     log(f"starting on [::]:{LISTEN_PORT} (dual-stack, ns={NAMESPACE})")
     log(f"subscribed to pubsub={PUBSUB_NAME} topic={TOPIC} → spawns {RESOLVER}")
     httpd = DualStackServer(("::", LISTEN_PORT), Handler)
