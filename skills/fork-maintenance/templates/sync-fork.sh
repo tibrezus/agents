@@ -157,36 +157,31 @@ if [ -n "$DELETIONS" ]; then
   fi
 fi
 
-if [ $MERGE_RESULT -ne 0 ]; then
-  # Check for remaining conflicts (git index state)
-  CONFLICTS=$(git diff --name-only --diff-filter=U 2>/dev/null || true)
-  if [ -n "$CONFLICTS" ]; then
-    echo ""
-    echo "=== CONFLICT — needs manual resolution ==="
-    echo "Conflicting files:"
-    echo "$CONFLICTS" | sed 's/^/  - /'
-    emit_conflict_event "$CONFLICTS"
-    git merge --abort 2>/dev/null || true
-    exit 2  # exit code 2 = conflict
-  fi
-  # Merge completed after divergence cleanup
-  MERGE_RESULT=0
-fi
-
-# Safety: the deletion step above does `git add -A`, which clears git's
-# unmerged-path state (so --diff-filter=U finds nothing) BUT leaves textual
-# conflict markers (<<<<<<< / ======= / >>>>>>>) in file content. A branch
-# pushed in that state will not build. Scan for markers regardless of index
-# state and abort if any remain — this is the real conflict signal.
-MARKER_FILES=$(git grep -l -E '^(<<<<<<<|>>>>>>>|=======) ' -- . 2>/dev/null || true)
-if [ -n "$MARKER_FILES" ]; then
+# ── Conflict detection (single path) ──────────────────────────────────────
+# After deletions, the real signal is textual markers: `git add -A` clears the
+# unmerged-index state but leaves <<<<<<< in file content. If any remain this is
+# a conflict — conclude the merge WITH markers, push the sync branch, open a
+# labelled PR for the agent to resolve on, and emit fork.conflict.needs-resolution.
+# The PR is NOT auto-merged in this state; it stays labelled until resolve-conflict.sh
+# (the agent) makes the branch pass the gates and the monitor merges it.
+CONFLICT_FILES=$(git grep -l -E '^(<<<<<<<|>>>>>>>|=======) ' -- . 2>/dev/null || true)
+if [ -n "$CONFLICT_FILES" ]; then
   echo ""
-  echo "=== CONFLICT — unresolved merge markers in file content ==="
-  echo "These files still contain <<<<<<< / >>>>>>> markers (merge not resolved):"
-  echo "$MARKER_FILES" | sed 's/^/  - /'
-  emit_conflict_event "$MARKER_FILES"
-  git merge --abort 2>/dev/null || true
-  exit 2  # exit code 2 = conflict
+  echo "=== CONFLICT — opening a resolution PR for the agent ==="
+  echo "Conflicting files:"; echo "$CONFLICT_FILES" | sed 's/^/  - /'
+  # Conclude the merge WITH markers so the branch carries the conflict for the
+  # agent (the PR is labelled needs-conflict-resolution, never auto-merged as-is).
+  git add -A 2>/dev/null || true
+  git commit --no-edit --quiet 2>/dev/null || true
+  git push --quiet origin "$SYNC_BRANCH" 2>&1 || { echo "ERROR: cannot push conflict branch" >&2; exit 3; }
+  host_label_create "needs-conflict-resolution" 0E8A16 2>/dev/null || true
+  PR_URL=$(host_pr_create "$FORK_DEFAULT_BRANCH" "$SYNC_BRANCH" \
+    "sync: $FORK_NAME — needs conflict resolution ($SYNC_DATE)" \
+    "Upstream merge produced conflicts. The conflict-resolver agent will resolve on this branch and the monitor will merge once gates pass." \
+    "needs-conflict-resolution" 2>/dev/null || echo "")
+  echo "  resolution PR: ${PR_URL:-<none>}"
+  emit_conflict_event "$CONFLICT_FILES"
+  exit 2  # conflict — but a resolution PR now exists for the agent + monitor
 fi
 
 echo ""
