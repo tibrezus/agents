@@ -33,6 +33,7 @@ declare -A MAP=(
   [sync-fork.sh]=scripts/sync-fork.sh
   [git-host.sh]=scripts/git-host.sh
   [resolve-conflict.sh]=scripts/resolve-conflict.sh
+  [conflict-subscriber.py]=scripts/conflict-subscriber.py
   [verify-patches.sh]=scripts/verify-patches.sh
   [generate-manifest.sh]=scripts/generate-manifest.sh
   [cronjob-entrypoint.sh]=scripts/cronjob-entrypoint.sh

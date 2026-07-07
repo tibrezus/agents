@@ -20,6 +20,13 @@ spec:
   jobTemplate:
     spec:
       template:
+        metadata:
+          # Dapr sidecar so sync-fork.sh can publish fork.conflict.needs-resolution
+          # via the localhost:3500 pub/sub API (see emit_conflict_event).
+          annotations:
+            dapr.io/enabled: "true"
+            dapr.io/app-id: "fork-sync"
+            dapr.io/log-as-json: "true"
         spec:
           restartPolicy: OnFailure
           containers:
