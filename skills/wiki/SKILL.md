@@ -20,6 +20,13 @@ filing, and bookkeeping.
 
 Never skip these files. They define the wiki's structure.
 
+> **How the docs pipeline is built & run** (the RIG controller, KEDA/Dapr
+> scheduling, the PVC cache, the event bus) lives in the **module's**
+> `AGENTS.md` / `README.md` (the `.llm-wiki` submodule), not here. You do not
+> need it to edit wiki content or run `arch-sync`; consult it only if asked
+> how the system itself works. This skill covers *operations*; the module
+> covers *architecture*.
+
 ## Repository Layout
 
 ```text
@@ -103,6 +110,9 @@ unexpected, model what the RIG shows.
 - `components` of type `executable`/`shared_library` → **Container** level
 - `components` of type `package_library` + `depends_on_ids` → **Component** level
 - `source_files` within a component → **Code** level
+- `evidence` (file:line refs) → **traceability** annotations in descriptions
+- `test_definitions` (covers_ids) → **test coverage** annotations
+- `aggregators` (meta-targets) → system description context
 
 ---
 
@@ -135,7 +145,7 @@ Ingest new information into the wiki (Generic workflow).
 1. **Understand the change.** Read relevant existing pages.
 2. **Save source** to `raw/` (e.g. `2026-06-26-topic-name.md`). **Never modify
    `raw/`** after saving.
-3. **Update existing pages**: add information, add `[[wikilinks]]`, update
+3. **Update existing pages**: add information, add Markdown cross-references, update
    `sources: []` and `updated:` in frontmatter.
 4. **Create new pages** for uncovered topics (correct entity-type directory).
 5. **Add diagrams** as ` ```mermaid ` blocks where they help. Pick the type that
@@ -172,15 +182,16 @@ Create a new wiki page.
 
    ## Section Title
 
-   Body with [[wikilinks]].
+   Body with [Markdown links](../type/page-name.md) to other pages.
 
    ## See Also
 
-   - [[related-1]] — description
-   - [[related-2]] — description
+   - [related-1](../type/related-1.md) — description
+   - [related-2](../type/related-2.md) — description
    ```
 
-4. Add `[[wikilink]]` references from existing pages to the new page.
+4. Add Markdown links from existing pages to the new page. Use relative paths:
+   from `wiki/concepts/x.md` to `wiki/entities/y.md` → `[y](../entities/y.md)`.
 5. Ensure bidirectional links.
 6. Update `index.md`, append to `log.md`, validate with `npm run check`.
 
@@ -205,13 +216,78 @@ Run when `raw/arch/<project>/rig.json` has changed.
 2. **Detect change**: `git log -p -- raw/arch/<project>/rig.json`.
 3. **Read the RIG**: `cat raw/arch/<project>/rig.json`. This is a deterministic
    JSON — read it whole. Identify components, their types, dependencies
-   (`depends_on_ids`), external packages, and entrypoints.
+   (`depends_on_ids`), external packages, entrypoints, **evidence** (file:line
+   refs proving each node is build-defined), **test_definitions** (which
+   components have tests), and **aggregators** (meta-targets like `go-build-all`).
 4. **Update the LikeC4 model** (`raw/arch/<project>/model.c4`). Translate RIG
    components into typed C4 elements. Every element must correspond to a real
    entry in the RIG. **Do not include anything that is not in the RIG.**
+
+   ### RIG → C4 Mapping Guide
+
+   The RIG is the authoritative architectural map (arXiv:2601.10112). Your job
+   is to transform it into a human-readable C4 model that communicates
+   architecture, not just mirror the JSON. Follow these rules:
+
+   **Level 1 — System Context view:**
+   - One `softwareSystem` node for the entire project.
+   - `entrypoints` in the RIG → note them in the system description ("entrypoints:
+     X server, Y CLI").
+   - `external_packages` → model significant ones as `externalSystem` nodes
+     connected to the system with relationships. Group related packages
+     (e.g., all Docker packages → "Docker Engine", all OpenAI packages →
+     "OpenAI API"). Skip trivial packages (stdlib-adjacent, test utilities).
+   - This view answers: "What is this system, what does it talk to?"
+
+   **Level 2 — Container view:**
+   - Map RIG `executable` components → `container` nodes (e.g., API server,
+     CLI tool, worker process).
+   - Map RIG `package_library` / `static_library` / `shared_library` → group
+     them into functional containers based on their names and dependencies.
+     For example:
+     - Components with `api/` in source paths → "REST API" container
+     - Components with `state/` or `store/` → "State Management" container
+     - Components with `tf` or `terraform` → "Infrastructure Adapter" container
+     - CUDA/C files → "GPU Backend" container
+   - Draw `depends_on_ids` edges between containers.
+   - This view answers: "What are the major building blocks and how do they connect?"
+
+   **Level 3 — Component view (one per container):**
+   - Each RIG component within a container → a C4 `component` node.
+   - List ALL source files from the RIG in the description (compact format).
+   - Draw internal `depends_on_ids` edges as relationships.
+   - `external_packages_ids` → model as relationships to `externalSystem` nodes
+     defined in the Context view.
+   - This view answers: "What's inside each building block?"
+
+   **Using evidence and test_definitions (paper compliance):**
+   - `evidence` entries provide `file:line` refs proving each component is
+     build-defined. Reference the evidence in component descriptions for
+     traceability (e.g., "defined at `go.mod:1`, root source `main.go`").
+   - `test_definitions` link tests to tested components via `covers_ids`.
+     Use this to annotate which components have test coverage in the model.
+     Components without tests should be noted as "no test coverage".
+   - `aggregators` (e.g., `go-build-all`, `go-test-all`) show the build
+     target graph. Mention them in the system description.
+
+   **Description quality rules:**
+   - Don't just quote the RIG verbatim. SYNTHESIZE: use the component name,
+     type, source file paths, and dependency pattern to write a 1-2 sentence
+     description of the component's architectural role.
+   - Example: instead of `comp-6 machine — internal/api/machine/handlers.go`,
+     write `machine — REST API handlers for machine CRUD operations; depends
+     on state store and patch resolution for declarative updates`.
+   - Include the RIG component ID in a comment for traceability:
+     `// RIG comp-6`.
 5. **Regenerate Mermaid** — `likec4 gen mermaid -o /tmp/out raw/arch/<project>/`.
+   Each C4 view becomes one Mermaid diagram. Embed all views on the wiki page.
 6. **Update wiki pages** — replace the embedded Mermaid blocks with the
    regenerated output.
+   **PRESERVE manual content**: Read the existing wiki page first. Only
+   replace the architecture diagram section (containing LikeC4-generated
+   Mermaid). Keep ALL manually-written sections — deployment notes,
+   configuration examples, manual architecture insights, operational runbooks.
+   If unsure whether a section is agent-generated or manual, preserve it.
 7. **Update `sources:`** with `raw/arch/<project>/rig.json`.
 8. **Update `index.md`** and **append to `log.md`** with operation `arch-sync`.
 9. **Validate**: `npm run check` (CI also validates the LikeC4 model).
@@ -257,10 +333,16 @@ project repo.
 3. **Write the workflow** into `<project-repo-path>/.github/workflows/repo-map.yml`.
 4. **Open a PR** in the project repo. After merge, the project will
    deterministically publish `repo-map.json` as a Release asset on every tag.
-5. **Tell the human** to add the project to the wiki's `arch:` config with the
-   Release asset URL as `rig_url`. From that point, the wiki CI will fetch and
-   commit the RIG, and LC4 unlocks.
-6. **After the first RIG lands** in `raw/arch/<project>/rig.json`, run the
+5. **If the project repo is private**, create a read-scoped token (fine-grained
+   PAT on GitHub, or an access token on Forgejo) and store it as a CI secret in
+   the **wiki** repo: `gh secret set <PROJECT>_RIG_TOKEN` (GitHub) or the
+   equivalent in Forgejo. Then declare it in the wiki's `arch:` config as
+   `rig_token_env: <PROJECT>_RIG_TOKEN` alongside `rig_url`. Public repos skip
+   this step.
+6. **Tell the human** to add the project to the wiki's `arch:` config with the
+   Release asset URL as `rig_url` (and `rig_token_env` if private). From that
+   point, the wiki CI will fetch and commit the RIG, and LC4 unlocks.
+7. **After the first RIG lands** in `raw/arch/<project>/rig.json`, run the
    `arch-sync` command to write the initial LikeC4 model (`.c4`) from the RIG
    and generate the Mermaid architecture diagrams.
 
@@ -269,8 +351,8 @@ project repo.
 Remove a page. **Never without explicit instruction.**
 
 1. Find the page: `find wiki/ -name "topic.md"`.
-2. Find all inbound links: `grep -rl "[[topic]]" wiki/`.
-3. Remove/update wikilinks from referencing pages.
+2. Find all inbound links: `grep -rl "topic" wiki/` (check both `[topic](` and `[[topic]]`).
+3. Remove/update Markdown links from referencing pages.
 4. Delete the file.
 5. Remove from `index.md`, append to `log.md`, validate.
 
@@ -379,7 +461,8 @@ Before committing any wiki change:
 - [ ] No duplicate filenames across `wiki/`
 - [ ] `index.md` updated, `log.md` appended
 - [ ] Bidirectional links maintained
-- [ ] No `#` body headings, no inline HTML, no markdown links for internal refs
+- [ ] No `#` body headings, no inline HTML
+- [ ] Cross-references use [Markdown links](relative/path.md) that render on Codeberg/GitHub
 - [ ] Generic workflow pages: Mermaid only (no LikeC4 models)
 - [ ] Architecture pages: Mermaid generated from LikeC4 model; model validates
 - [ ] **Architecture diagrams derived from `raw/arch/` RIG — NOT from memory**
