@@ -37,7 +37,7 @@ _git_host_ry() { yq -r "$1" "${DEF_FILE:?DEF_FILE must be set by caller}" 2>/dev
 host_platform() {
   local p
   p=$(_git_host_ry '.fork.platform // "github"')
-  case "$p" in github|forgejo) echo "$p" ;; *) echo "github" ;; esac
+  case "$p" in github|forgejo|local) echo "$p" ;; *) echo "github" ;; esac
 }
 
 # Env var holding the PAT for this fork's host (defaults per platform).
@@ -69,6 +69,15 @@ host_git_host() {
 host_setup() {
   local platform token_env token
   platform=$(host_platform)
+
+  # Local file:// repos (testing / local validation): no auth, no API.
+  if [ "$platform" = "local" ]; then
+    git config --global user.name "fork-maintenance-bot" 2>/dev/null || true
+    git config --global user.email "flux@rezus.cloud" 2>/dev/null || true
+    echo "[git-host] platform=local repo=$FORK_URL (no auth)"
+    return 0
+  fi
+
   token_env=$(host_token_env)
   token="${!token_env:-}"   # expand the env var named by token_env
 
@@ -124,6 +133,7 @@ host_label_create() {
         -H "Content-Type: application/json" \
         -d "{\"name\":\"${label}\",\"color\":\"#${color}\"}" >/dev/null 2>&1 || true
       ;;
+    local) ;;  # no-op
   esac
 }
 
@@ -142,6 +152,11 @@ host_pr_create() {
         --title "$title" ${label:+--label "$label"} --body "$body" 2>&1 || \
         gh pr create --repo "$FORK_URL" --base "$base" --head "$head" \
           --title "$title" --body "$body" 2>&1
+      ;;
+    local)
+      # No PR API on a file:// repo; report a synthetic URL. The merge itself
+      # is performed by host_pr_merge (local git merge into the default branch).
+      echo "local://${FORK_URL}#${head}"
       ;;
     forgejo)
       local body_json pr_url
@@ -203,6 +218,16 @@ host_pr_merge() {
         -d '{"Do":"squash","merge_title_field":"auto-merge (all gates green)","delete_branch":true}' \
         && curl -sf "${FORGEJO_API}/repos/${owner_repo}/pulls/${pr_ref}" \
            -H "Authorization: token ${FORK_TOKEN}" | jq -r '.merge_commit_sha // .number' 2>/dev/null
+      ;;
+    local)
+      # Locally merge the resolved sync branch into the fork's default branch,
+      # then push it back to origin so the canonical fork repo reflects the
+      # deploy (mirrors what the github/forgejo API merge does on the remote).
+      # pr_ref is the sync branch name. Returns the new HEAD sha.
+      git checkout "$FORK_DEFAULT_BRANCH" 2>/dev/null || git checkout -b "$FORK_DEFAULT_BRANCH"
+      git merge --no-edit "$pr_ref" >/dev/null 2>&1
+      git push --quiet origin "$FORK_DEFAULT_BRANCH" 2>&1 || true
+      git rev-parse HEAD
       ;;
   esac
 }

@@ -33,6 +33,42 @@ echo "=== Loading fork definition: $FORK_NAME ==="
 # Parse YAML definition into shell variables
 read_yaml() { yq -r "$1" "$DEF_FILE"; }
 
+# Emit a fork.conflict.needs-resolution event with a structured needs-fix payload.
+# Consumed by the KEDA-triggered conflict-resolver (resolve-conflict.sh). The
+# payload is always written to manifests/<fork>-needs-fix.json (audit / manual
+# runs); it is also published to Dapr pub/sub when a sidecar is present so the
+# resolver scales up automatically. See skill/references/conflict-resolution.md
+# "Agentic integration shape" for the contract.
+emit_conflict_event() {
+  local cfiles="${1:-}" payload patches_json pcount i
+  patches_json="[]"
+  pcount=$(read_yaml '.patches | length' 2>/dev/null || echo 0)
+  for i in $(seq 0 $((pcount - 1))); do
+    local pf ps pd st="LOST"
+    pf=$(read_yaml ".patches[$i].file"); ps=$(read_yaml ".patches[$i].signature"); pd=$(read_yaml ".patches[$i].description")
+    if [ -f "$pf" ]; then { [ "$(grep -cF "$ps" "$pf" 2>/dev/null || echo 0)" -gt 0 ] && st="OK"; } || st="LOST"; else st="MISSING"; fi
+    patches_json=$(echo "$patches_json" | jq --arg f "$pf" --arg s "$ps" --arg d "$pd" --arg st "$st" '. += [{file:$f,signature:$s,description:$d,status:$st}]')
+  done
+  payload=$(jq -n \
+    --arg fork "$FORK_NAME" \
+    --arg upstream_url "$UPSTREAM_URL" --arg upstream_branch "$UPSTREAM_BRANCH" \
+    --arg upstream_range "${MERGE_BASE:0:12}..${UPSTREAM_HEAD:0:12}" \
+    --argjson patches "$patches_json" \
+    --arg conflict_files "$cfiles" \
+    '{fork:$fork, upstream_url:$upstream_url, upstream_branch:$upstream_branch,
+      upstream_range:$upstream_range, patches_at_risk:$patches,
+      conflict_files: ($conflict_files | split("\n") | map(select(length>0)))}')
+  mkdir -p "$MAINT_DIR/manifests" 2>/dev/null || true
+  echo "$payload" > "$MAINT_DIR/manifests/${FORK_NAME}-needs-fix.json"
+  if curl -sf -m 2 http://localhost:3500/v1.0/healthz >/dev/null 2>&1; then
+    curl -sf -m 5 -X POST "http://localhost:3500/v1.0/publish/${DAPR_PUBSUB:-pubsub}/fork.conflict.needs-resolution" \
+      -H "Content-Type: application/json" -d "$payload" >/dev/null 2>&1 \
+      && echo "  emitted fork.conflict.needs-resolution (Dapr) → resolver will scale up"
+  else
+    echo "  (Dapr sidecar absent — needs-fix payload at manifests/${FORK_NAME}-needs-fix.json)"
+  fi
+}
+
 UPSTREAM_URL=$(read_yaml '.upstream.url')
 UPSTREAM_BRANCH=$(read_yaml '.upstream.branch')
 FORK_URL=$(read_yaml '.fork.url')
@@ -129,6 +165,7 @@ if [ $MERGE_RESULT -ne 0 ]; then
     echo "=== CONFLICT — needs manual resolution ==="
     echo "Conflicting files:"
     echo "$CONFLICTS" | sed 's/^/  - /'
+    emit_conflict_event "$CONFLICTS"
     git merge --abort 2>/dev/null || true
     exit 2  # exit code 2 = conflict
   fi
@@ -147,6 +184,7 @@ if [ -n "$MARKER_FILES" ]; then
   echo "=== CONFLICT — unresolved merge markers in file content ==="
   echo "These files still contain <<<<<<< / >>>>>>> markers (merge not resolved):"
   echo "$MARKER_FILES" | sed 's/^/  - /'
+  emit_conflict_event "$MARKER_FILES"
   git merge --abort 2>/dev/null || true
   exit 2  # exit code 2 = conflict
 fi

@@ -84,6 +84,32 @@ bash scripts/verify-patches.sh forks/<fork>.yaml <path-to-fork-checkout>
 # exit 0 = all signatures present; 1 = some lost (needs re-application)
 ```
 
+### Resolve a conflict automatically (agent — `resolve-conflict.sh`)
+
+When a sync hits a conflict, the engine now emits a `fork.conflict.needs-resolution`
+event with a structured `needs-fix` payload (conflicting files, patches at risk,
+upstream range). The resolver — `resolve-conflict.sh <fork>` — is the agentic
+consumer of that event, and is also runnable standalone (locally or as a
+one-off Job):
+
+```bash
+# locally / as a one-off Job — needs ZAI_API_KEY + the host token + pi on PATH
+MAINT_DIR=/workspace ZAI_API_KEY=… /workspace/scripts/resolve-conflict.sh forgejo
+# exit 0 = resolved + deployed (merged); 1 = escalated (PR left labelled)
+```
+
+It recreates the conflict deterministically (re-merge upstream), invokes the
+pi.dev harness with **this skill** + the `needs-fix` payload, then re-runs the
+non-negotiable gates — marker scan, `validate-fork.sh`, patch signatures — as
+**proof** (an agent's "I resolved it" is a claim; green gates are proof). On
+green it pushes the sync branch and auto-merges (+ auto-releases if opted in) so
+the fork deploys. On failure it pushes the partial work and leaves the PR
+labelled `needs-conflict-resolution` for a human — the release branch is never
+the experiment. See [references/conflict-resolution.md](references/conflict-resolution.md).
+
+`git-host.sh` supports `platform: local` (file:// repos, no auth, merge in-tree)
+so the whole loop is testable without a git host.
+
 ### Resolve a sync PR with conflicts
 
 1. Pull the sync branch locally.
@@ -159,7 +185,7 @@ validation:                               # ← multi-project: declare YOUR chec
 - **Universal validator** (`checks/validate-fork.sh` → [`templates/validate-fork.sh`](templates/validate-fork.sh)): a generic dispatcher over the `validation:` block, with **per-fork toolchain** pinning. Adding a language = adding a check type (`go_build`, `cargo_build`, `cmake_build`, …). Never hardcode one fork's structure into the validator — that was the bug that made every non-reference fork's PR show the reference fork's errors (results leaked via a shared temp file).
 - **Per-fork result files**: validation output goes to `/tmp/fork-validation-<name>.md`, never a shared path. One CronJob pod runs many forks — they must not read each other's results.
 - **Patch verifier** (`scripts/verify-patches.sh` → [`templates/verify-patches.sh`](templates/verify-patches.sh)): standalone signature grep, usable outside a full sync.
-- **Agentic escalation**: when validation fails on a *semantic* conflict (not a missing signature), the engine emits a structured `needs-fix` payload (conflicting files, both sides, our patch intent) consumable by an agent that resolves and re-pushes. See [references/conflict-resolution.md](references/conflict-resolution.md).
+- **Agentic escalation**: when a merge conflicts, the engine emits a structured `fork.conflict.needs-resolution` event (Dapr pub/sub when a sidecar is present, else a `manifests/<fork>-needs-fix.json` file). `resolve-conflict.sh` consumes it: it recreates the conflict, invokes pi with this skill + the payload, and re-validates before deploying. See [references/conflict-resolution.md](references/conflict-resolution.md).
 
 ## Automation model
 
