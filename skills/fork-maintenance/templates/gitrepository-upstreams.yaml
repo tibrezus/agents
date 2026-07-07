@@ -1,0 +1,26 @@
+# =============================================================================
+# gitrepository-upstreams.yaml — Flux GitRepository CRs (canonical template)
+# =============================================================================
+# Flux polls each upstream repo on an interval. When a new commit is detected,
+# the GitRepository artifact is updated and Flux emits a Source event. The Alert
+# in alert-upstream-changes.yaml catches that event and notifies. The CronJob
+# reads the stored artifact SHA to detect changes and trigger a sync.
+#
+# One GitRepository per upstream fork. Keep in sync with alert-upstream-changes.yaml.
+# This replaces ad-hoc cron schedules with continuous event-driven monitoring.
+# =============================================================================
+
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: upstream-<fork>
+  namespace: fork-maintenance
+  labels:
+    app.kubernetes.io/name: fork-maintenance
+    fork-maintenance.io/fork: <fork>
+spec:
+  interval: 30m
+  url: https://github.com/<upstream-org>/<repo>   # or codeberg.org/...
+  ref:
+    branch: <upstream-default>

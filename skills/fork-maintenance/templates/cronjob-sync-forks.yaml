@@ -1,0 +1,76 @@
+# =============================================================================
+# Fork Sync CronJob — the sole execution engine
+# =============================================================================
+# Runs every 30 minutes in-cluster. Scripts + definitions are delivered via
+# ConfigMaps (managed by Flux — no image rebuild or git clone of k8s-config).
+# The GitHub PAT comes from Bitwarden via ExternalSecrets.
+# =============================================================================
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: fork-sync
+  namespace: fork-maintenance
+  labels:
+    app.kubernetes.io/name: fork-maintenance
+spec:
+  schedule: "*/30 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: fork-sync
+              image: golang:1.26-alpine
+              workingDir: /workspace
+              env:
+                - name: GITHUB_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: fork-maintenance-github
+                      key: token
+                - name: FORK_NAME
+                  value: ""
+                - name: HOME
+                  value: /tmp
+              command: ["/bin/sh", "/workspace/scripts/cronjob-entrypoint.sh"]
+              volumeMounts:
+                - name: scripts
+                  mountPath: /workspace/scripts
+                  readOnly: true
+                - name: checks
+                  mountPath: /workspace/checks
+                  readOnly: true
+                - name: defs
+                  mountPath: /workspace/forks
+                  readOnly: true
+                - name: hooks
+                  mountPath: /workspace/post-merge-hooks
+                  readOnly: true
+                - name: manifests
+                  mountPath: /workspace/manifests
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: scripts
+              configMap:
+                name: fork-maintenance-scripts
+                defaultMode: 0755
+            - name: checks
+              configMap:
+                name: fork-maintenance-checks
+                defaultMode: 0755
+            - name: defs
+              configMap:
+                name: fork-maintenance-defs
+            - name: hooks
+              configMap:
+                name: fork-maintenance-hooks
+                defaultMode: 0755
+            - name: manifests
+              emptyDir: {}
+            - name: tmp
+              emptyDir: {}

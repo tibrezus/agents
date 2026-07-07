@@ -1,0 +1,42 @@
+# =============================================================================
+# alert-upstream-changes.yaml — Flux Alert + Provider (canonical template)
+# =============================================================================
+# Event-driven sync trigger. When a GitRepository's artifact changes (upstream
+# has a new commit), Flux emits a Source event. The Alert forwards it to the
+# Provider, which triggers the fork-sync CronJob immediately.
+#
+# One Alert per upstream fork (named upstream-<fork>-changed), all pointing at
+# the single Provider. Keep this in sync with gitrepository-upstreams.yaml: one
+# GitRepository + one Alert per fork.
+# =============================================================================
+
+---
+# Provider: delivers notifications when upstream changes are detected.
+# The webhook triggers the fork-sync pipeline. The address (incl. trigger token)
+# is in a Secret so it is not stored in plaintext.
+apiVersion: notification.toolkit.fluxcd.io/v1beta3
+kind: Provider
+metadata:
+  name: fork-sync-trigger
+  namespace: fork-maintenance
+spec:
+  type: generic
+  secretRef:
+    name: fork-sync-webhook
+---
+# Alert: fires ONLY when the GitRepository artifact changes (new commit), not
+# on every poll. eventSeverity: info (NOT severity — Flux uses eventSeverity).
+apiVersion: notification.toolkit.fluxcd.io/v1beta3
+kind: Alert
+metadata:
+  name: upstream-<fork>-changed
+  namespace: fork-maintenance
+spec:
+  providerRef:
+    name: fork-sync-trigger
+  eventSources:
+    - kind: GitRepository
+      name: upstream-<fork>
+      namespace: fork-maintenance
+  summary: "Upstream <org>/<repo> has new commits — fork sync triggered"
+  eventSeverity: info

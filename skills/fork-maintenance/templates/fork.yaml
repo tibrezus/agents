@@ -1,0 +1,93 @@
+# =============================================================================
+# fork.yaml — FORK DEFINITION (canonical template)
+# =============================================================================
+# One file per fork: forks/<name>.yaml. Consumed by scripts/sync-fork.sh.
+# This is the SINGLE source of truth for how a fork is maintained. The fork
+# repo itself stays clean: only upstream code + feature patches + one
+# tag-triggered release workflow. All maintenance logic lives in the GitOps
+# repo that owns the maintenance system.
+#
+# Per-fork differences are DATA here, not code. The sync engine, host
+# abstraction, and validator are generic; this file is what makes them
+# multi-project.
+# =============================================================================
+name: <fork>
+
+upstream:
+  url: https://github.com/upstream-org/repo   # or codeberg.org/...
+  branch: <upstream-default>
+
+fork:
+  url: https://github.com/your-org/repo         # where the fork repo lives
+  default_branch: rezus/<default>               # release branch (GitHub default → tag-triggered release workflows fire here). ALWAYS FUNCTIONAL.
+  mirror_branch: <upstream-default>             # clean upstream mirror (read-only reference; force-reset when needed)
+  platform: github                              # github | forgejo — where the fork repo lives (dispatches gh CLI vs REST API)
+  api_url: https://codeberg.org/api/v1          # forgejo ONLY — REST base
+  token_env: GITHUB_TOKEN                       # env var holding the host PAT (defaults: GITHUB_TOKEN | CODEBERG_TOKEN)
+
+versioning:
+  tag_pattern: "v*-rezus.*"                     # tags follow <upstream-version>-rezus.<build-number>
+
+# Patches: upstream files we modify. Each has a signature for post-merge
+# verification (grep). If the signature disappears after a merge, the patch was
+# lost → PR is labeled needs-conflict-resolution, never auto-merged.
+patches:
+  - file: path/to/file.go
+    description: "what this patch does"
+    signature: "a grep-verifiable proof string unique to our change"
+
+# Permanent divergences: re-deleted on every sync (e.g. an ee/ dir the community
+# build must not ship). Re-applied mechanically; never produces a conflict.
+deletions:
+  - ee/
+
+# Additive paths: exist only in our fork (never in upstream). Never conflict.
+additive_paths:
+  - our-new-dir/
+
+# Per-fork logic run AFTER the upstream merge, BEFORE validation + PR. Owns code
+# generation (SDK regen, swagger, go mod tidy, ee-stripping). No-op if absent.
+post_merge_hook: post-merge-hooks/<name>.sh
+
+# ── Automation (opt-in) ────────────────────────────────────────────────────
+# When a sync PR passes EVERY gate (label == auto-merge) AND auto.merge is true,
+# the engine merges it immediately and (if auto.release) cuts the next release
+# tag <upstream-version>-rezus.<N+1>. The fork's tag-triggered release workflow
+# then builds a new image; Flux image automation deploys it.
+# The centralized gates ARE the CI — there is no per-PR GitHub Actions to wait
+# for. Forks that want human review set auto.merge: false (default).
+auto:
+  merge: false        # true = merge the green PR automatically
+  release: false      # true = also tag the next release (requires merge: true)
+
+# What the fork's .github/workflows/release.yml builds (documentation/audit).
+release:
+  dockerfiles: [Dockerfile]
+  multi_arch: [linux/amd64, linux/arm64]
+  image_registry: ghcr.io/your-org/repo
+  chart_registry: oci://ghcr.io/your-org/charts
+  build_cli: false     # build a CLI alongside the server image
+  version_file: false  # write VERSION from tag
+
+# ── Validation (per-fork, declarative) ─────────────────────────────────────
+# The validator runs ONLY what this fork declares. A fork with no validation:
+# block passes cleanly. Adding a language/build-system = add a check type, never
+# fork the engine.
+validation:
+  # Toolchain (Go): pin the exact Go minor the fork needs. A fork built with the
+  # wrong Go silently fails on internal-runtime reach-through (e.g. bytedance/sonic
+  # uses Go internals that change between minor versions). Honored via GOTOOLCHAIN.
+  # Precedence: declared here > go.mod `go` directive.
+  toolchain:
+    go: "1.25.7"
+  go_build:                 # compile declared Go packages (any Go fork)
+    - module: .
+      packages: [./cmd/...]
+  clean_tree:               # verify generated code is committed (codegen drift)
+    paths:
+      - "**/zz_generated_*.go"
+  integration:              # opt-in; `kind` selects the harness routine
+    kind: forgejo-live      # only forgejo-live today
+    image: codeberg.org/forgejo/forgejo:15-rootless
+    module: path/to/test/module
+    env: {KEY: value}
