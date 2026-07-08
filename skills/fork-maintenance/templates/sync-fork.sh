@@ -42,11 +42,11 @@ read_yaml() { yq -r "$1" "$DEF_FILE"; }
 emit_conflict_event() {
   local cfiles="${1:-}" payload patches_json pcount i
   patches_json="[]"
-  pcount=$(read_yaml '.patches | length' 2>/dev/null || echo 0)
+  pcount=$(read_yaml '.patches | length' 2>/dev/null || true)
   for i in $(seq 0 $((pcount - 1))); do
     local pf ps pd st="LOST"
     pf=$(read_yaml ".patches[$i].file"); ps=$(read_yaml ".patches[$i].signature"); pd=$(read_yaml ".patches[$i].description")
-    if [ -f "$pf" ]; then { [ "$(grep -cF "$ps" "$pf" 2>/dev/null || echo 0)" -gt 0 ] && st="OK"; } || st="LOST"; else st="MISSING"; fi
+    if [ -f "$pf" ]; then { [ "$(grep -cF "$ps" "$pf" 2>/dev/null || true)" -gt 0 ] && st="OK"; } || st="LOST"; else st="MISSING"; fi
     patches_json=$(echo "$patches_json" | jq --arg f "$pf" --arg s "$ps" --arg d "$pd" --arg st "$st" '. += [{file:$f,signature:$s,description:$d,status:$st}]')
   done
   payload=$(jq -n \
@@ -269,7 +269,7 @@ for i in $(seq 0 $((PATCH_COUNT - 1))); do
     STATUS="MISSING"
     PATCH_STATUS="needs-review"
   else
-    OCCURRENCES=$(grep -cF "$PATCH_SIG" "$PATCH_FILE" 2>/dev/null || echo 0)
+    OCCURRENCES=$(grep -cF "$PATCH_SIG" "$PATCH_FILE" 2>/dev/null || true)
     if [ "$OCCURRENCES" -gt 0 ]; then
       STATUS="OK (${OCCURRENCES}x)"
     else

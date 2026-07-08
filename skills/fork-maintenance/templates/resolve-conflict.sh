@@ -150,7 +150,7 @@ if [ -n "$DELETIONS" ]; then
   git diff --cached --quiet || { git commit --no-edit --quiet 2>/dev/null || true; git push --quiet origin "$SYNC_BRANCH" 2>&1 || true; }
 fi
 
-PATCH_COUNT=$(read_yaml '.patches | length' 2>/dev/null || echo 0)
+PATCH_COUNT=$(read_yaml '.patches | length' 2>/dev/null || true)
 RESOLVE_EXIT=0
 
 MARKERS=$(git grep -l -E '^(<<<<<<<|>>>>>>>|=======) ' -- . 2>/dev/null || true)
@@ -165,7 +165,7 @@ SF=0
 for i in $(seq 0 $((PATCH_COUNT - 1))); do
   P_FILE=$(read_yaml ".patches[$i].file"); P_SIG=$(read_yaml ".patches[$i].signature")
   if [ -f "$P_FILE" ]; then
-    [ "$(grep -cF "$P_SIG" "$P_FILE" 2>/dev/null || echo 0)" -eq 0 ] && { echo "❌ gate 4: signature lost: $P_FILE"; SF=1; }
+    [ "$(grep -cF "$P_SIG" "$P_FILE" 2>/dev/null || true)" -eq 0 ] && { echo "❌ gate 4: signature lost: $P_FILE"; SF=1; }
   fi
 done
 [ "$SF" -eq 0 ] && echo "✅ gate 4: signatures intact" || RESOLVE_EXIT=1
