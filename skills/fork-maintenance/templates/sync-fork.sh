@@ -124,16 +124,40 @@ echo ""
 echo "=== Upstream has $NEW_COMMITS new commits — syncing ==="
 
 # =============================================================================
-# 3. Create sync branch + merge upstream (merge strategy, not rebase)
+# 3. Cherry-pick the fork's customizations onto fresh upstream
 # =============================================================================
+# Sync strategy: take the LATEST upstream and replay the fork's OWN commits (the
+# customizations) on top — NOT a merge into a stale base. This keeps conflicts
+# isolated to the files the customizations actually touch (a handful), never the
+# broad catch-up explosion a stale-base merge produces (e.g. signoz's 326-file
+# merge → a handful of cherry-pick conflicts). The customizations' intent is
+# documented in the org wiki (rezuscloud/llm-wiki wiki/entities/<fork>.md,
+# "Fork Maintenance" chapter), which the resolver agent reads to resolve any
+# cherry-pick conflicts.
 SYNC_DATE=$(date +%Y-%m-%d)
 SYNC_BRANCH="rezus/sync-${SYNC_DATE}"
-git checkout -b "$SYNC_BRANCH"
 
+# Customization commits = on the fork default, not in upstream, excluding the
+# historical sync merges (--no-merges). Oldest-first so they replay in order.
+CUSTOM_COMMITS=$(git rev-list --reverse --no-merges "${MERGE_BASE}..${FORK_DEFAULT_BRANCH}" 2>/dev/null | grep -v '^$' || true)
+CUSTOM_COUNT=$(printf '%s\n' "$CUSTOM_COMMITS" | grep -c . || echo 0)
 echo ""
-echo "=== Merging upstream/$UPSTREAM_BRANCH ==="
-MERGE_RESULT=0
-git merge --no-edit "upstream/$UPSTREAM_BRANCH" || MERGE_RESULT=$?
+echo "=== Cherry-picking $CUSTOM_COUNT customization commit(s) onto upstream/$UPSTREAM_BRANCH ==="
+git checkout -b "$SYNC_BRANCH" "upstream/$UPSTREAM_BRANCH"
+
+if [ "$CUSTOM_COUNT" -gt 0 ] && ! git cherry-pick $CUSTOM_COMMITS; then
+  # Cherry-pick stopped on a conflict. Capture the conflicting files, abort, and
+  # emit fork.conflict.needs-resolution — the resolver REDOES the cherry-pick
+  # with LLM conflict resolution (reading the wiki chapter for intent). No PR is
+  # opened here on conflict; the resolver opens it once the cherry-pick completes.
+  CONFLICT_FILES=$(git diff --name-only --diff-filter=U 2>/dev/null | grep -v '^$' || true)
+  echo ""
+  echo "=== Cherry-pick conflict — deferring to the resolver (LLM + wiki) ==="
+  echo "Conflicting files:"; echo "$CONFLICT_FILES" | sed 's/^/  - /'
+  git cherry-pick --abort 2>/dev/null || true
+  emit_conflict_event "$CONFLICT_FILES"
+  exit 2
+fi
 
 # =============================================================================
 # 4. Handle permanent divergences (deletions from fork definition)
@@ -185,7 +209,7 @@ if [ -n "$CONFLICT_FILES" ]; then
 fi
 
 echo ""
-echo "=== Merge completed successfully ==="
+echo "=== Cherry-pick completed cleanly ==="
 
 # =============================================================================
 # 5. Run post-merge hook (per-fork: SDK regen, chart re-vendor, etc.)
