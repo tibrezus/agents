@@ -35,6 +35,18 @@ HARMOSTES="${HARMOSTES:-harmostes}"
 if [ -z "${ZAI_API_KEY:-}" ] && [ -n "${LLM_WIKI_ZAI_TOKEN:-}" ]; then export ZAI_API_KEY="$LLM_WIKI_ZAI_TOKEN"; fi
 [ -n "${ZAI_API_KEY:-}" ] || { echo "ERROR: ZAI_API_KEY not set" >&2; exit 1; }
 command -v pi >/dev/null 2>&1 || { echo "ERROR: pi not on PATH" >&2; exit 1; }
+# Resolve the harmostes binary into an ARRAY so a "python3 /path/harmostes.py"
+# value word-splits correctly (a quoted scalar would be one command name →
+# exit 127). Honors $HARMOSTES, else 'harmostes' on PATH, else the baked-in .py.
+if [ -n "${HARMOSTES:-}" ]; then
+    read -ra HARMOSTES_CMD <<<"$HARMOSTES"
+elif command -v harmostes >/dev/null 2>&1; then
+    HARMOSTES_CMD=(harmostes)
+elif [ -x /usr/local/bin/harmostes.py ]; then
+    HARMOSTES_CMD=(python3 /usr/local/bin/harmostes.py)
+else
+    echo "ERROR: harmostes not found" >&2; exit 1
+fi
 
 read_yaml() { yq -r "$1" "$DEF_FILE"; }
 FORK_URL=$(read_yaml '.fork.url')
@@ -128,7 +140,7 @@ PROMPT
   echo ""
   echo "=== harmostes: agent task → gate → feedback (warm pi RPC session) ==="
   set +e
-  "$HARMOSTES" task \
+  "${HARMOSTES_CMD[@]}" task \
     --skill "$SKILL_PATH" --model "$MODEL" --tools read,bash,edit,grep \
     --workdir "$WORKDIR" \
     --task-file "/tmp/resolve-${FORK_NAME}-task.txt" \
