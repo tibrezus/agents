@@ -171,9 +171,28 @@ def ensure_gh():
         log(f"WARN: could not install gh ({e}); PR operations will be unavailable")
 
 
+def ensure_harmostes():
+    """Download harmostes (the shared pi RPC orchestrator, github.com/tibrezus/harmostes)
+    if missing, so resolve-conflict.sh can call it. resolve-conflict.sh reads the
+    HARMOSTES env (default 'harmostes'); the resolver Deployment sets it to this path."""
+    import shutil
+    import urllib.request
+    dest = "/usr/local/bin/harmostes.py"
+    if os.path.exists(dest):
+        return
+    url = "https://raw.githubusercontent.com/tibrezus/harmostes/main/harmostes.py"
+    try:
+        urllib.request.urlretrieve(url, dest)
+        os.chmod(dest, 0o755)
+        log("installed harmostes → /usr/local/bin/harmostes.py")
+    except Exception as e:  # noqa: BLE001
+        log(f"WARN: could not install harmostes ({e}); resolve-conflict.sh will fail")
+
+
 def main():
     ensure_yq()
     ensure_gh()
+    ensure_harmostes()
     log(f"starting on [::]:{LISTEN_PORT} (dual-stack, ns={NAMESPACE})")
     log(f"subscribed to pubsub={PUBSUB_NAME} topic={TOPIC} → spawns {RESOLVER}")
     httpd = DualStackServer(("::", LISTEN_PORT), Handler)

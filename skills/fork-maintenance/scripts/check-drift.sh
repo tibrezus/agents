@@ -38,6 +38,7 @@ declare -A MAP=(
   [generate-manifest.sh]=scripts/generate-manifest.sh
   [cronjob-entrypoint.sh]=scripts/cronjob-entrypoint.sh
   [validate-fork.sh]=checks/validate-fork.sh
+  [gate-resolved.sh]=checks/gate-resolved.sh
   [cronjob-sync-forks.yaml]=flux/cronjob-sync-forks.yaml
   [external-secret-github.yaml]=flux/external-secret-github.yaml
 )
