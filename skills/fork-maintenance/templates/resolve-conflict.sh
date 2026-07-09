@@ -133,72 +133,125 @@ PROMPT
   echo "LLM workflow ended — monitor takes over"
 fi
 
-# ── Phase 3: monitor — fetch the push, re-validate, merge if green ────────────
-echo ""
-echo "=== Monitor: fetching the agent's push + re-running gates ==="
-# Conclude any unfinished cherry-pick state defensively, then sync to the pushed tip.
-git cherry-pick --abort 2>/dev/null || true
-git fetch --quiet origin "$SYNC_BRANCH" 2>/dev/null || true
-git checkout --quiet "$SYNC_BRANCH" 2>/dev/null || true
-git reset --hard --quiet "origin/$SYNC_BRANCH" 2>/dev/null || true
-
-# Apply declarative deletions (belt-and-suspenders) before validating.
-DELETIONS=$(read_yaml '.deletions[]' 2>/dev/null || true)
-if [ -n "$DELETIONS" ]; then
-  for del_path in $DELETIONS; do [ -e "${del_path%/}" ] && git rm -rf --quiet "${del_path%/}" 2>/dev/null || true; done
-  git add -A 2>/dev/null || true
-  git diff --cached --quiet || { git commit --no-edit --quiet 2>/dev/null || true; git push --quiet origin "$SYNC_BRANCH" 2>&1 || true; }
-fi
-
+# ── Phase 3: monitor + build-error feedback loop ────────────────────────────
+# Re-validate the agent's push. On ANY gate failure, feed the CONCRETE error back
+# to the agent (pi) to fix + push, then re-validate — up to MAX_FIX_RETRIES. This
+# turns a "plausible but non-compiling" resolution (e.g. a port referencing an
+# upstream-removed symbol, like signoz's GetAdditionTuples) into an automatic fix,
+# mirroring the llm-wiki CI self-healing loop. Only a green gate set deploys.
+MAX_FIX_RETRIES="${RESOLVER_FIX_RETRIES:-3}"
 PATCH_COUNT=$(read_yaml '.patches | length' 2>/dev/null || true)
-RESOLVE_EXIT=0
+DELETIONS=$(read_yaml '.deletions[]' 2>/dev/null || true)
 
-MARKERS=$(git grep -l -E '^(<<<<<<<|>>>>>>>|=======) ' -- . 2>/dev/null || true)
-if [ -n "$MARKERS" ]; then echo "❌ gate 1: markers remain"; echo "$MARKERS" | sed 's/^/  - /'; RESOLVE_EXIT=1; else echo "✅ gate 1: no markers"; fi
+git cherry-pick --abort 2>/dev/null || true   # conclude any unfinished cherry-pick
 
-if [ -f "$MAINT_DIR/checks/validate-fork.sh" ]; then
-  set +e; bash "$MAINT_DIR/checks/validate-fork.sh" "$FORK_NAME" "$WORKDIR" >/tmp/resolve-validate.log 2>&1; V=$?; set -e
-  [ "$V" -eq 0 ] && echo "✅ gate 5: validation green" || { echo "❌ gate 5: validation failed"; tail -5 /tmp/resolve-validate.log | sed 's/^/    /'; RESOLVE_EXIT=1; }
-fi
+add_fail() { FAIL_DETAIL="${FAIL_DETAIL:+$FAIL_DETAIL
+}$1"; }
 
-SF=0
-for i in $(seq 0 $((PATCH_COUNT - 1))); do
-  P_FILE=$(read_yaml ".patches[$i].file"); P_SIG=$(read_yaml ".patches[$i].signature")
-  if [ -f "$P_FILE" ]; then
-    [ "$(grep -cF "$P_SIG" "$P_FILE" 2>/dev/null || true)" -eq 0 ] && { echo "❌ gate 4: signature lost: $P_FILE"; SF=1; }
-  fi
-done
-[ "$SF" -eq 0 ] && echo "✅ gate 4: signatures intact" || RESOLVE_EXIT=1
-
-if [ "$RESOLVE_EXIT" -ne 0 ]; then
+FIX_ATTEMPT=0
+while true; do
+  FIX_ATTEMPT=$((FIX_ATTEMPT + 1))
+  FAIL_DETAIL=""
+  RESOLVE_EXIT=0
   echo ""
-  echo "=== Not resolved — PR stays labelled needs-conflict-resolution ==="
-  exit 1
-fi
+  echo "=== Monitor (attempt $FIX_ATTEMPT/$MAX_FIX_RETRIES): fetching push + re-running gates ==="
+  git fetch --quiet origin "$SYNC_BRANCH" 2>/dev/null || true
+  git checkout --quiet "$SYNC_BRANCH" 2>/dev/null || true
+  git reset --hard --quiet "origin/$SYNC_BRANCH" 2>/dev/null || true
 
-echo ""
-echo "=== Conflicts resolved — opening PR + triggering merge ==="
-host_label_create "auto-merge" 0E8A16 2>/dev/null || true
-PR_URL=$(host_pr_create "$FORK_DEFAULT_BRANCH" "$SYNC_BRANCH" \
-  "sync: $FORK_NAME — cherry-pick resolved by agent ($SYNC_DATE)" \
-  "Customizations cherry-picked onto fresh upstream; conflicts resolved by the agent (pi + skill + wiki intent). Gates: marker scan + validate-fork.sh + signatures." \
-  "auto-merge" 2>/dev/null || echo "")
-echo "  PR: ${PR_URL:-<none>}"
-
-MERGE_SHA=$(host_pr_merge "$SYNC_BRANCH" 2>&1) || echo "WARNING: merge failed: $MERGE_SHA"
-AUTO_RELEASE=$(read_yaml '.auto.release // false')
-if [ -n "$MERGE_SHA" ] && [ "$AUTO_RELEASE" = "true" ]; then
-  UPSTREAM_VER=$(git describe --tags --abbrev=0 "upstream/$UPSTREAM_BRANCH" 2>/dev/null | sed -E 's/(-rc\.[0-9]+|-rezus\.[0-9]+).*$//')
-  if [ -n "$UPSTREAM_VER" ]; then
-    LAST_N=$(git tag -l "${UPSTREAM_VER}-rezus.*" | sort -V | tail -1 | sed -nE 's/.*-rezus\.([0-9]+).*/\1/p'); [ -z "$LAST_N" ] && LAST_N=0
-    REL="${UPSTREAM_VER}-rezus.$((LAST_N + 1))"
-    git fetch --quiet origin "$FORK_DEFAULT_BRANCH"; git checkout --quiet "$FORK_DEFAULT_BRANCH" 2>/dev/null || true; git reset --hard --quiet "origin/$FORK_DEFAULT_BRANCH"
-    [ -z "$(git tag --points-at HEAD | grep -E "${UPSTREAM_VER}-rezus\.")" ] && {
-      git tag "$REL" && git push --quiet origin "$REL" 2>&1 && echo "=== Released $REL → image build → Flux deploys ==="
-    }
+  # declarative deletions (belt-and-suspenders) before validating
+  if [ -n "$DELETIONS" ]; then
+    for del_path in $DELETIONS; do [ -e "${del_path%/}" ] && git rm -rf --quiet "${del_path%/}" 2>/dev/null || true; done
+    git add -A 2>/dev/null || true
+    git diff --cached --quiet || { git commit --no-edit --quiet 2>/dev/null || true; git push --quiet origin "$SYNC_BRANCH" 2>&1 || true; }
   fi
-fi
 
-echo ""
-echo "=== resolve-conflict complete: $FORK_NAME (merged) ==="
-exit 0
+  # gate 1 — conflict markers
+  MARKERS=$(git grep -l -E '^(<<<<<<<|>>>>>>>|=======) ' -- . 2>/dev/null || true)
+  if [ -n "$MARKERS" ]; then echo "❌ gate 1: markers remain"; echo "$MARKERS" | sed 's/^/  - /'; RESOLVE_EXIT=1; add_fail "Conflict markers remain in: $(echo "$MARKERS" | tr '\n' ' ')"; else echo "✅ gate 1: no markers"; fi
+
+  # gate 5 — validate-fork.sh (build / codegen / integration)
+  if [ -f "$MAINT_DIR/checks/validate-fork.sh" ]; then
+    set +e; bash "$MAINT_DIR/checks/validate-fork.sh" "$FORK_NAME" "$WORKDIR" >/tmp/resolve-validate.log 2>&1; V=$?; set -e
+    if [ "$V" -eq 0 ]; then echo "✅ gate 5: validation green"; else
+      echo "❌ gate 5: validation failed"; tail -8 /tmp/resolve-validate.log | sed 's/^/    /'
+      RESOLVE_EXIT=1; add_fail "Build/validation failed:\n$(tail -25 /tmp/resolve-validate.log)"
+    fi
+  fi
+
+  # gate 4 — patch signatures
+  SF=0; SIG_DETAIL=""
+  for i in $(seq 0 $((PATCH_COUNT - 1))); do
+    P_FILE=$(read_yaml ".patches[$i].file"); P_SIG=$(read_yaml ".patches[$i].signature")
+    if [ -f "$P_FILE" ]; then
+      [ "$(grep -cF "$P_SIG" "$P_FILE" 2>/dev/null || true)" -eq 0 ] && { echo "❌ gate 4: signature lost: $P_FILE"; SF=1; SIG_DETAIL="${SIG_DETAIL} $P_FILE"; }
+    fi
+  done
+  [ "$SF" -eq 0 ] && echo "✅ gate 4: signatures intact" || { RESOLVE_EXIT=1; add_fail "Patch signatures lost in:${SIG_DETAIL}"; }
+
+  # green → deploy
+  if [ "$RESOLVE_EXIT" -eq 0 ]; then
+    echo ""
+    echo "=== Conflicts resolved — opening PR + triggering merge (after $FIX_ATTEMPT pass(es)) ==="
+    host_label_create "auto-merge" 0E8A16 2>/dev/null || true
+    PR_URL=$(host_pr_create "$FORK_DEFAULT_BRANCH" "$SYNC_BRANCH" \
+      "sync: $FORK_NAME — cherry-pick resolved by agent ($SYNC_DATE)" \
+      "Customizations cherry-picked onto fresh upstream; conflicts resolved by the agent (pi + skill + wiki intent) after $FIX_ATTEMPT validation pass(es). Gates: markers + validate-fork.sh + signatures." \
+      "auto-merge" 2>/dev/null || echo "")
+    echo "  PR: ${PR_URL:-<none>}"
+    MERGE_SHA=$(host_pr_merge "$SYNC_BRANCH" 2>&1) || echo "WARNING: merge failed: $MERGE_SHA"
+    AUTO_RELEASE=$(read_yaml '.auto.release // false')
+    if [ -n "$MERGE_SHA" ] && [ "$AUTO_RELEASE" = "true" ]; then
+      UPSTREAM_VER=$(git describe --tags --abbrev=0 "upstream/$UPSTREAM_BRANCH" 2>/dev/null | sed -E 's/(-rc\.[0-9]+|-rezus\.[0-9]+).*$//')
+      if [ -n "$UPSTREAM_VER" ]; then
+        LAST_N=$(git tag -l "${UPSTREAM_VER}-rezus.*" | sort -V | tail -1 | sed -nE 's/.*-rezus\.([0-9]+).*/\1/p'); [ -z "$LAST_N" ] && LAST_N=0
+        REL="${UPSTREAM_VER}-rezus.$((LAST_N + 1))"
+        git fetch --quiet origin "$FORK_DEFAULT_BRANCH"; git checkout --quiet "$FORK_DEFAULT_BRANCH" 2>/dev/null || true; git reset --hard --quiet "origin/$FORK_DEFAULT_BRANCH"
+        [ -z "$(git tag --points-at HEAD | grep -E "${UPSTREAM_VER}-rezus\." )" ] && {
+          git tag "$REL" && git push --quiet origin "$REL" 2>&1 && echo "=== Released $REL → image build → Flux deploys ==="
+        }
+      fi
+    fi
+    echo ""
+    echo "=== resolve-conflict complete: $FORK_NAME (merged) ==="
+    exit 0
+  fi
+
+  # failed — feed the error back to the agent (if retries remain)
+  if [ "$FIX_ATTEMPT" -ge "$MAX_FIX_RETRIES" ]; then
+    echo ""
+    echo "=== Not resolved after $MAX_FIX_RETRIES attempts — PR stays labelled needs-conflict-resolution ==="
+    exit 1
+  fi
+  echo ""
+  echo "=== Gate failed (attempt $FIX_ATTEMPT) — feeding the error back to the agent for a fix ==="
+  cat > "/tmp/resolve-${FORK_NAME}-fix-prompt.txt" <<FIXPROMPT
+You are fixing a fork-sync resolution on branch $SYNC_BRANCH that did NOT pass the validation gates.
+
+Working directory: $WORKDIR  (on branch $SYNC_BRANCH; fresh upstream $UPSTREAM_BRANCH + the fork's customizations).
+
+The gates failed with:
+$FAIL_DETAIL
+
+Fix it:
+1. Read the error(s) above. The usual cause is a customization ported onto an
+   upstream API that has since changed (e.g. a removed/renamed symbol, or a
+   changed function signature) — adapt the customization to upstream's CURRENT
+   shape, preserving the fork's INTENT (see $([ -n "$WIKI_PAGE" ] && echo "$WIKI_PAGE '## Fork Maintenance' chapter" || echo "the fork definition patches and descriptions")). Do NOT drop the customization; port it correctly.
+2. Ensure zero conflict markers remain (git grep -E '^(<<<<<<<|>>>>>>>|=======) ').
+3. When fixed:
+       git add -A
+       git commit -m "fix: gate failures ($FORK_NAME) — attempt $FIX_ATTEMPT"
+       git push origin $SYNC_BRANCH
+4. STOP. Do not merge, open PRs, or run validation — only fix + push.
+
+Release branch is sacrosanct — make $SYNC_BRANCH pass the gates (compiles, no
+markers, signatures intact) and push.
+FIXPROMPT
+  set +e
+  timeout "${RESOLVER_TIMEOUT:-1800}" pi --print \
+    --skill "$SKILL_PATH" --model "$MODEL" --approve --no-skills \
+    "$(cat "/tmp/resolve-${FORK_NAME}-fix-prompt.txt")" 2>&1 | tee -a "/tmp/resolve-${FORK_NAME}-pi.log"
+  set -e
+  echo "fix attempt $FIX_ATTEMPT done — re-validating"
+done
