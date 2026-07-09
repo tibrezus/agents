@@ -8,6 +8,13 @@
 # and dispatches to `gh` (GitHub) or `fj` + REST API (Forgejo/Codeberg).
 # Adding a host = one case arm in dw_detect_platform + dw_host.
 
+# Shared test-command detection (also used by adopt.sh). Defined once so the
+# language/runner list evolves in a single file.
+_dw_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+# shellcheck source=detect-test-command.sh
+# shellcheck disable=SC1091
+. "$_dw_dir/detect-test-command.sh"
+
 dw_die() { echo "dev-workflow: $*" >&2; exit 1; }
 
 # ── detection ──────────────────────────────────────────────────────────────
@@ -233,6 +240,27 @@ dw_watch_ci() {
 
 # dw_ci_green "<pr# or branch>"  → exit 0 if currently green, 1 otherwise
 dw_ci_green() { dw_watch_ci "$1"; }
+
+# ── tests (local mirror of CI) ──────────────────────────────────────────────
+#
+# These run the SAME suite CI runs, locally, for a fast feedback loop — the
+# local half of the test gate; CI is the authoritative half (see the skill's
+# references/ci-concepts.md §1). Detection lives in detect-test-command.sh
+# (shared with adopt.sh) so the precedence + language list are defined once.
+
+# dw_test_command  → echoes the project's test command, or empty.
+#   Thin alias over dw_detect_test_command (see detect-test-command.sh for the
+#   full precedence: CI_TEST_COMMAND env → committed runner → language heuristic).
+dw_test_command() { dw_detect_test_command; }
+
+# dw_run_tests  → run the project's tests locally; exit code is the suite's.
+#   Dies with guidance if no command can be determined.
+dw_run_tests() {
+  local cmd; cmd=$(dw_test_command)
+  [ -n "$cmd" ] || dw_die "no test command detected — commit scripts/test, set CI_TEST_COMMAND, or add a 'Test command' in the project's AGENTS.md (see references/ci-concepts.md)"
+  echo "dev-workflow: running tests: $cmd" >&2
+  sh -c "$cmd"
+}
 
 # ── merge ───────────────────────────────────────────────────────────────────
 

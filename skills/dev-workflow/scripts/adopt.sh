@@ -18,6 +18,11 @@ set -euo pipefail
 
 SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TEMPLATE="$SKILL_DIR/templates/agents-workflow-section.md"
+# Shared test-command detection (also used by host.sh). Sourced, not copied,
+# so the language/runner list evolves in one file.
+# shellcheck source=detect-test-command.sh
+# shellcheck disable=SC1091
+. "$SKILL_DIR/scripts/detect-test-command.sh"
 
 REPO="${1:-$PWD}"
 cd "$REPO"
@@ -49,17 +54,35 @@ ci_watch() {
   esac
 }
 
+# Best-effort detection of the project's test command (CI must run the same).
+# Delegates to the shared detector so precedence + the language/runner list
+# live in one place (detect-test-command.sh). Never returns empty so the
+# template always has a value to show; the human confirms or overrides it.
+test_command() {
+  local cmd; cmd=$(dw_detect_test_command)
+  echo "${cmd:-(project-specific — commit scripts/test or set CI_TEST_COMMAND)}"
+}
+
+# Escape a value so it is safe as a sed *replacement* string (delimiter '|').
+# Needed because a detected test command can contain shell metacharacters such
+# as '&&' (CMake: configure && build && ctest); '&' in a sed replacement means
+# "the whole match", and '\' and '|' are special too.
+_dw_sed_repl() { printf '%s' "$1" | sed -e 's/[&\\]/\\&/g' -e 's/|/\\|/g'; }
+
 # ── render the section with detected values ────────────────────────────────
 render() {
   PLATFORM=$(platform)
   DEFAULT_BRANCH=$(default_branch)
   CI_WATCH=$(ci_watch)
+  TEST_CMD=$(_dw_sed_repl "$(test_command)")
   sed \
     -e "s|{{PLATFORM}}|$PLATFORM|g" \
     -e "s|{{DEFAULT_BRANCH}}|$DEFAULT_BRANCH|g" \
     -e "s|{{BRANCH_NAMING}}|<type>/<issue#>-<slug>|g" \
     -e "s|{{MILESTONE_CONVENTION}}|current|g" \
     -e "s|{{CI_WATCH}}|$CI_WATCH|g" \
+    -e "s|{{TEST_COMMAND}}|$TEST_CMD|g" \
+    -e "s|{{COUPLING_POLICY}}|strict|g" \
     -e "s|{{MERGE_METHOD}}|squash|g" \
     "$TEMPLATE"
 }
