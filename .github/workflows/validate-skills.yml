@@ -1,0 +1,47 @@
+name: Validate Skills
+
+# Validates every SKILL.md in the repo the way pi does, so the build fails on the
+# conditions under which pi would refuse to LOAD a skill (invalid YAML, missing
+# description, duplicate names) and — because this is the canonical skills repo —
+# also on the issues pi merely warns about (name/description length & format).
+#
+# The validator (scripts/validate-skills.mjs) is intentionally self-contained in
+# scripts/ with its own package.json + lockfile, so it does not depend on (or
+# break with) the root manifest. Local and CI run the SAME commands:
+#   cd scripts && npm ci && npm run validate-skills && npm test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: validate-skills-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate skills (pi rules)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+          cache-dependency-path: scripts/package-lock.json
+
+      - name: Install validator dependencies
+        working-directory: scripts
+        run: npm ci
+
+      - name: Validate skills
+        working-directory: scripts
+        run: npm run validate-skills
+
+      - name: Unit tests
+        working-directory: scripts
+        run: npm test

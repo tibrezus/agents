@@ -1,0 +1,14 @@
+{
+  "name": "agents-skill-validator",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Self-contained tooling that validates SKILL.md files the way pi does. Kept separate from the root package.json so it does not depend on (or break with) the root manifest.",
+  "dependencies": {
+    "yaml": "^2.8.0"
+  },
+  "scripts": {
+    "validate-skills": "node validate-skills.mjs ..",
+    "test": "node --test *.test.mjs"
+  }
+}
