@@ -59,6 +59,7 @@ independently falsifiable.
 1. **Issue exists** — an open issue (found or created) describes the change.
 2. **Branch tied to the issue** — a branch whose name contains the issue
    number, created off the default branch. No work on the default branch.
+   Rebase the branch after if existing before starting to work on it.
 3. **Milestone assigned** — the issue is associated with a milestone (current
    by convention, or per the project config).
 4. **Change made on the branch** — commits reference the issue

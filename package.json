@@ -1,0 +1,21 @@
+{
+  "name": "tibrezus-agents",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A collection of AI coding agent skills and agentic tools, distributed via skills.sh.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tibrezus/agents.git"
+  },
+  "license": "MIT",
+  "scripts": {
+    "changeset": "changeset",
+    "version": "changeset version",
+    "link": "bash scripts/link-skills.sh",
+    "list": "bash scripts/list-skills.sh"
+  },
+  "devDependencies": {
+    "@changesets/changelog-github": "^0.7.0",
+    "@changesets/cli": "^230.0.0"
+  }
+}

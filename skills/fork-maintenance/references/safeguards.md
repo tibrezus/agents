@@ -45,6 +45,38 @@ The engine counts occurrences after merge. Zero occurrences → the patch was lo
 
 **Signatures must be chosen carefully**: a string unique to our change, ideally on the line our patch adds. `if ctx.Err() != nil {` is good; `return nil` is useless. Verify the signature has the expected occurrence count in a clean tree before relying on it.
 
+### Gate 4b — Divergence integrity (additive paths + deletions, auto-derived)
+
+Gate 4 only covers *modified* files (signatures). **Added** paths — a helm chart,
+licensing code, a workflow — are not compiled, so the build gate (5) cannot see
+them either. A sync that drops one ships a release that builds but is *missing
+a feature*. This is the real bug behind the 2026-07-09 signoz sync, which dropped
+both `deploy/charts/signoz-community/` and `pkg/licensing/communitylicensing/`
+(the Flux HelmRelease went `SourceNotReady`; restored manually in a8b0b5e3 /
+still-pending). `additive_paths` was declared in the fork definition but nothing
+enforced it.
+
+`divergence-track.sh` closes this with three deterministic passes over the git
+*TREES* (no LLM, no prose source of truth, immune to squash/merge-base drift):
+
+| Pass | When | What |
+|------|------|------|
+| `capture` | before sync | Snapshot **declared** additive paths (fork-def `additive_paths` — authoritative intent) ∪ **auto** minimal added roots (`git diff <upstream>..<fork>` — surfaces undeclared divergences) ∪ declared **deletions** → JSON baseline |
+| `reapply` | after cherry-pick | **Self-heal**: restore any dropped declared/auto root from the fork's release ref. Safe — these paths don't exist upstream, so nothing can conflict |
+| `verify` | gate, before merge/release | Every declared path **exists** (strict: declared ⟹ present, so a *drifted release* is caught even though a diff-against-release would false-GREEN), every auto root **matches** the release, every deletion **absent** |
+
+**Why declared is existence-checked but auto is diff-checked**: a declared path
+MUST be present (intent). An auto-detected path merely must survive verbatim. If
+the release itself already lost a declared path (communitylicensing), a
+diff-against-release check would false-GREEN; only strict existence catches a
+drifted release — and `reapply` flags it *unrecoverable* (needs a manual restore
+from the last-good sync branch) instead of silently propagating the loss.
+
+**Prevents**: a sync dropping any added fork feature (chart, licensing, workflow,
+additive module) and auto-merging/auto-releasing it. Both sync paths carry it:
+`sync-fork.sh` (clean cherry-pick) and `resolve-conflict.sh` (agent-driven
+resolution — the actual 07-09 path). RED ⟹ `needs-fix` / no auto-merge.
+
 ### Gate 5 — Validation passed (the checks THIS fork declares)
 
 `validate-fork.sh` runs only the checks in the fork's `validation:` block, in a **real toolchain** (the CronJob image must match the project's build env — e.g. `golang:1.25-alpine` for a Go `1.25.x` project, not whatever Go the operator's laptop has).
