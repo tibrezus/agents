@@ -27,6 +27,55 @@ Never skip these files. They define the wiki's structure.
 > how the system itself works. This skill covers *operations*; the module
 > covers *architecture*.
 
+## How to absorb this wiki (least-context routing)
+
+The wiki is layered so you answer most questions from the **smallest** source,
+not by reading the whole repo. Route by need:
+
+| You need to… | Read this | Why it's the minimal source |
+|---|---|---|
+| Catch a project's **structure** fast | `raw/arch/<project>/rig.json` | deterministic code graph, 1–15K tokens; often enough on its own |
+| Understand a **decision + its reasoning** | the matching `wiki/` page(s) | the *why*, captured live at decision time |
+| Find **what pages exist** | `index.md` | catalog, not a dir walk |
+| See **what changed recently** | `log.md` | append-only activity |
+| Move between related pages | a page's `## See Also` | the bidirectional link graph |
+
+**The two layers have distinct jobs — don't conflate them:**
+
+- **`raw/` is the structural digest.** The RIG (`raw/arch/<project>/rig.json`)
+  is a deterministic, evidence-backed code graph — the fastest way to absorb
+  how a repo is built, and frequently all you need to answer a structural
+  question. Prefer it over reading source files.
+- **`wiki/` is the reasoning layer.** It captures decisions, rationale, and
+  trade-offs made *during a development session* — recorded live, at the
+  moment of the decision. This is exactly what automated structural
+  summarization (the harmostes arch-sync: RIG → LikeC4 → Mermaid) does **not**
+  capture: that pipeline regenerates *structure*; the wiki records *intent*.
+
+> **Never read the whole repo to answer a wiki question.** Route to the
+> minimal source above. `wiki read` and `wiki update` load only the pages that
+> match the topic — not the whole tree.
+
+## Page-size discipline
+
+A page you can absorb in one glance is one that needs minimal context — that
+is the wiki's whole point. wiki CI enforces a deterministic **line limit per
+page** (`pages.size_limit`, default **400**) so no page grows past a single
+glance.
+
+- **Default: warning.** An over-limit page emits a CI annotation naming the
+  page and its line count. CI stays green; the annotation is the nudge.
+- **Strict: `pages.size_strict: true`** makes an over-limit page fail CI.
+- **When flagged, do one of:**
+  - **Shrink** — tighten prose, collapse repetition, push raw detail into
+    `raw/` and link to it.
+  - **Split** — extract a sub-topic into its own page, cross-link both ways,
+    and update `index.md`.
+
+Treat an over-limit page as a signal to act on the next time you touch it —
+not a verdict that blocks everything. Keep new pages focused from the start
+(see `wiki create`).
+
 ## Repository Layout
 
 ```text
@@ -470,6 +519,8 @@ Before committing any wiki change:
       RIG**
 - [ ] **`raw/arch/<project>/rig.json` existed before architecture diagrams
       were written** (no RIG = no architecture workflow)
+- [ ] **No page exceeds the size limit** (`pages.size_limit`, default 400
+      lines); if the CI flags one, shrink or split it (see Page-size discipline)
 
 After committing:
 
