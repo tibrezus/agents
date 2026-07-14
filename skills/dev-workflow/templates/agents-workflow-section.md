@@ -48,18 +48,21 @@ skill's `references/ci-concepts.md`.
 
 ### Before every change
 
-1. **Find the issue** — search open issues for the task. If none exists,
+1. **Consult the wiki** (`/skill:llm-wiki` `consult`/`read`) for the
+   project's documented design — entities, concepts, ADRs — before framing
+   the change. This is what "no undocumented coupling" judges against.
+2. **Find the issue** — search open issues for the task. If none exists,
    create one with a clear title and acceptance criteria.
-2. **Find the branch** tied to that issue (by number). If none, create it off
+3. **Find the branch** tied to that issue (by number). If none, create it off
    the default branch and associate the issue with a milestone.
-3. **Make the change** on the branch, **with its tests** (unit mandatory;
+4. **Make the change** on the branch, **with its tests** (unit mandatory;
    extend integration tests if a suite exists). Reference the issue in commits
    (`Fixes #<n>` / `Refs #<n>`). If the change adds coupling that is not part
    of the design, document it in the wiki first.
-4. **Push the branch** and open a PR against the default branch.
-5. **Watch CI to green** — the test suite passes, not just the build. If red,
+5. **Push the branch** and open a PR against the default branch.
+6. **Watch CI to green** — the test suite passes, not just the build. If red,
    fix on the branch and re-push — never merge red.
-6. **Merge only when green**, then delete the branch and close the issue.
+7. **Merge only when green**, then delete the branch and close the issue.
 
 A direct commit to the default branch requires an explicit user instruction,
 recorded on the issue.
