@@ -124,6 +124,19 @@ mandates + a pointer to this skill + a **Project configuration** block (see
 for the exact content — edit there, then re-`adopt`). Never hand-edit the
 marker block; change the template and re-adopt.
 
+### `review` — request automated PR review
+
+```bash
+dw_request_review "<pr-number>" [label]
+```
+
+Adds the `needs-review` label (default; override with the second arg) to a PR,
+triggering the harmostes pr-review workflow on monitored repos. The workflow
+clones the PR, evaluates it against this skill's gate chain, and posts a review
+within ~5 min. Not part of the mandatory procedure — use it when you want an
+automated review pass before merging. The label must exist on the repo
+(one-time setup: `gh label create needs-review --color fbca04`).
+
 ### Make a change (the per-change procedure)
 
 From the project repo:
@@ -163,24 +176,12 @@ source "$(dirname "$(readlink -f "$0")")/scripts/host.sh"   # or source the abso
    git push -u origin "$BRANCH"
    dw_open_pr "$BRANCH" "$(dw_default_branch)" "<title>" "Closes #$ISSUE"
    ```
-7. **Request automated review** (if the project has the harmostes pr-review
-   workflow). This adds the `needs-review` label, which triggers the reviewer
-   to clone the PR, evaluate it against this gate chain, and post a review
-   within ~5 min:
+7. **Watch CI to green:**
    ```bash
    PR=$(dw_pr_number_from_branch "$BRANCH")
-   dw_request_review "$PR"          # adds needs-review label
-   ```
-   The label must exist on the repo. Create it first if needed:
-   `gh label create needs-review --color fbca04` (GitHub) or
-   `curl -X POST …/labels -d '{"name":"needs-review",…}'` (Forgejo).
-8. **Watch CI to green + address review feedback:**
-   ```bash
    dw_watch_ci "$BRANCH" || { echo "CI red — fix on the branch and re-push"; exit 1; }
    ```
-   If the automated reviewer posted REQUEST_CHANGES, address the feedback,
-   commit, re-push, and re-add the label.
-9. **Merge only when green**, then clean up:
+8. **Merge only when green**, then clean up:
    ```bash
    dw_merge_pr "$PR" squash    # refuses to merge unless CI is green
    ```
@@ -212,12 +213,6 @@ adjacent depth, and cross-references instead of duplicating it:
   unit/integration tests for a change.
 - **`fork-maintenance`** — *external* change: upstream moved, keep the fork's
   release branch green (two-branch mirror/release topology).
-- **harmostes pr-review workflow** — *automated reviewer*: when you add the
-  `needs-review` label to a PR (step 7 above), the pr-review workflow clones
-  the PR, loads this skill, evaluates the same gate chain from the *reviewer*
-  perspective, and posts a review (APPROVE / REQUEST_CHANGES / COMMENT). It
-  runs on monitored repos (GitHub + Forgejo/Codeberg). Not a skill you load —
-  it's a cluster-side workflow triggered by the label.
 
 For forked repos `dev-workflow` and `fork-maintenance` both apply: this skill
 governs your own feature branches; fork-maintenance governs the upstream-sync
