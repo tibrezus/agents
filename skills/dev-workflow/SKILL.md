@@ -213,6 +213,10 @@ adjacent depth, and cross-references instead of duplicating it:
   unit/integration tests for a change.
 - **`fork-maintenance`** — *external* change: upstream moved, keep the fork's
   release branch green (two-branch mirror/release topology).
+- **`pr-review`** — *reviewer* counterpart to this skill's *initiator* role.
+  When the `review` subcommand triggers the harmostes pr-review workflow, that
+  workflow loads `pr-review` (not this skill) to evaluate the PR against the
+  same gate chain from the reviewer's perspective.
 
 For forked repos `dev-workflow` and `fork-maintenance` both apply: this skill
 governs your own feature branches; fork-maintenance governs the upstream-sync
