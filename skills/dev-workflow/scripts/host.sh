@@ -203,6 +203,27 @@ dw_pr_number_from_branch() {
   esac
 }
 
+# dw_request_review "<pr#>" "[label]"  → adds the review-request label to a PR.
+#   Triggers the harmostes pr-review workflow (if the project is monitored).
+#   The label must exist on the repo (create it first if needed).
+dw_request_review() {
+  local pr="$1" label="${2:-needs-review}"
+  local platform owner_repo
+  platform=$(dw_detect_platform); owner_repo=$(dw_owner_repo)
+  case "$platform" in
+    github)
+      gh issue edit "$pr" --repo "$owner_repo" --add-label "$label" 2>/dev/null \
+        || gh api "repos/$owner_repo/issues/$pr/labels" -f "labels[]=$label" >/dev/null 2>&1 ;;
+    *)
+      local host token
+      host=$(dw_host); token=$(dw_token)
+      curl -fsSL -H "Authorization: token $token" -H 'Content-Type: application/json' \
+        -X POST "https://$host/api/v1/repos/$owner_repo/issues/$pr/labels" \
+        -d "$(jq -n --arg l "$label" '{labels:[$l]}')" >/dev/null ;;
+  esac
+  echo "dev-workflow: added '$label' label to PR #$pr — automated review will run within ~5 min" >&2
+}
+
 # ── CI ──────────────────────────────────────────────────────────────────────
 
 # dw_watch_ci "<pr# or branch>"  → blocks until CI finishes; exits 0 if green, 1 if any failed
