@@ -37,16 +37,23 @@ Never skip these files. They define the wiki's structure.
 
 ## Documentation Home
 
-The llm-wiki repo **is** the documentation home — not the project repo, not
-platform wikis.
+The llm-wiki repo is the **structured documentation home** — but not the
+only place docs live. Know the division:
 
-- **No in-repo docs folders.** Do not maintain `docs/`, ADR directories, or
-  design docs inside the project repo. Move that content into the wiki as
-  pages under the correct entity type. Root files (`README.md`, `AGENTS.md`,
-  `CONTEXT.md`) are fine but serve as **indexes** — a few paragraphs that link
-  to the wiki for depth, not documentation themselves.
-- **No platform wikis** (GitHub/Forgejo wikis). They lack structure,
-  cross-references, and CI validation. The llm-wiki repo is the single source.
+- **No in-repo `docs/` folders.** Do not maintain `docs/`, ADR directories,
+  or design docs *inside the project repo*. Move that content to the wiki
+  (entities, concepts, architecture) or to the platform wiki (important
+  ADRs). Root files (`README.md`, `AGENTS.md`, `CONTEXT.md`) are fine but
+  serve as **indexes** — a few paragraphs that link to the real docs, not
+  documentation themselves.
+- **Platform wikis** (GitHub/Forgejo wikis, via `gh`/`fj` or the API) are
+  valid surfaces for **important ADRs** and supplementary docs. The llm-wiki
+  holds structured, cross-referenced, CI-validated knowledge; the platform
+  wiki holds decision records accessible from the repo. Both are first-class —
+  pick by audience and format, not by habit.
+
+When reading a project, check both: the wiki for structure + reasoning, the
+platform wiki for ADRs that shaped the design.
 
 ## How to absorb this wiki (least-context routing)
 
