@@ -1,6 +1,6 @@
 ---
 name: dev-workflow
-description: "Enforce branch-based development on a project — every change flows issue → branch → milestone → green CI → merged PR, never directly on the default branch. Grounds each change in the project's documented design by consulting its wiki (llm-wiki) before starting; treats \"CI green\" as a quality gate (unit tests mandatory for every behavior change, integration suite extended when one exists); and requires cross-component coupling to be part of the intended architecture or documented in the wiki before merge. Multi-platform (GitHub via gh, Forgejo/Codeberg via fj + REST). Ships an `adopt` command that injects the always-on mandate into a project's AGENTS.md. Use when about to implement a feature or fix in a project that follows this workflow, when creating issues/branches/PRs, when watching CI before merge, when deciding whether a change is covered by tests or introduces coupling, or when asked to set up / apply / propagate / change the development workflow in a repo's AGENTS.md."
+description: "Enforce branch-based development — every change flows issue → branch → green CI → merged PR, never a direct commit to the default branch. Grounds changes in the project's documented design (wiki/llm-wiki); treats CI green as a quality gate (unit tests mandatory, integration suite extended); requires coupling to be intentional or wiki-documented. Multi-platform (GitHub via gh, Forgejo/Codeberg via fj). Ships `adopt` to inject the mandate into a repo's AGENTS.md. Use when implementing features/fixes, creating issues/branches/PRs, watching CI, or setting up the workflow in a repo."
 ---
 
 # Dev Workflow — Issue → Branch → Green CI → Merge
@@ -32,13 +32,10 @@ the right host via [`scripts/host.sh`](scripts/host.sh)) and multi-project
 A change may merge only after **all** gates pass, in order. Each gate is
 independently falsifiable.
 
-1. **Grounded in documented design** — before starting, consult the project's
-   wiki (`/skill:llm-wiki`: `consult` / `read`). **If the project has a RIG
-   (`raw/arch/<project>/rig.json`), read it first to understand structure; then
-   read wiki pages to understand decisions.** If no RIG exists, use the wiki
-   directly. This is what Gate 7 ("no undocumented coupling") judges against:
-   you can only know whether new coupling is *part of the documented design* if
-   you've read that design.
+1. **Grounded in documented design** — consult the project's wiki
+   (`/skill:llm-wiki`: `consult`/`read`). If a RIG exists
+   (`raw/arch/<project>/rig.json`), read it first for structure; then wiki
+   pages for decisions.
 2. **Issue exists** — an open issue (found or created) describes the change.
 3. **Branch tied to the issue** — a branch whose name contains the issue
    number, created off the default branch. No work on the default branch;
@@ -47,19 +44,16 @@ independently falsifiable.
    by convention, or per the project config).
 5. **Change made on the branch** — commits reference the issue
    (`Refs #<n>` / `Fixes #<n>`).
-6. **Change covered by tests** — unit tests for every behavior added or altered
-   (mandatory, fast tier); extend the integration suite for the paths touched
-   if one exists. Performance/integration/A-B tooling added by this PR goes in
-   the slow tier. (See [CI discipline](#continuous-integration-discipline).)
+6. **Change covered by tests** — unit tests for every behavior added or
+   altered (fast tier). Extend the integration suite where one exists.
+   Performance/A-B tooling goes in the slow tier. (See
+   [CI discipline](#continuous-integration-discipline).)
 7. **No undocumented coupling** — any coupling the change introduces between
    components is part of the intended architecture; if it is not, record it in
    the wiki (`/skill:llm-wiki`) **before** the PR merges.
 8. **PR open** against the default branch.
-9. **CI green** — fast tier (unit + lint) passes every push; slow tier
-   (benchmarks, integration A/B, long evaluations) passes before merge or on
-   manual trigger. "Green" means the relevant tier's tests pass, not merely
-   that it builds. Red CI is fixed on the branch and re-pushed; it is
-   **never** merged red.
+9. **CI green** — both tiers pass (fast: every push; slow: pre-merge or
+   manual). Red is fixed on the branch, never merged red.
 10. **Comment The Issue** — with the complete implementation.
 11. **Merged** — only now does the default branch move. Branch deleted, issue
     closed.
@@ -76,28 +70,14 @@ the architecture did not ask for. Depth on both — what counts as coupling, how
 to detect it, how to wire tests into CI — lives in
 [`references/ci-concepts.md`](references/ci-concepts.md).
 
-**Tests protect the change.** Unit tests are mandatory for every behavior the
-change adds or alters (no new test = unverified behavior that regresses
-silently). Extend the integration suite whenever one exists for the paths
-touched; never shrink it. If no integration suite exists yet, don't invent one
-unprompted — surface the gap on the issue. Tests must run in CI, not only
-locally — `dw_run_tests` (below) is the fast loop; CI is authoritative, and
-both run the **same** suite. *How* to write good tests (behavior over
-implementation, vertical red-green slices) is the `tdd` skill's job — load it.
-
-**Tests run in CI, on the right tier.** A test that only runs locally is
- dead weight — and so is one that runs on every push when it takes minutes.
- CI is tiered by cost:
-
-- **Fast tier (every push)** — unit tests, lint. This is the `dw_run_tests`
-  loop and the Gate 9 floor. Must stay fast (seconds).
-- **Slow tier (pre-merge or manual)** — performance benchmarks, integration
-  A/B tests, long evaluations. Gate the merge, not every commit
-  (`workflow_dispatch` or a required PR check).
-
-If a PR adds performance measurement, integration harness, or A/B tooling,
-wire it into the slow tier — never leave it sitting in the repo unrun. Depth:
-[`references/ci-concepts.md`](references/ci-concepts.md) §1.3.
+**Tests run in CI, on the right tier.** Unit tests are mandatory for every
+behavior added or altered (fast tier, every push). Extend the integration
+suite where one exists; if none exists, surface the gap — don't invent one
+unprompted. Performance benchmarks, integration A/B, and long evaluations go
+in the slow tier (pre-merge or `workflow_dispatch`). Tests that only run
+locally are dead weight; tooling added in a PR must be wired into the matching
+tier. *How* to write tests is the `tdd` skill's job. Depth:
+[`references/ci-concepts.md`](references/ci-concepts.md).
 
 **Coupling is intentional or documented.** Avoid coupling between components
 unless it is part of the intended architecture (build-time, runtime, data,

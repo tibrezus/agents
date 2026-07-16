@@ -12,13 +12,9 @@ filing, and bookkeeping.
 
 ## Before You Start
 
-**If the project has a RIG** (`raw/arch/<project>/rig.json` exists), read it first.
-This deterministic code graph (1–15K tokens) is the most efficient way to understand
-structure (components, dependencies, relations). The wiki explains *why* decisions
-were made, not *what* exists — the RIG is the source of truth for structure.
-
-If no RIG exists, use the wiki directly. The "least-context routing" table below
-shows how to route to the minimal source.
+**Read the RIG first if it exists** (`raw/arch/<project>/rig.json`) — it's
+the fastest way to understand structure (1–15K tokens). If none, use the wiki
+directly. The routing table below shows the minimal source per need.
 
 1. **Read `wiki.config.yml`** at the repo root — defines the project domain,
    QMD search contexts, and whether any architecture projects are declared.
@@ -28,32 +24,19 @@ shows how to route to the minimal source.
 
 Never skip these files. They define the wiki's structure.
 
-> **How the docs pipeline is built & run** (the RIG controller, KEDA/Dapr
-> scheduling, the PVC cache, the event bus) lives in the **module's**
-> `AGENTS.md` / `README.md` (the `.llm-wiki` submodule), not here. You do not
-> need it to edit wiki content or run `arch-sync`; consult it only if asked
-> how the system itself works. This skill covers *operations*; the module
-> covers *architecture*.
+> **How the docs pipeline is built & run** (RIG controller, KEDA/Dapr,
+> PVC cache) lives in the module's `AGENTS.md` / `README.md` (the `.llm-wiki`
+> submodule). This skill covers *operations*; consult it only if asked how the
+> system itself works.
 
 ## Documentation Home
 
-The llm-wiki repo is the **structured documentation home** — but not the
-only place docs live. Know the division:
-
-- **No in-repo `docs/` folders.** Do not maintain `docs/`, ADR directories,
-  or design docs *inside the project repo*. Move that content to the wiki
-  (entities, concepts, architecture) or to the platform wiki (important
-  ADRs). Root files (`README.md`, `AGENTS.md`, `CONTEXT.md`) are fine but
-  serve as **indexes** — a few paragraphs that link to the real docs, not
-  documentation themselves.
-- **Platform wikis** (GitHub/Forgejo wikis, via `gh`/`fj` or the API) are
-  valid surfaces for **important ADRs** and supplementary docs. The llm-wiki
-  holds structured, cross-referenced, CI-validated knowledge; the platform
-  wiki holds decision records accessible from the repo. Both are first-class —
-  pick by audience and format, not by habit.
-
-When reading a project, check both: the wiki for structure + reasoning, the
-platform wiki for ADRs that shaped the design.
+- **No in-repo `docs/` folders.** Move `docs/`, ADRs, or design docs to the
+  wiki (structure + reasoning) or the platform wiki (important ADRs via
+  `gh`/`fj`). Root files (`README.md`, `AGENTS.md`, `CONTEXT.md`) are
+  **indexes** — link to real docs, don't duplicate them.
+- **Platform wikis** (GitHub/Forgejo) are first-class surfaces for important
+  ADRs. Check both when reading a project.
 
 ## How to absorb this wiki (least-context routing)
 
@@ -68,17 +51,10 @@ not by reading the whole repo. Route by need:
 | See **what changed recently** | `log.md` | append-only activity |
 | Move between related pages | a page's `## See Also` | the bidirectional link graph |
 
-**The two layers have distinct jobs — don't conflate them:**
-
-- **`raw/` is the structural digest.** The RIG (`raw/arch/<project>/rig.json`)
-  is a deterministic, evidence-backed code graph — the fastest way to absorb
-  how a repo is built, and frequently all you need to answer a structural
-  question. Prefer it over reading source files.
-- **`wiki/` is the reasoning layer.** It captures decisions, rationale, and
-  trade-offs made *during a development session* — recorded live, at the
-  moment of the decision. This is exactly what automated structural
-  summarization (the harmostes arch-sync: RIG → LikeC4 → Mermaid) does **not**
-  capture: that pipeline regenerates *structure*; the wiki records *intent*.
+**Two layers, distinct jobs:** `raw/` = structure (RIG, deterministic,
+evidence-backed); `wiki/` = reasoning (decisions, trade-offs, recorded live).
+Automated arch-sync (RIG → LikeC4 → Mermaid) regenerates *structure*; the
+wiki records *intent* — it captures what the pipeline cannot.
 
 > **Never read the whole repo to answer a wiki question.** Route to the
 > minimal source above. `wiki read` and `wiki update` load only the pages that
