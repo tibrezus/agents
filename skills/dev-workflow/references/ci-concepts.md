@@ -57,6 +57,41 @@ from `tdd`:
   assert on private structure. They fail on every refactor though behavior is
   unchanged.
 
+### 1.3 Test stratification — fast vs slow tier
+
+Not all tests should run on every push. CI is tiered by execution cost so
+expensive work doesn't block the inner dev loop:
+
+| Tier | When it runs | What belongs here | Gate |
+|---|---|---|---|
+| **Fast** | Every push, every PR | unit tests, lint, type-check | Gate 9 floor |
+| **Slow** | Pre-merge (required check) or manual (`workflow_dispatch`) | performance benchmarks, integration A/B harnesses, long evaluations, multi-service integration | blocks merge, not every commit |
+
+**The rule:** a test that is not executed by CI does not protect the change —
+but it doesn't need to run on every push. The question is *which tier*, not
+*whether*. If a PR adds performance measurement, integration harness, or A/B
+tooling, that infrastructure must be wired into the slow tier — never left
+sitting in the repo unrun. A benchmark that only runs on someone's laptop is
+the same failure mode as a unit test that only runs locally: it looks like
+coverage but isn't.
+
+**How to implement the tiers per platform:**
+
+- **GitHub Actions** — fast tier in the `on: [push, pull_request]` workflow;
+  slow tier as a separate workflow (`on: [workflow_dispatch]` + optionally
+  triggered by a label or the PR environment) that is a **required** status
+  check on the branch protection rule.
+- **Forgejo / Gitea Actions** — same model; `workflow_dispatch` +
+  conditional triggers.
+- **Manual fallback** — if the platform has no `workflow_dispatch`, gate the
+  slow tier behind a comment-triggered bot or a labeled re-run; the point is
+  it runs *before merge*, not never.
+
+**Boundary rule:** a job belongs in the slow tier only if it takes long enough
+that running it on every push harms the feedback loop (rule of thumb: > 30s
+beyond the fast tier). If it's fast, keep it in the fast tier — don't fragment
+the suite.
+
 ## 2. Coupling is intentional or documented
 
 ### 2.1 What counts as coupling
@@ -183,8 +218,12 @@ When setting up or updating CI:
 3. **Discover tests automatically.** New test files added by a PR must be
    picked up without editing CI config (standard runners do this; bespoke
    allowlists don't).
-4. **Run integration tests too** — in a separate job if they need services,
-   but they must run on the PR, not only nightly.
+4. **Tier integration/performance tests separately.** They run in the slow
+   tier (pre-merge or manual `workflow_dispatch`), not on every push — see
+   [§1.3](#13-test-stratification--fast-vs-slow-tier). Fast tests stay in the
+   fast tier; don't fragment the suite. New performance/integration/A-B
+   tooling added by a PR must land in the slow tier wired and running, never
+   as a dormant script.
 5. **Keep the matrix honest.** If CI runs on one OS/Go/Node version, the
    project has implicitly pinned that version; surface it, don't hide it.
 
@@ -195,8 +234,10 @@ for the *watch* side; the *run* side is project-defined via `TEST_COMMAND`.
 
 A PR may merge only when **both** hold:
 
-- **Test gate** — the change is covered by unit tests (mandatory) and, where a
-  suite exists, extended integration tests; those tests run and pass in CI.
+- **Test gate** — the change is covered by unit tests (mandatory, fast tier)
+  and, where a suite exists, extended integration tests; those tests run and
+  pass in CI. Performance/integration/A-B tooling added by the PR runs in the
+  slow tier and passes before merge (or on manual trigger).
 - **Coupling gate** — every coupling the change introduces is either part of
   the documented architecture, or recorded in the wiki (via `llm-wiki`) before
   merge, per the project's `COUPLING_POLICY`.

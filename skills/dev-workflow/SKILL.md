@@ -48,15 +48,18 @@ independently falsifiable.
 5. **Change made on the branch** — commits reference the issue
    (`Refs #<n>` / `Fixes #<n>`).
 6. **Change covered by tests** — unit tests for every behavior added or altered
-   (mandatory); extend the integration suite for the paths touched if one
-   exists. (See [CI discipline](#continuous-integration-discipline).)
+   (mandatory, fast tier); extend the integration suite for the paths touched
+   if one exists. Performance/integration/A-B tooling added by this PR goes in
+   the slow tier. (See [CI discipline](#continuous-integration-discipline).)
 7. **No undocumented coupling** — any coupling the change introduces between
    components is part of the intended architecture; if it is not, record it in
    the wiki (`/skill:llm-wiki`) **before** the PR merges.
 8. **PR open** against the default branch.
-9. **CI green** — every check succeeds, and "green" means the test suite
-   passes, not merely that it builds. Red CI is fixed on the branch and
-   re-pushed; it is **never** merged red.
+9. **CI green** — fast tier (unit + lint) passes every push; slow tier
+   (benchmarks, integration A/B, long evaluations) passes before merge or on
+   manual trigger. "Green" means the relevant tier's tests pass, not merely
+   that it builds. Red CI is fixed on the branch and re-pushed; it is
+   **never** merged red.
 10. **Comment The Issue** — with the complete implementation.
 11. **Merged** — only now does the default branch move. Branch deleted, issue
     closed.
@@ -81,6 +84,20 @@ unprompted — surface the gap on the issue. Tests must run in CI, not only
 locally — `dw_run_tests` (below) is the fast loop; CI is authoritative, and
 both run the **same** suite. *How* to write good tests (behavior over
 implementation, vertical red-green slices) is the `tdd` skill's job — load it.
+
+**Tests run in CI, on the right tier.** A test that only runs locally is
+ dead weight — and so is one that runs on every push when it takes minutes.
+ CI is tiered by cost:
+
+- **Fast tier (every push)** — unit tests, lint. This is the `dw_run_tests`
+  loop and the Gate 9 floor. Must stay fast (seconds).
+- **Slow tier (pre-merge or manual)** — performance benchmarks, integration
+  A/B tests, long evaluations. Gate the merge, not every commit
+  (`workflow_dispatch` or a required PR check).
+
+If a PR adds performance measurement, integration harness, or A/B tooling,
+wire it into the slow tier — never leave it sitting in the repo unrun. Depth:
+[`references/ci-concepts.md`](references/ci-concepts.md) §1.3.
 
 **Coupling is intentional or documented.** Avoid coupling between components
 unless it is part of the intended architecture (build-time, runtime, data,
