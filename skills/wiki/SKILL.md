@@ -35,6 +35,19 @@ Never skip these files. They define the wiki's structure.
 > how the system itself works. This skill covers *operations*; the module
 > covers *architecture*.
 
+## Documentation Home
+
+The llm-wiki repo **is** the documentation home — not the project repo, not
+platform wikis.
+
+- **No in-repo docs folders.** Do not maintain `docs/`, ADR directories, or
+  design docs inside the project repo. Move that content into the wiki as
+  pages under the correct entity type. Root files (`README.md`, `AGENTS.md`,
+  `CONTEXT.md`) are fine but serve as **indexes** — a few paragraphs that link
+  to the wiki for depth, not documentation themselves.
+- **No platform wikis** (GitHub/Forgejo wikis). They lack structure,
+  cross-references, and CI validation. The llm-wiki repo is the single source.
+
 ## How to absorb this wiki (least-context routing)
 
 The wiki is layered so you answer most questions from the **smallest** source,
