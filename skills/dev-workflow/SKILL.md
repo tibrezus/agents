@@ -33,10 +33,12 @@ A change may merge only after **all** gates pass, in order. Each gate is
 independently falsifiable.
 
 1. **Grounded in documented design** — before starting, consult the project's
-   wiki (`/skill:llm-wiki`: `consult` / `read`) to learn its documented
-   structure, entities, concepts, and decisions (ADRs). This is what Gate 7
-   ("no undocumented coupling") judges against: you can only know whether new
-   coupling is *part of the documented design* if you've read that design.
+   wiki (`/skill:llm-wiki`: `consult` / `read`). **If the project has a RIG
+   (`raw/arch/<project>/rig.json`), read it first to understand structure; then
+   read wiki pages to understand decisions.** If no RIG exists, use the wiki
+   directly. This is what Gate 7 ("no undocumented coupling") judges against:
+   you can only know whether new coupling is *part of the documented design* if
+   you've read that design.
 2. **Issue exists** — an open issue (found or created) describes the change.
 3. **Branch tied to the issue** — a branch whose name contains the issue
    number, created off the default branch. No work on the default branch;

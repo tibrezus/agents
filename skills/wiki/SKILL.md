@@ -12,6 +12,14 @@ filing, and bookkeeping.
 
 ## Before You Start
 
+**If the project has a RIG** (`raw/arch/<project>/rig.json` exists), read it first.
+This deterministic code graph (1–15K tokens) is the most efficient way to understand
+structure (components, dependencies, relations). The wiki explains *why* decisions
+were made, not *what* exists — the RIG is the source of truth for structure.
+
+If no RIG exists, use the wiki directly. The "least-context routing" table below
+shows how to route to the minimal source.
+
 1. **Read `wiki.config.yml`** at the repo root — defines the project domain,
    QMD search contexts, and whether any architecture projects are declared.
 2. **Read `AGENTS.md`** (copied from `.llm-wiki/instance/AGENTS.md`) for the full
