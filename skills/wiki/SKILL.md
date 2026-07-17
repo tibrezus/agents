@@ -12,6 +12,13 @@ filing, and bookkeeping.
 
 ## Before You Start
 
+**Pull the latest changes.** The llm-wiki repo is a git repo — agents and
+workflows may have updated it since your last operation. Before any
+`read`/`consult`/`update`/`arch-sync`, pull the default branch:
+```bash
+git pull --ff-only
+```
+
 **Read the RIG first if it exists** (`raw/arch/<project>/rig.json`) — it's
 the fastest way to understand structure (1–15K tokens). If none, use the wiki
 directly. The routing table below shows the minimal source per need.

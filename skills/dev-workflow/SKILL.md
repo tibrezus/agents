@@ -32,10 +32,10 @@ the right host via [`scripts/host.sh`](scripts/host.sh)) and multi-project
 A change may merge only after **all** gates pass, in order. Each gate is
 independently falsifiable.
 
-1. **Grounded in documented design** — consult the project's wiki
-   (`/skill:llm-wiki`: `consult`/`read`). If a RIG exists
-   (`raw/arch/<project>/rig.json`), read it first for structure; then wiki
-   pages for decisions.
+1. **Grounded in documented design** — pull the llm-wiki repo's latest
+   changes, then consult it (`/skill:llm-wiki`: `consult`/`read`). If a
+   RIG exists (`raw/arch/<project>/rig.json`), read it first for structure;
+   then wiki pages for decisions.
 2. **Issue exists** — an open issue (found or created) describes the change.
 3. **Branch tied to the issue** — a branch whose name contains the issue
    number, created off the default branch. No work on the default branch;
