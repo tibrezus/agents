@@ -23,6 +23,10 @@ git pull --ff-only
 the fastest way to understand structure (1–15K tokens). If none, use the wiki
 directly. The routing table below shows the minimal source per need.
 
+**Read the C4 model if it exists** (`raw/arch/<project>/model.c4`) — it
+shows architecture views (components, containers, relationships) derived
+from the RIG. Read this before wiki pages for architectural context.
+
 1. **Read `wiki.config.yml`** at the repo root — defines the project domain,
    QMD search contexts, and whether any architecture projects are declared.
 2. **Read `AGENTS.md`** (copied from `.llm-wiki/instance/AGENTS.md`) for the full
@@ -53,6 +57,7 @@ not by reading the whole repo. Route by need:
 | You need to… | Read this | Why it's the minimal source |
 |---|---|---|
 | Catch a project's **structure** fast | `raw/arch/<project>/rig.json` | deterministic code graph, 1–15K tokens; often enough on its own |
+| Understand the **architecture views** | `raw/arch/<project>/model.c4` | LikeC4 model with components, containers, relationships — from RIG |
 | Understand a **decision + its reasoning** | the matching `wiki/` page(s) | the *why*, captured live at decision time |
 | Find **what pages exist** | `index.md` | catalog, not a dir walk |
 | See **what changed recently** | `log.md` | append-only activity |
