@@ -47,12 +47,18 @@ Never skip these files. They define the wiki's structure.
 
 ## Documentation Home
 
+## Documentation Home
+
+- **C4 boundary: llm-wiki carries context/container/component level only.**
+  Code-level details (file paths, function signatures, implementation specifics,
+  API reference) go to the **platform wiki** (GitHub/Forgejo) via `gh`/`fj`, not
+  the llm-wiki. This keeps the llm-wiki unbloated.
 - **No in-repo `docs/` folders.** Move `docs/`, ADRs, or design docs to the
   wiki (structure + reasoning) or the platform wiki (important ADRs via
   `gh`/`fj`). Root files (`README.md`, `AGENTS.md`, `CONTEXT.md`) are
   **indexes** — link to real docs, don't duplicate them.
-- **Platform wikis** (GitHub/Forgejo) are first-class surfaces for important
-  ADRs. Check both when reading a project.
+- **Platform wikis** (GitHub/Forgejo) are first-class surfaces for low-level
+  details and important ADRs. Check both when reading a project.
 
 ## How to absorb this wiki (least-context routing)
 
@@ -229,15 +235,18 @@ Create a new wiki page.
 
 ### `wiki arch-sync <project>`
 
-Sync wiki pages with CI-generated diagrams from an updated RIG.
+Update wiki prose after a deterministic RIG/C4/Mermaid refresh. The graphs are
+already generated — your job is to summarize and route content.
 
-1. **Verify the RIG exists**: `ls raw/arch/<project>/rig.json`. If missing → STOP.
-2. **Read the RIG** to understand structure (components, dependencies, evidence).
-3. **Diagrams are already generated**: CI ran `rig-to-c4.py` → `likec4 gen mermaid`. Do NOT run these yourself.
-4. **Update wiki pages** with the generated Mermaid diagrams from `raw/arch/<project>/`. Preserve manual content (deployment notes, runbooks, etc.).
-5. **Update `sources:`** with `raw/arch/<project>/rig.json`.
-6. **Update `index.md`** and **append to `log.md`**.
-7. **Validate**: `npm run check`.
+1. **Verify artifacts exist**: `ls raw/arch/<project>/` (rig.json, model.c4, *.mmd).
+2. **Read the RIG** to understand what changed (new/removed/changed components).
+3. **Do NOT generate graphs** — model.c4 and *.mmd are deterministic. Do NOT run rig-to-c4.py or likec4.
+4. **Embed Mermaid**: read `raw/arch/<project>/*.mmd`, copy into wiki pages as ` ```mermaid ` blocks.
+5. **Write C4-level prose only** (context/container/component). Summarize what changed in 1-3 sentences.
+6. **Offload low-level details** (file paths, function docs, implementation specifics) to the **platform wiki** via `gh`/`fj`. Keep llm-wiki unbloated.
+7. **Preserve manual content** (deployment notes, runbooks, config).
+8. **Update `index.md`** and **append to `log.md`**.
+9. **Commit** (do NOT push — gate runs next).
 
 ### `wiki consult <project-repo-path>`
 
