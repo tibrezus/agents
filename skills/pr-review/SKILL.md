@@ -53,7 +53,7 @@ which pillars are relevant. Investigate those; mark the rest N/A.
 | Pillar | Question | Proof | Trigger (investigate when…) |
 |--------|----------|-------|-----------------------------|
 | **Coupling** | Does it respect component boundaries in the RIG? | RIG edge check | the diff adds imports/calls across components |
-| **Design Intent** | Aligned with documented decisions / ADRs? | wiki pages | the change touches documented architecture |
+| **Design Intent** | Aligned with documented decisions / ADRs? **Does the diff duplicate existing functionality?** | wiki pages + model.c4 `// Exports:` | the change touches documented architecture, **or adds new functions/types** |
 | **Interface Stability** | Breaking changes to exported symbols / API contracts? | grep exports + diff | the change modifies public/exported API |
 
 ### Adversary — behavioral soundness (5 pillars)
@@ -99,7 +99,11 @@ Investigate the relevant structural pillars:
   edges are findings. **Evidence**: cite the RIG or the import line.
 - **Design Intent**: does the change align with the wiki's documented
   decisions? Read the relevant entity/concept/ADR pages for the touched
-  components. **Evidence**: cite the wiki page or ADR.
+  components. **Also**: does the diff add new functions/types that duplicate
+  capabilities already in the codebase? Check model.c4's `// Exports:` lines
+  for the touched components — if a new function mirrors an existing export,
+  that's a finding. **Evidence**: cite the wiki page/ADR or the model.c4
+  export line that is being duplicated.
 - **Interface Stability**: does the diff modify exported/public symbols, API
   contracts, or schema? `grep` for usages of changed symbols across the repo.
   Breaking changes without versioning/migration are findings. **Evidence**:
