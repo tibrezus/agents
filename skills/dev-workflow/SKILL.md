@@ -35,11 +35,15 @@ independently falsifiable.
 1. **Grounded in documented design — read before implementing.** Pull the
    llm-wiki repo, then read in this order (mandatory if the file exists):
 
-   - `raw/arch/<project>/rig.json` — component graph, dependencies
-   - `raw/arch/<project>/model.c4` — architecture views (from RIG)
+   - `raw/arch/<project>/model.c4` — **architecture views + exported API surface**
+     (every `// Exports:` line lists the functions/types each file provides).
+     Read this BEFORE writing any code. If a capability you need is already
+     exported, extend it — do not duplicate.
+   - `raw/arch/<project>/rig.json` — component graph, dependencies, source files
    - relevant `wiki/` pages — decisions, trade-offs
 
-   Implementation without this context is invalid.
+   Implementation without this context is invalid. The model.c4 API surface
+   is the primary tool against code duplication — use it.
 2. **Issue exists** — an open issue (found or created) describes the change.
 3. **Branch tied to the issue** — a branch whose name contains the issue
    number, created off the default branch. No work on the default branch;
@@ -47,7 +51,12 @@ independently falsifiable.
 4. **Milestone assigned** — the issue is associated with a milestone (current
    by convention, or per the project config).
 5. **Change made on the branch** — commits reference the issue
-   (`Refs #<n>` / `Fixes #<n>`).
+   (`Refs #<n>` / `Fixes #<n>`). **No unnecessary duplication** — before
+   writing a new function/type, verify it does not already exist in model.c4's
+   `// Exports:` lines. Extend existing code when possible; only create new
+   code when no existing export can be extended. If you create a near-duplicate,
+   the PR must explain why reuse is not possible.
+
 6. **Change covered by tests** — unit tests for every behavior added or
    altered (fast tier). Extend the integration suite where one exists.
    Performance/A-B tooling goes in the slow tier. (See
