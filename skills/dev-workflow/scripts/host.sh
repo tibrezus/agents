@@ -285,9 +285,24 @@ dw_run_tests() {
 
 # ── merge ───────────────────────────────────────────────────────────────────
 
-# dw_merge_pr "<pr#>" "<method: squash|merge|rebase>"  → merges ONLY if CI green
+# dw_rebase_onto_default  → rebase current feature branch onto latest default.
+#   Fetches the default branch, rebases onto it, and force-pushes (with lease)
+#   the FEATURE branch only — never the default branch.
+dw_rebase_onto_default() {
+  local default current
+  default=$(dw_default_branch)
+  current=$(git branch --show-current)
+  [ "$current" = "$default" ] && dw_die "refusing to rebase: you are on the default branch '$default' — switch to a feature branch first"
+  echo "dev-workflow: rebasing $current onto origin/$default" >&2
+  git fetch origin "$default" >/dev/null 2>&1
+  git rebase "origin/$default" || dw_die "rebase had conflicts — resolve them, then 'git rebase --continue' and re-run"
+  git push --force-with-lease origin "$current" 2>&1 | grep -v '^remote:' | grep -v '^To ' || true
+}
+
+# dw_merge_pr "<pr#>" "<method: squash|merge|rebase>"  → rebases, then merges ONLY if CI green
 dw_merge_pr() {
   local pr="$1" method="${2:-squash}"
+  dw_rebase_onto_default
   dw_ci_green "$pr" || dw_die "refusing to merge PR #$pr: CI is not green"
   local platform owner_repo
   platform=$(dw_detect_platform); owner_repo=$(dw_owner_repo)
