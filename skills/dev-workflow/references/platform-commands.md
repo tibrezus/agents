@@ -66,3 +66,22 @@ Base: `https://<host>/api/v1/repos/<owner>/<repo>/...`
 - CI status for a commit: `GET .../commits/<sha>/status` → `.state` ∈ `success|failure|error|pending`
 
 All calls need `Authorization: token <TOKEN>`.
+
+## Branch protection — hard rules
+
+These apply on **every** platform, with no exceptions:
+
+1. **Never force-push to the default branch.** `git push --force` or
+   `--force-with-lease` to `main`/`master` is forbidden. On **Codeberg** this
+   is absolute — the default branch must never be overwritten.
+2. **Always rebase before merge.** Before merging a PR, rebase the feature
+   branch onto the latest default branch so the merge is conflict-free and
+   linear. Use `dw_rebase_onto_default` (which force-pushes the *feature*
+   branch only, never the default).
+3. **Never change platform/repository rules to work around these constraints.**
+   Do not disable branch protection, enable `allow_force_push`, change
+   merge-strategy settings, or alter any repository configuration to make a
+   blocked merge go through. If a merge is blocked, the fix is on the branch.
+
+The workflow's only force-push is to a *feature* branch after a rebase — never
+the default.

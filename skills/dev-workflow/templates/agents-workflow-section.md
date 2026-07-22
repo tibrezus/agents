@@ -10,6 +10,11 @@ default branch directly.
 > **issue → branch → green CI → merged PR**
 >
 > Never `git commit` or `git push` to the default branch (`{{DEFAULT_BRANCH}}`).
+> Never force-push (`--force` / `--force-with-lease`) to the default branch —
+> on Codeberg this is absolute: `main`/`master` must never be overwritten.
+> Always rebase the feature branch onto the default before merging.
+> Never change platform/repository rules (branch protection, force-push
+> settings, merge-strategy constraints) to work around merge requirements.
 > Never merge a PR whose CI is red. A change is not done until the PR is
 > merged and CI is green on the default branch.
 
@@ -62,7 +67,9 @@ skill's `references/ci-concepts.md`.
 5. **Push the branch** and open a PR against the default branch.
 6. **Watch CI to green** — the test suite passes, not just the build. If red,
    fix on the branch and re-push — never merge red.
-7. **Merge only when green**, then delete the branch and close the issue.
+7. **Rebase the feature branch onto the default branch** so the merge is
+   conflict-free, then **merge only when green**, and delete the branch and
+   close the issue.
 
 A direct commit to the default branch requires an explicit user instruction,
 recorded on the issue.

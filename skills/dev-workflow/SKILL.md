@@ -71,9 +71,21 @@ independently falsifiable.
 11. **Merged** — only now does the default branch move. Branch deleted, issue
     closed.
 
-**The single most important rule** (it has shipped broken `main` branches): a
-direct commit/push to the default branch is forbidden unless the user gave an
-explicit instruction that is recorded on the issue. When in doubt, branch.
+**Hard rules** (they have shipped broken `main` branches):
+
+1. A direct commit/push to the default branch is forbidden unless the user
+   gave an explicit instruction that is recorded on the issue. When in doubt,
+   branch.
+2. Never force-push (`--force` / `--force-with-lease`) to the default branch
+   on **any** platform — and on **Codeberg** this is absolute: the default
+   branch (`main`/`master`) must never be overwritten. The only force-push
+   the workflow ever performs is to a *feature* branch after rebasing it onto
+   the default.
+3. Always rebase the feature branch onto the default branch before merging,
+   so the merge is conflict-free and linear.
+4. Never change platform/repository rules (branch protection, force-push
+   settings, merge-strategy constraints) to work around these rules. If a
+   merge is blocked, the fix is on the branch, never in the platform config.
 
 ## Continuous integration discipline
 
@@ -193,9 +205,10 @@ source "$(dirname "$(readlink -f "$0")")/scripts/host.sh"   # or source the abso
    PR=$(dw_pr_number_from_branch "$BRANCH")
    dw_watch_ci "$BRANCH" || { echo "CI red — fix on the branch and re-push"; exit 1; }
    ```
-8. **Merge only when green**, then clean up:
+8. **Rebase onto the default branch, then merge only when green**:
    ```bash
-   dw_merge_pr "$PR" squash    # refuses to merge unless CI is green
+   dw_rebase_onto_default            # rebase feature branch onto latest default
+   dw_merge_pr "$PR" squash          # refuses to merge unless CI is green
    ```
 
 The agent is not bound to these exact commands — they illustrate the dispatch.
