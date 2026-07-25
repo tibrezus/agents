@@ -14,7 +14,7 @@ The process is **universal** along two axes:
 - **Multi-platform** — the fork repo can live on GitHub, Forgejo, Gitea, or Codeberg. Git push, labels, PR creation, **and PR merge** dispatch to the right host API (`gh` CLI vs Forgejo REST — no `tea` dep).
 - **Multi-project** — one shared sync engine + validator serves every fork. Per-fork differences are *data* (a declarative fork definition), not code. New language? new host? new build system? — add a check type or a host routine, never fork the engine.
 
-Conflicts are resolved **automatically** when mechanical (signature re-application, divergence re-stripping) and via an **agentic protocol** when semantic (upstream changed an API our patch depends on). Either way the resolution lands in the PR for review — never directly on the release branch.
+Sync uses the **merge model** — the engine merges the upstream release branch into the fork's release branch (see [Sync model](#sync-model-merge--an-llm-maintainer) below). Conflicts are therefore **localized 3-way regions** (base / ours / theirs), resolved **automatically** when mechanical and via an **LLM-driven agentic protocol** when semantic (upstream changed an API our patch depends on). Either way the resolution lands in the PR for review — never directly on the release branch.
 
 **The canonical source of truth for this skill is co-located with the reference implementation** at `platform/fork-maintenance/skill/` in the GitOps repo that owns the maintenance system. The live scripts live one directory up (`scripts/`, `checks/`, `flux/`). `skill/scripts/check-drift.sh` verifies the skill's engine templates stay byte-identical to the live scripts, so what an agent reads always matches what the CronJob runs. The copy in `~/.agents/skills/fork-maintenance/` is a synced derivative for agents to load; change the canonical one and re-sync.
 
@@ -28,6 +28,27 @@ Every fork has exactly two branches:
 | `rezus/<default>` (release) | Upstream + feature patches + additive code. **This is the GitHub default branch** so tag-triggered release workflows fire here. **Always functional.** | Only via merged, green PR |
 
 There is no third branch. You never commit to the release branch directly.
+
+## Sync model: merge + an LLM maintainer
+
+The engine **merges** the upstream release branch into the fork's release branch — it does **not** cherry-pick / replay customizations onto a fresh upstream. This is the model Codeberg uses for their own Forgejo fork, and it is the correct substrate for an LLM doing the maintenance:
+
+```bash
+git checkout -b rezus/sync-<date> rezus/<default>   # branch off the release line
+git merge --no-ff upstream/<branch>                  # append upstream's delta
+# …gates… → PR rezus/sync-<date> → rezus/<default>
+```
+
+**Why merge (not replay):**
+
+- **Immutable customizations.** Our patches live on the release branch with stable SHAs. Each sync appends an upstream merge; SHAs never change → append-only, bisectable, citable. (Replay re-derives the branch each sync → new SHAs, history churn, and an accumulation footgun.)
+- **Localized, well-defined conflicts.** A merge only conflicts where upstream *and* our patch changed the same region since the merge-base — small, precise 3-way regions (`base` / `ours` / `theirs`). Replay forces per-commit cherry-pick resolution against a moving base.
+- **Mistakes are isolated & revertible.** A bad resolution is one merge commit → `git revert -m 1`. In a replay a bad resolution is smeared across a rebuilt branch.
+- **No accumulation.** Git's commit reachability answers "is this custom already applied?" structurally — the whole class of re-applying/duplicating customizations cannot occur.
+
+**Why this is ideal for an LLM maintainer:** the conflict surface is small and stable, the 3-way context is concrete (the LLM reads base/ours/theirs + each patch's declared intent), a wrong call is one revert, and — because we track **release branches** (below) — most merges are *clean*, so the LLM is invoked only on the rare real conflict. On conflict the LLM resolver ([`resolve-conflict.sh`](templates/resolve-conflict.sh)) re-creates the exact merge and resolves the 3-way regions from the fork's wiki chapter, then re-runs the gates as **proof** before merge (gate 6).
+
+**Track release branches, not main; one release line per major.** Point `upstream.branch` at the upstream **release/maintenance branch** (e.g. `v16.0/forgejo`), not the dev `main`. Release branches change slowly → smaller, stabler deltas → fewer conflicts → fewer chances for the LLM to err. To support multiple upstream majors concurrently, keep **one fork release branch per major** (`rezus/forgejo-16`, `rezus/forgejo-15`, …), each tracking its release branch and synced independently — a bad sync on the staging major cannot touch production. (A fork that must track `main` can still merge `main`; the safety properties of merge hold regardless — release-branch tracking just adds stability.)
 
 ## When to use this skill
 

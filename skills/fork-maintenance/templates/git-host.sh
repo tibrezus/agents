@@ -184,45 +184,41 @@ host_pr_create() {
   esac
 }
 
-# ---- PR merge (squash) -------------------------------------------------------
-# Merges a PR by number or head branch. Used for auto-merge when all gates pass.
-# Echoes the resulting merge commit SHA on success; returns non-zero on failure.
+# ---- PR merge ---------------------------------------------------------------
+# Merges the sync branch's PR into the release branch. Merge model: the sync
+# branch is release + one upstream merge, so a normal PR merge (fast-forward when
+# possible) advances the release cleanly — APPEND-ONLY, never force-replace (that
+# would destroy the immutable history that is the whole point of the merge model).
+# Echoes the new release-branch HEAD SHA on success; returns non-zero on failure.
 host_pr_merge() {
-  local pr_ref="$1"   # PR number (github/forgejo) — resolve from head branch first
-  local platform owner_repo
+  local pr_ref="$1"   # sync branch name (PR head); PR number resolved per host
+  local platform owner_repo num
   platform=$(host_platform)
   owner_repo=$(host_owner_repo)
 
   case "$platform" in
     github)
-      # Cherry-pick model: the sync branch IS the new release branch (fresh
-      # upstream + re-cherry-picked customizations). A normal PR merge would
-      # conflict (the re-applied customizations diverge from the release
-      # branch's own copies), so force-update the release branch to the sync
-      # tip. Requires the default branch to permit force-updates. The PR stays
-      # as an audit/review artifact (it gets superseded once the base moves).
-      if ! [[ "$pr_ref" =~ ^[0-9]+$ ]]; then
-        # resolve PR number for the audit log, then force-update the branch
-        gh pr list --repo "$FORK_URL" --head "$pr_ref" --state open \
-          --json number -q '.[0].number' 2>/dev/null >/dev/null || true
-      fi
-      git push --quiet --force origin "$pr_ref:$FORK_DEFAULT_BRANCH" 2>&1 \
-        && git rev-parse "$pr_ref"
+      num=$(gh pr list --repo "$FORK_URL" --head "$pr_ref" --state open \
+            --json number -q '.[0].number' 2>/dev/null || true)
+      [ -n "$num" ] && gh pr merge "$num" --repo "$FORK_URL" --merge 2>&1 >/dev/null
       ;;
     forgejo)
-      # Same cherry-pick replace semantics via the Git push (forgejo API merge
-      # would conflict for the same reason). pr_ref is the sync branch name.
-      git push --quiet --force origin "$pr_ref:$FORK_DEFAULT_BRANCH" 2>&1 \
-        && git rev-parse "$pr_ref"
+      num=$(curl -sf "${FORGEJO_API}/repos/${owner_repo}/pulls?state=open" \
+            -H "Authorization: token ${FORK_TOKEN}" 2>/dev/null \
+            | jq -r --arg h "$pr_ref" '.[] | select(.head.ref==$h) | .number' 2>/dev/null | head -1 || true)
+      [ -n "$num" ] && curl -sf -X POST "${FORGEJO_API}/repos/${owner_repo}/pulls/${num}/merge" \
+            -H "Authorization: token ${FORK_TOKEN}" -H "Content-Type: application/json" \
+            -d '{"Do":"merge"}' >/dev/null 2>&1
       ;;
     local)
-      # Cherry-pick model: replace the release branch with the sync branch
-      # (fresh upstream + customizations). Reset, not merge — the re-cherry-
-      # picked customizations would conflict with the branch's own copies.
+      # Merge model: merge the sync branch INTO the release (append). Fast-forward
+      # when the release hasn't moved; otherwise a normal merge commit.
       git checkout "$FORK_DEFAULT_BRANCH" 2>/dev/null || git checkout -b "$FORK_DEFAULT_BRANCH"
-      git reset --hard "$pr_ref" >/dev/null 2>&1
-      git push --quiet --force origin "$FORK_DEFAULT_BRANCH" 2>&1 || true
-      git rev-parse HEAD
+      git merge --ff-only "$pr_ref" >/dev/null 2>&1 || git merge --no-edit "$pr_ref" >/dev/null 2>&1
       ;;
   esac
+
+  # Echo the new release-branch HEAD (caller re-syncs + tags from this).
+  git fetch --quiet origin "$FORK_DEFAULT_BRANCH" 2>/dev/null || true
+  git rev-parse "origin/$FORK_DEFAULT_BRANCH" 2>/dev/null || git rev-parse HEAD
 }

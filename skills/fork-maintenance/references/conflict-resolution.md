@@ -1,5 +1,7 @@
 # Conflict Resolution — Mechanical and Agentic
 
+The sync engine uses the **merge model**: it runs `git merge upstream/<release-branch>` into the fork's release branch (off a `rezus/sync-<date>` branch). So every conflict is a **localized 3-way region** — `base` (merge-base), `ours` (our immutable patched version), `theirs` (upstream's new version) — where upstream *and* our patch both changed since the merge-base. This is the ideal input for an LLM resolver: a small, concrete, bounded region per file, with the patch's declared intent (the fork's wiki chapter) as the missing context. A resolution is a single edit to the sync branch that earns trust only by passing the gates; a wrong one is one `git revert -m 1`.
+
 Upstream merges produce two kinds of conflict. They need different resolution strategies. Both resolve **on the sync branch** (never the release branch) and both must pass the full [safeguard gate chain](safeguards.md) before merge.
 
 ## Classify the conflict first

@@ -13,14 +13,21 @@
 # =============================================================================
 name: <fork>
 
+# ── Sync model: MERGE (Codeberg-style) ────────────────────────────────
+# The engine merges upstream INTO the fork's release branch; customizations are
+# immutable commits on the release branch (append-only, bisectable, no replay
+# accumulation). Track the upstream RELEASE/maintenance branch (e.g. v16.0/forgejo),
+# NOT dev main — slower churn, smaller deltas, fewer conflicts, LLM resolver
+# rarely invoked. One fork release branch per upstream major. Conflicts are
+# localized 3-way regions — the ideal input for the LLM conflict-resolver.
 upstream:
   url: https://github.com/upstream-org/repo   # or codeberg.org/...
-  branch: <upstream-default>
+  branch: v<major>.0/<upstream-release>       # the upstream RELEASE branch (NOT main) — e.g. v16.0/forgejo
 
 fork:
   url: https://github.com/your-org/repo         # where the fork repo lives
-  default_branch: rezus/<default>               # release branch (GitHub default → tag-triggered release workflows fire here). ALWAYS FUNCTIONAL.
-  mirror_branch: <upstream-default>             # clean upstream mirror (read-only reference; force-reset when needed)
+  default_branch: rezus/<default>-<major>       # per-major release branch (e.g. rezus/forgejo-16). ALWAYS FUNCTIONAL; GitHub default → tag-triggered release fires here.
+  mirror_branch: v<major>.0/<upstream-release>  # clean upstream mirror (read-only reference; force-reset when needed)
   platform: github                              # github | forgejo — where the fork repo lives (dispatches gh CLI vs REST API)
   api_url: https://codeberg.org/api/v1          # forgejo ONLY — REST base
   token_env: GITHUB_TOKEN                       # env var holding the host PAT (defaults: GITHUB_TOKEN | CODEBERG_TOKEN)

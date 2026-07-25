@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
 # =============================================================================
-# resolve-conflict.sh — cherry-pick + harmostes-orchestrated agent + gate/deploy
+# resolve-conflict.sh — merge + harmostes-orchestrated agent + gate/deploy
 # =============================================================================
-# sync-fork.sh cherry-picks the fork's customizations onto fresh upstream; on
-# conflict it aborts + emits fork.conflict.needs-resolution. THIS script is the
-# consumer: it REDOES the cherry-pick (Phase 1) and, where it conflicts, hands
-# the work to harmostes (Phase 2) — a shared pi.dev RPC orchestrator
-# (github.com/tibrezus/harmostes) that runs ONE warm agent session: the agent
-# drives the cherry-pick to completion + pushes, harmostes runs gate-resolved.sh
-# (markers + validate-fork.sh + signatures), and on failure feeds the error back
-# to the SAME session (the agent keeps context) up to N fixes. Only a green gate
-# deploys. Then this script replaces the release branch + releases.
+# sync-fork.sh merges the upstream release branch into the fork's release branch
+# (off a sync branch); on conflict it opens a needs-conflict-resolution PR +
+# emits fork.conflict.needs-resolution. THIS script is the consumer: it REDOES
+# the merge (Phase 1) and, where it conflicts, hands the work to harmostes
+# (Phase 2) — a shared pi.dev RPC orchestrator (github.com/tibrezus/harmostes)
+# that runs ONE warm agent session: the agent resolves the merge's localized
+# 3-way regions + pushes, harmostes runs gate-resolved.sh (markers +
+# validate-fork.sh + signatures), and on failure feeds the error back to the
+# SAME session (the agent keeps context) up to N fixes. Only a green gate
+# deploys. Then this script PR-merges the sync branch into the release + releases.
 #
 # This replaces the old `pi --print` + cold-reinvoke-on-failure loop: warm
 # session continuation + full tool-call observability + a tool allowlist.
@@ -54,7 +55,7 @@ FORK_DEFAULT_BRANCH=$(read_yaml '.fork.default_branch')
 UPSTREAM_URL=$(read_yaml '.upstream.url')
 UPSTREAM_BRANCH=$(read_yaml '.upstream.branch')
 
-echo "=== resolve-conflict: $FORK_NAME (cherry-pick + harmostes) ==="
+echo "=== resolve-conflict: $FORK_NAME (merge + harmostes) ==="
 source "$SCRIPT_DIR/git-host.sh"
 host_setup
 
@@ -62,7 +63,7 @@ WORKDIR=$(mktemp -d)
 WIKI_DIR=$(mktemp -d)
 trap 'rm -rf "$WORKDIR" "$WIKI_DIR"' EXIT
 
-# ── Phase 1: clone fork + upstream + wiki; start the cherry-pick ─────────────
+# ── Phase 1: clone fork + upstream + wiki; start the merge ───────────────────
 echo ""
 echo "=== Cloning fork + upstream ==="
 git clone --depth 100 "$FORK_URL" "$WORKDIR"
@@ -73,10 +74,11 @@ git fetch --depth 100 upstream "$UPSTREAM_BRANCH" --tags
 MERGE_BASE=$(git merge-base "HEAD" "upstream/$UPSTREAM_BRANCH" 2>/dev/null || echo "")
 SYNC_DATE=$(date +%Y-%m-%d)
 SYNC_BRANCH="rezus/sync-${SYNC_DATE}"
-CUSTOM_COMMITS=$(git rev-list --reverse --no-merges "${MERGE_BASE}..${FORK_DEFAULT_BRANCH}" 2>/dev/null | grep -v '^$' || true)
-CUSTOM_COUNT=$(printf '%s\n' "$CUSTOM_COMMITS" | grep -c . || echo 0)
 
-git checkout -b "$SYNC_BRANCH" "upstream/$UPSTREAM_BRANCH"
+# Merge model: branch off the RELEASE line and merge upstream into it (not
+# cherry-pick onto fresh upstream). This re-creates the exact conflict the engine
+# hit, so the agent resolves the real 3-way regions.
+git checkout -b "$SYNC_BRANCH" "$FORK_DEFAULT_BRANCH"
 
 # Clone the org wiki for the fork's intent (the "Fork Maintenance" chapter).
 WIKI_PAGE=""
@@ -87,28 +89,31 @@ if git clone --depth 1 "$WIKI_REPO" "$WIKI_DIR" 2>/dev/null; then
 fi
 
 echo ""
-echo "=== Cherry-picking $CUSTOM_COUNT customization commit(s) ==="
+echo "=== Merging upstream/$UPSTREAM_BRANCH into $SYNC_BRANCH ==="
 NEEDS_LLM=0
-if [ "$CUSTOM_COUNT" -gt 0 ] && ! git cherry-pick $CUSTOM_COMMITS; then
+if ! git merge --no-ff --no-edit \
+     -m "sync: merge upstream ${UPSTREAM_BRANCH} into ${FORK_DEFAULT_BRANCH} (${SYNC_DATE})" \
+     "upstream/${UPSTREAM_BRANCH}"; then
   NEEDS_LLM=1
-  echo "  cherry-pick stopped on a conflict — harmostes will drive it"
+  echo "  merge stopped on a conflict — harmostes will drive it"
 else
-  echo "  cherry-pick clean"
+  echo "  merge clean"
 fi
 
 # ── Phase 2: harmostes — agent task → gate → feedback-as-session-continuation ─
-# harmostes drives ONE warm pi RPC session. The agent drives the cherry-pick to
-# completion + pushes; harmostes runs gate-resolved.sh (markers + validate-fork.sh
-# + signatures); on failure it feeds the error back to the SAME session up to
-# RESOLVER_FIX_RETRIES. Exit 0 = gate green; 1 = failed after N; 2 = pi error.
+# harmostes drives ONE warm pi RPC session. The agent resolves the merge's 3-way
+# conflict regions + pushes; harmostes runs gate-resolved.sh (markers +
+# validate-fork.sh + signatures); on failure it feeds the error back to the SAME
+# session up to RESOLVER_FIX_RETRIES. Exit 0 = gate green; 1 = failed after N; 2 = pi error.
 if [ "$NEEDS_LLM" = "1" ]; then
   CONFLICT_FILES=$(git diff --name-only --diff-filter=U 2>/dev/null | grep -v '^$' || true)
   cat > "/tmp/resolve-${FORK_NAME}-task.txt" <<PROMPT
-You are driving a git cherry-pick that stopped on a conflict.
+You are resolving a git merge conflict.
 
 Working directory: $WORKDIR  (clone of the '$FORK_NAME' fork; on branch $SYNC_BRANCH,
-mid-cherry-pick — replaying the fork's customizations onto fresh upstream
-$UPSTREAM_BRANCH).
+mid-merge — merging upstream $UPSTREAM_BRANCH into the release line. The merge
+brought upstream's delta ON TOP of our customizations; only the regions where
+upstream AND our patches both changed are in conflict.)
 
 Conflicted files right now (also see \`git status\`):
 $(echo "$CONFLICT_FILES" | sed 's/^/  - /')
@@ -118,20 +123,19 @@ $([ -n "$WIKI_PAGE" ] && echo "  $WIKI_PAGE  (the \"## Fork Maintenance\" chapte
   Skill: $SKILL_PATH  (references/conflict-resolution.md)
   Fork definition: $DEF_FILE  (patches with signatures + descriptions)
 
-Drive the cherry-pick to completion, in a loop:
+Drive the merge to completion, in a loop:
 1. Resolve every conflicted file: remove ALL <<<<<<< / ======= / >>>>>>> markers,
    porting each customization onto upstream's new shape (use the wiki intent — a
    customization whose signature no longer matches means upstream changed the API
    it depends on: port it, never drop it). \`git add\` each resolved file.
-2. \`git cherry-pick --continue\` (commits this commit and moves to the next; may
-   surface the NEXT conflict).
-3. Repeat 1–2 until the cherry-pick is FINISHED: \`git status\` is clean (no
-   unmerged paths) AND there is no cherry-pick in progress
-   (\`test ! -e .git/CHERRY_PICK_HEAD\`).
+2. \`git merge --continue\` (concludes the merge with a commit). A single merge has
+   one set of conflicts — if new ones appear after --continue, resolve them too.
+3. Repeat 1–2 until the merge is FINISHED: \`git status\` is clean (no unmerged
+   paths) AND there is no merge in progress (\`test ! -e .git/MERGE_HEAD\`).
 4. Then:
        git push -f origin $SYNC_BRANCH
-5. STOP. Do NOT merge, open/comment on PRs, or run validation. Pushing the clean
-   branch ends your work — the gate runs separately.
+5. STOP. Do NOT merge into the release, open/comment on PRs, or run validation.
+   Pushing the clean branch ends your work — the gate runs separately.
 
 If a later validation gate fails (you'll be told the exact error in this same
 session), fix it on $SYNC_BRANCH and push again. The release branch is sacrosanct.
@@ -158,9 +162,9 @@ PROMPT
   fi
 fi
 
-# ── Phase 3: gate green — replace the release branch + release ────────────────
-# (cherry-pick model: the sync branch IS the new release branch — fresh upstream
-# + ported customizations. force-update, don't merge.)
+# ── Phase 3: gate green — PR-merge the sync branch into the release + release ─
+# (merge model: the sync branch is release + upstream merge. PR-merge it into
+# the release — APPEND, never force-replace. host_pr_merge does the host-routed merge.)
 git checkout --quiet "$SYNC_BRANCH" 2>/dev/null || true
 git add -A 2>/dev/null || true
 git diff --cached --quiet || git commit --no-edit --quiet 2>/dev/null || true
@@ -170,8 +174,8 @@ echo ""
 echo "=== Conflicts resolved — opening PR + triggering merge ==="
 host_label_create "auto-merge" 0E8A16 2>/dev/null || true
 PR_URL=$(host_pr_create "$FORK_DEFAULT_BRANCH" "$SYNC_BRANCH" \
-  "sync: $FORK_NAME — cherry-pick resolved by agent ($SYNC_DATE)" \
-  "Customizations cherry-picked onto fresh upstream; conflicts resolved via harmostes (pi RPC + skill + wiki intent + gate-feedback loop)." \
+  "sync: $FORK_NAME — merge conflicts resolved by agent ($SYNC_DATE)" \
+  "Upstream merge conflicts (localized 3-way regions) resolved via harmostes (pi RPC + skill + wiki intent + gate-feedback loop)." \
   "auto-merge" 2>/dev/null || echo "")
 echo "  PR: ${PR_URL:-<none>}"
 

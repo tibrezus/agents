@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
 # =============================================================================
-# sync-fork.sh — Universal fork sync script
+# sync-fork.sh — Universal fork sync engine (MERGE model)
 # =============================================================================
-# Merges upstream into a fork's release branch, runs post-merge hooks, verifies
-# patches, and opens a GitHub PR. Parameterized by a fork definition YAML.
+# Merges the upstream release branch INTO the fork's release branch (off a sync
+# branch → PR), runs post-merge hooks, verifies patches + divergence integrity,
+# validates, and opens a host-routed PR. Merge model (Codeberg-style): the fork's
+# release branch carries our customizations as immutable commits; each sync
+# appends an upstream merge, so custom SHAs never change (append-only, bisectable,
+# no replay/accumulation). Conflicts are localized 3-way regions — the ideal
+# substrate for the LLM conflict-resolver (resolve-conflict.sh). Parameterized by
+# a fork definition YAML.
 #
 # Usage: sync-fork.sh <fork-name>
 # Example: sync-fork.sh forgejo
@@ -33,12 +39,15 @@ echo "=== Loading fork definition: $FORK_NAME ==="
 # Parse YAML definition into shell variables
 read_yaml() { yq -r "$1" "$DEF_FILE"; }
 
-# Emit a fork.conflict.needs-resolution event with a structured needs-fix payload.
-# Consumed by the KEDA-triggered conflict-resolver (resolve-conflict.sh). The
-# payload is always written to manifests/<fork>-needs-fix.json (audit / manual
-# runs); it is also published to Dapr pub/sub when a sidecar is present so the
-# resolver scales up automatically. See skill/references/conflict-resolution.md
-# "Agentic integration shape" for the contract.
+# Deliver a fork.conflict.needs-resolution event (structured needs-fix payload) to
+# the conflict-resolver. Delivered by direct HTTP POST to the resolver's /events
+# endpoint (conflict-subscriber.py), with retries. We previously routed this
+# through Dapr pub/sub (pubsub.redis), but Redis pub/sub is fire-and-forget —
+# events published while the resolver was restarting were silently lost, AND the
+# daprd sidecar in the sync Job never terminated so the Job hung and re-emission
+# (every 30m) never happened. Direct HTTP fixes both. The payload is ALWAYS
+# written to manifests/<fork>-needs-fix.json first (audit / manual-runs fallback).
+# See skill/references/conflict-resolution.md "Agentic integration shape".
 emit_conflict_event() {
   local cfiles="${1:-}" payload patches_json pcount i
   patches_json="[]"
@@ -60,13 +69,19 @@ emit_conflict_event() {
       conflict_files: ($conflict_files | split("\n") | map(select(length>0)))}')
   mkdir -p "$MAINT_DIR/manifests" 2>/dev/null || true
   echo "$payload" > "$MAINT_DIR/manifests/${FORK_NAME}-needs-fix.json"
-  if curl -sf -m 2 http://localhost:3500/v1.0/healthz >/dev/null 2>&1; then
-    curl -sf -m 5 -X POST "http://localhost:3500/v1.0/publish/${DAPR_PUBSUB:-pubsub}/fork.conflict.needs-resolution" \
-      -H "Content-Type: application/json" -d "$payload" >/dev/null 2>&1 \
-      && echo "  emitted fork.conflict.needs-resolution (Dapr) → resolver will scale up"
-  else
-    echo "  (Dapr sidecar absent — needs-fix payload at manifests/${FORK_NAME}-needs-fix.json)"
-  fi
+  # Direct HTTP delivery to the resolver (replaces Dapr pub/sub — see header).
+  RESOLVER_URL="${RESOLVER_URL:-http://fork-conflict-resolver.fork-maintenance.svc.cluster.local/events}"   # Service port 80 → targetPort http(8080)
+  ce=$(echo "$payload" | jq -c '{source:"fork-sync", type:"fork.conflict.needs-resolution", data:.}')
+  delivered=false
+  for attempt in 1 2 3 4 5; do
+    if curl -sf -m 5 -X POST "$RESOLVER_URL" -H "Content-Type: application/json" -d "$ce" >/dev/null 2>&1; then
+      echo "  delivered fork.conflict.needs-resolution → resolver"
+      delivered=true; break
+    fi
+    echo "  resolver unreachable (attempt $attempt); retrying in ${attempt}s"
+    sleep "$attempt"
+  done
+  $delivered || echo "  WARNING: resolver unreachable after retries — needs-fix payload at manifests/${FORK_NAME}-needs-fix.json"
 }
 
 UPSTREAM_URL=$(read_yaml '.upstream.url')
@@ -123,38 +138,68 @@ NEW_COMMITS=$(git rev-list --count "${MERGE_BASE}..upstream/${UPSTREAM_BRANCH}" 
 echo ""
 echo "=== Upstream has $NEW_COMMITS new commits — syncing ==="
 
+# ── Capture divergence baseline (deterministic, BEFORE sync) ───────────────
+# Snapshot the fork's declared additive paths + auto-detected added roots +
+# declared deletions vs upstream. After the sync, `verify` checks every one is
+# still present — so a dropped feature (helm chart, licensing code, workflow)
+# blocks auto-merge & release instead of shipping silently. See Gate 4b in
+# skill/references/safeguards.md and plugins/divergence-track.
+DT="$SCRIPT_DIR/divergence-track.sh"
+{ read_yaml '.additive_paths[]' 2>/dev/null || true; } > "/tmp/${FORK_NAME}-additive.txt"
+{ read_yaml '.deletions[]'       2>/dev/null || true; } > "/tmp/${FORK_NAME}-deletions.txt"
+BASELINE="/tmp/${FORK_NAME}-divergence-baseline.json"
+echo ""
+echo "=== Capturing divergence baseline (declared additive + auto + deletions) ==="
+bash "$DT" capture "$WORKDIR" "upstream/$UPSTREAM_BRANCH" "$FORK_DEFAULT_BRANCH" "$BASELINE" \
+     "/tmp/${FORK_NAME}-additive.txt" "/tmp/${FORK_NAME}-deletions.txt"
+
 # =============================================================================
-# 3. Cherry-pick the fork's customizations onto fresh upstream
+# 3. Merge the upstream release branch into a sync branch off the release branch
 # =============================================================================
-# Sync strategy: take the LATEST upstream and replay the fork's OWN commits (the
-# customizations) on top — NOT a merge into a stale base. This keeps conflicts
-# isolated to the files the customizations actually touch (a handful), never the
-# broad catch-up explosion a stale-base merge produces (e.g. signoz's 326-file
-# merge → a handful of cherry-pick conflicts). The customizations' intent is
-# documented in the org wiki (rezuscloud/llm-wiki wiki/entities/<fork>.md,
-# "Fork Maintenance" chapter), which the resolver agent reads to resolve any
-# cherry-pick conflicts.
+# Sync strategy — MERGE model (see references/architecture.md "Sync model"):
+# the fork's release branch already carries our customizations as immutable
+# commits (stable SHAs). Each sync appends an upstream merge ON TOP, exactly as a
+# human maintainer would `git merge upstream/<branch>`. This is the Codeberg model
+# and it is the correct substrate for an LLM maintainer:
+#   • conflicts are LOCALIZED 3-way regions (base / ours / theirs) where upstream
+#     AND our patch both changed since the merge-base — small, precise, reviewable;
+#   • a bad resolution is ONE revertible merge commit (`git revert -m 1`);
+#   • custom SHAs never change → append-only, bisectable, no replay accumulation;
+#   • release-branch deltas are small/stable → most merges are clean (no LLM).
+# Additive paths (additive_paths) never conflict in either model (upstream has no
+# such paths); this only changes how the SHARED tree is reconciled. When a merge
+# conflicts, the LLM resolver (resolve-conflict.sh) re-creates this exact merge
+# and resolves the 3-way regions from each patch's declared intent (the fork's
+# wiki chapter). See references/conflict-resolution.md.
 SYNC_DATE=$(date +%Y-%m-%d)
 SYNC_BRANCH="rezus/sync-${SYNC_DATE}"
 
-# Customization commits = on the fork default, not in upstream, excluding the
-# historical sync merges (--no-merges). Oldest-first so they replay in order.
-CUSTOM_COMMITS=$(git rev-list --reverse --no-merges "${MERGE_BASE}..${FORK_DEFAULT_BRANCH}" 2>/dev/null | grep -v '^$' || true)
-CUSTOM_COUNT=$(printf '%s\n' "$CUSTOM_COMMITS" | grep -c . || echo 0)
-echo ""
-echo "=== Cherry-picking $CUSTOM_COUNT customization commit(s) onto upstream/$UPSTREAM_BRANCH ==="
-git checkout -b "$SYNC_BRANCH" "upstream/$UPSTREAM_BRANCH"
+# Branch the sync work off the RELEASE branch (not upstream) so the merge result
+# is release + upstream-delta — a clean superset that PRs back into the release.
+git checkout -b "$SYNC_BRANCH" "$FORK_DEFAULT_BRANCH"
 
-if [ "$CUSTOM_COUNT" -gt 0 ] && ! git cherry-pick $CUSTOM_COMMITS; then
-  # Cherry-pick stopped on a conflict. Capture the conflicting files, abort, and
-  # emit fork.conflict.needs-resolution — the resolver REDOES the cherry-pick
-  # with LLM conflict resolution (reading the wiki chapter for intent). No PR is
-  # opened here on conflict; the resolver opens it once the cherry-pick completes.
+# --no-ff guarantees an explicit, auditable merge commit (revertible via -m 1).
+if ! git merge --no-ff --no-edit \
+     -m "sync: merge upstream ${UPSTREAM_BRANCH} into ${FORK_DEFAULT_BRANCH} (${SYNC_DATE})" \
+     "upstream/${UPSTREAM_BRANCH}"; then
+  # The merge stopped on conflicts (localized 3-way regions). Conclude it WITH
+  # markers on the sync branch, open a needs-conflict-resolution PR for the LLM
+  # resolver, and emit fork.conflict.needs-resolution. The resolver re-creates
+  # this exact merge, resolves each region from the patch's wiki intent, then
+  # re-runs the gates as proof before the monitor merges. No auto-merge here.
   CONFLICT_FILES=$(git diff --name-only --diff-filter=U 2>/dev/null | grep -v '^$' || true)
   echo ""
-  echo "=== Cherry-pick conflict — deferring to the resolver (LLM + wiki) ==="
+  echo "=== Merge conflict — opening a resolution PR for the LLM resolver ==="
   echo "Conflicting files:"; echo "$CONFLICT_FILES" | sed 's/^/  - /'
-  git cherry-pick --abort 2>/dev/null || true
+  git add -A 2>/dev/null || true
+  git commit --no-edit --quiet 2>/dev/null || true   # conclude the merge WITH markers
+  git push --quiet origin "$SYNC_BRANCH" 2>&1 || { echo "ERROR: cannot push conflict branch" >&2; exit 3; }
+  host_label_create "needs-conflict-resolution" 0E8A16 2>/dev/null || true
+  PR_URL=$(host_pr_create "$FORK_DEFAULT_BRANCH" "$SYNC_BRANCH" \
+    "sync: $FORK_NAME — needs conflict resolution ($SYNC_DATE)" \
+    "Upstream merge produced conflicts (merge model — localized 3-way regions). The LLM conflict-resolver will resolve on this branch using each patch's declared intent; the monitor merges once every gate passes." \
+    "needs-conflict-resolution" 2>/dev/null || echo "")
+  echo "  resolution PR: ${PR_URL:-<none>}"
   emit_conflict_event "$CONFLICT_FILES"
   exit 2
 fi
@@ -181,35 +226,29 @@ if [ -n "$DELETIONS" ]; then
   fi
 fi
 
-# ── Conflict detection (single path) ──────────────────────────────────────
-# After deletions, the real signal is textual markers: `git add -A` clears the
-# unmerged-index state but leaves <<<<<<< in file content. If any remain this is
-# a conflict — conclude the merge WITH markers, push the sync branch, open a
-# labelled PR for the agent to resolve on, and emit fork.conflict.needs-resolution.
-# The PR is NOT auto-merged in this state; it stays labelled until resolve-conflict.sh
-# (the agent) makes the branch pass the gates and the monitor merges it.
+# ── Re-apply divergences the merge dropped (self-heal) ─────────────────────
+# A merge (or its agentic conflict resolution) can drop an additive path
+# the build gate can't see. Restore any dropped declared/auto root from the
+# fork's release now, so the verify gate below passes on intact features and
+# flags only what genuinely can't be recovered.
+echo ""
+echo "=== Re-applying dropped divergences (self-heal) ==="
+bash "$DT" reapply "$WORKDIR" "$FORK_DEFAULT_BRANCH" "$BASELINE" || true
+
+# ── Final marker guard (defensive assertion) ───────────────────────────────
+# A clean merge leaves no conflict markers. This grep is an assertion: if it
+# ever fires (it should not after the section-3 merge path), the sync is in an
+# unexpected state — abort rather than ship a broken branch. The real conflict
+# path is handled in section 3 (conclude WITH markers → needs-conflict-resolution PR).
 CONFLICT_FILES=$(git grep -l -E '^(<<<<<<<|>>>>>>>|=======) ' -- . 2>/dev/null || true)
 if [ -n "$CONFLICT_FILES" ]; then
-  echo ""
-  echo "=== CONFLICT — opening a resolution PR for the agent ==="
-  echo "Conflicting files:"; echo "$CONFLICT_FILES" | sed 's/^/  - /'
-  # Conclude the merge WITH markers so the branch carries the conflict for the
-  # agent (the PR is labelled needs-conflict-resolution, never auto-merged as-is).
-  git add -A 2>/dev/null || true
-  git commit --no-edit --quiet 2>/dev/null || true
-  git push --quiet origin "$SYNC_BRANCH" 2>&1 || { echo "ERROR: cannot push conflict branch" >&2; exit 3; }
-  host_label_create "needs-conflict-resolution" 0E8A16 2>/dev/null || true
-  PR_URL=$(host_pr_create "$FORK_DEFAULT_BRANCH" "$SYNC_BRANCH" \
-    "sync: $FORK_NAME — needs conflict resolution ($SYNC_DATE)" \
-    "Upstream merge produced conflicts. The conflict-resolver agent will resolve on this branch and the monitor will merge once gates pass." \
-    "needs-conflict-resolution" 2>/dev/null || echo "")
-  echo "  resolution PR: ${PR_URL:-<none>}"
-  emit_conflict_event "$CONFLICT_FILES"
-  exit 2  # conflict — but a resolution PR now exists for the agent + monitor
+  echo "ERROR: unexpected conflict markers after a clean merge — aborting sync" >&2
+  echo "$CONFLICT_FILES" | sed 's/^/  - /' >&2
+  exit 3
 fi
 
 echo ""
-echo "=== Cherry-pick completed cleanly ==="
+echo "=== Merge completed cleanly ==="
 
 # =============================================================================
 # 5. Run post-merge hook (per-fork: SDK regen, chart re-vendor, etc.)
@@ -250,6 +289,24 @@ if [ -f "$MAINT_DIR/checks/validate-fork.sh" ]; then
   fi
 else
   echo "=== No validator available — skipping ==="
+fi
+
+# ── Gate 4b: divergence integrity (deterministic) ──────────────────────────
+# The build gate (5) cannot see additive paths (charts, licensing, workflows
+# aren't compiled). This gate verifies every declared additive path is present
+# and every auto divergence survived the sync verbatim. RED ⟹ needs-fix ⟹ no
+# auto-merge, no auto-release. The real bug behind the 2026-07-09 signoz sync
+# that dropped deploy/charts/signoz-community + pkg/licensing/communitylicensing.
+DIVERGENCE_FAILED=false
+DIVERGENCE_REPORT=""
+echo ""
+echo "=== Verifying divergence integrity ==="
+if DIVERGENCE_REPORT=$(bash "$DT" verify "$WORKDIR" "$BASELINE" 2>&1); then
+  echo "  divergence: ✅ intact"
+else
+  echo "$DIVERGENCE_REPORT" >&2
+  echo "  divergence: ❌ LOST — a fork feature is missing; PR will be needs-fix"
+  DIVERGENCE_FAILED=true
 fi
 
 # =============================================================================
@@ -317,7 +374,7 @@ PR_TITLE="sync: merge upstream ${UPSTREAM_BRANCH} (${SYNC_DATE})"
 PR_LABEL="auto-merge"
 if [ "$PATCH_STATUS" = "needs-review" ]; then
   PR_LABEL="needs-conflict-resolution"
-elif $VALIDATION_FAILED; then
+elif $VALIDATION_FAILED || $DIVERGENCE_FAILED; then
   PR_LABEL="needs-fix"
 fi
 
@@ -343,6 +400,12 @@ $(if [ -f "$HOOK_FILE" ]; then echo "Ran \`post-merge-hooks/${FORK_NAME}.sh\`"; 
 ---
 
 ${VALIDATION_RESULTS}
+
+---
+
+### Divergence integrity
+
+$(if $DIVERGENCE_FAILED; then echo "❌ A fork feature was LOST in this sync (see job logs). PR is labelled \`needs-fix\` — it will not auto-merge."; else echo "✅ All declared additive paths + auto divergences intact (Gate 4b)."; fi)
 
 ---
 
@@ -426,4 +489,5 @@ echo "=== Sync complete ==="
 echo "  PR: $PR_URL"
 echo "  Label: $PR_LABEL"
 echo "  Patch status: $PATCH_STATUS"
+echo "  Divergence: $(if $DIVERGENCE_FAILED; then echo '❌ LOST (needs-fix)'; else echo '✅ intact'; fi)"
 [ -n "$RELEASE_TAG" ] && echo "  Released tag: $RELEASE_TAG (image build triggered)"

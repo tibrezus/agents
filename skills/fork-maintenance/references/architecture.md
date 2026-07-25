@@ -100,6 +100,24 @@ sync-fork.sh <fork>
 
 The mirror exists so `git merge` has a clean upstream ref and `git describe` reaches upstream tags for versioning. It is never the merge target.
 
+### One release line per major
+
+Track the upstream **release/maintenance branch** (e.g. `v16.0/forgejo`), not dev `main` — release branches change slowly, so deltas are small and most merges are clean (the LLM resolver is invoked only on real conflicts). To run multiple upstream majors concurrently, keep one fork release branch per major (`rezus/forgejo-16`, `rezus/forgejo-15`, …), each with its own definition (or a `majors:` list) and synced independently. A bad sync on the staging major cannot touch production. The mirror branch tracks whichever upstream branch the fork line follows.
+
+## Sync model: merge, not replay
+
+The engine **merges** the upstream release branch into the fork's release branch (off a `rezus/sync-<date>` branch that PRs back). It does **not** cherry-pick / replay customizations onto a fresh upstream. This is the Codeberg model and it is the right substrate for an LLM maintainer:
+
+| Property | Merge (this design) | Replay / cherry-pick |
+|---|---|---|
+| Custom SHAs | immutable, append-only | re-derived each sync (new SHAs) |
+| Conflict shape | localized 3-way regions (base/ours/theirs) | per-commit cherry-picks vs a moving base |
+| Bad resolution | one revertible merge commit (`git revert -m 1`) | smeared across rebuilt branch |
+| Accumulation | impossible (commit reachability) | real footgun (re-applied customs) |
+| Bisect / cite | works across syncs | broken |
+
+For the LLM resolver this means: a small, stable conflict surface; concrete 3-way context to reason about; a wrong call that is one revert; and — with release-branch tracking — a resolver that is rarely even invoked. Additive paths (`additive_paths`) never conflict in either model (upstream has no such paths); the model only changes how the shared tree is reconciled.
+
 ## Versioning
 
 `v<upstream-version>-rezus.<build-number>` — e.g. `v0.127.0-rezus.2`. SemVer-compatible; the `-rezus.N` suffix sorts correctly and `git describe` works because upstream `v*` tags are reachable through the mirror.

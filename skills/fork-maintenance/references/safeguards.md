@@ -17,6 +17,8 @@ MARKER_FILES=$(git grep -l -E '^(<<<<<<<|>>>>>>>|=======) ' -- . 2>/dev/null || 
 
 **Prevents**: a sync PR that doesn't compile because of leftover `<<<<<<< HEAD` / `>>>>>>> upstream/main` blocks. (This shipped `pkg/authz/openfgaauthz/provider.go` broken in a real signoz sync — upstream changed a function signature, the merge conflicted, `git add -A` hid it.)
 
+**Merge-model note**: because the engine merges (not replays), a conflict is always a genuine 3-way region on the sync branch — there is no separate "cherry-pick accumulation" failure mode where a customization is re-applied or duplicated across syncs. Git's commit reachability tracks "is this custom already merged?" structurally, so that entire class of bug cannot occur.
+
 ### Gate 2 — Permanent divergences re-applied
 
 Deletions declared in the fork definition (`deletions: [ee/]`) are re-deleted each sync. Additive paths (`additive_paths`) are preserved (they never conflict — pure additions).
@@ -62,7 +64,7 @@ enforced it.
 | Pass | When | What |
 |------|------|------|
 | `capture` | before sync | Snapshot **declared** additive paths (fork-def `additive_paths` — authoritative intent) ∪ **auto** minimal added roots (`git diff <upstream>..<fork>` — surfaces undeclared divergences) ∪ declared **deletions** → JSON baseline |
-| `reapply` | after cherry-pick | **Self-heal**: restore any dropped declared/auto root from the fork's release ref. Safe — these paths don't exist upstream, so nothing can conflict |
+| `reapply` | after merge | **Self-heal**: restore any dropped declared/auto root from the fork's release ref. Safe — these paths don't exist upstream, so nothing can conflict |
 | `verify` | gate, before merge/release | Every declared path **exists** (strict: declared ⟹ present, so a *drifted release* is caught even though a diff-against-release would false-GREEN), every auto root **matches** the release, every deletion **absent** |
 
 **Why declared is existence-checked but auto is diff-checked**: a declared path
@@ -74,7 +76,7 @@ from the last-good sync branch) instead of silently propagating the loss.
 
 **Prevents**: a sync dropping any added fork feature (chart, licensing, workflow,
 additive module) and auto-merging/auto-releasing it. Both sync paths carry it:
-`sync-fork.sh` (clean cherry-pick) and `resolve-conflict.sh` (agent-driven
+`sync-fork.sh` (clean merge) and `resolve-conflict.sh` (agent-driven
 resolution — the actual 07-09 path). RED ⟹ `needs-fix` / no auto-merge.
 
 ### Gate 5 — Validation passed (the checks THIS fork declares)
@@ -96,7 +98,7 @@ Output → **per-fork** file → embedded in the PR body.
 
 ### Gate 6 — Agentic resolution re-validated
 
-If a semantic conflict was resolved by an agent (see [conflict-resolution.md](conflict-resolution.md)), the resolution is **not trusted** — it is re-run through gates 1, 4, and 5 before the PR can be marked auto-mergeable. An agent's "I fixed it" is a claim; a green build is proof.
+If a semantic conflict was resolved by the LLM resolver (see [conflict-resolution.md](conflict-resolution.md)), the resolution is **not trusted** — it is re-run through gates 1, 4, and 5 before the PR can be marked auto-mergeable. The LLM's "I fixed it" is a claim; a green build is proof.
 
 **Prevents**: an agent hallucinating a resolution that looks plausible but doesn't compile, or that drops a patch. The agent's output is just another edit to the sync branch; it earns mergeability only by passing the same gates a human edit would.
 
