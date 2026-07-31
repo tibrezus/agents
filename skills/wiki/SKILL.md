@@ -30,11 +30,12 @@ from the RIG. Read this before wiki pages for architectural context.
 **Check the project's own wiki for C4 diagrams too.** Some projects generate
 C4 diagrams in their CI (`.forgejo/workflows/arch.yml` or
 `.github/workflows/arch.yml`) and push them to their platform wiki
-(`<repo>.wiki.git` → `Architecture.md` + `Components/*.md`). These are always
-current (regenerated on every push to the default branch). The llm-wiki
-instance's `raw/arch/` may lag — check the project wiki first, then fall
-back to the llm-wiki. Clone with: `git clone <remote>.wiki.git` and look
-for `Architecture.md`.
+(`<repo>.wiki.git` → `Architecture.md` + `Component---*.md` + `C4-Model.md`).
+These are always current (regenerated on every push to the default branch).
+The llm-wiki instance's `raw/arch/` may lag — check the project wiki first,
+then fall back to the llm-wiki. The raw artifacts (rig.json + model.c4) may
+also live on a dedicated branch (e.g. `arch-rig`). Clone with:
+`git clone <remote>.wiki.git` and look for `Architecture.md` and `C4-Model.md`.
 
 1. **Read `wiki.config.yml`** at the repo root — defines the project domain,
    QMD search contexts, and whether any architecture projects are declared.
@@ -68,8 +69,8 @@ Never skip these files. They define the wiki's structure.
   **indexes** — link to real docs, don't duplicate them.
 - **Platform wikis** (GitHub/Forgejo) are first-class surfaces for low-level
   details and important ADRs. Some projects also push **auto-generated C4
-  architecture diagrams** to their platform wiki (`Architecture.md` +
-  `Components/`) via CI — check both when reading a project.
+  architecture diagrams** to their platform wiki (`Architecture.md`,
+  `C4-Model.md`, `Component---*.md`) via CI — check both when reading a project.
 
 ## How to absorb this wiki (least-context routing)
 
@@ -79,7 +80,7 @@ not by reading the whole repo. Route by need:
 | You need to… | Read this | Why it's the minimal source |
 |---|---|---|
 | Catch a project's **structure** fast | `raw/arch/<project>/rig.json` | deterministic code graph, 1–15K tokens; often enough on its own |
-| Understand the **architecture views** | project's own wiki `Architecture.md`, else `raw/arch/<project>/model.c4` | CI-generated Mermaid (always current) or the llm-wiki's LikeC4 model (may lag) |
+| Understand the **architecture views** | project's own wiki `Architecture.md` + `C4-Model.md`, else `raw/arch/<project>/model.c4` | CI-generated diagrams + full LikeC4 model (always current) or the llm-wiki's copy (may lag) |
 | Understand a **decision + its reasoning** | the matching `wiki/` page(s) | the *why*, captured live at decision time |
 | Find **what pages exist** | `index.md` | catalog, not a dir walk |
 | See **what changed recently** | `log.md` | append-only activity |
