@@ -35,14 +35,18 @@ independently falsifiable.
 1. **Grounded in documented design — read before implementing.** Pull the
    llm-wiki repo, then read in this order (mandatory if the file exists):
 
-   - `raw/arch/<project>/model.c4` — **architecture views + exported API surface**
-     (every `// Exports:` line lists the functions/types each file provides).
-     Read this BEFORE writing any code. If a capability you need is already
-     exported, extend it — do not duplicate.
+   - **project's own wiki** (`<repo>.wiki.git` → `C4-Model.md`,
+     `Architecture.md`) — **authoritative** for architecture: CI-regenerated
+     on every push, always current. Read this FIRST for C4 views and exported
+     API surface (every `// Exports:` line lists functions/types each file
+     provides). If a capability you need is already exported, extend it —
+     do not duplicate.
+   - `raw/arch/<project>/model.c4` — **fallback** only when the project wiki
+     has no C4 content. May be stale.
    - `raw/arch/<project>/rig.json` — component graph, dependencies, source files
    - relevant `wiki/` pages — decisions, trade-offs
 
-   Implementation without this context is invalid. The model.c4 API surface
+   Implementation without this context is invalid. The C4 model API surface
    is the primary tool against code duplication — use it.
 2. **Issue exists** — an open issue (found or created) describes the change.
 3. **Branch tied to the issue** — a branch whose name contains the issue
