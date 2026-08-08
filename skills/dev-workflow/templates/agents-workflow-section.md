@@ -17,6 +17,9 @@ default branch directly.
 > settings, merge-strategy constraints) to work around merge requirements.
 > Never merge a PR whose CI is red. A change is not done until the PR is
 > merged and CI is green on the default branch.
+> Only optimal implementations are accepted — no workarounds at any level
+> (code, tests, CI, tooling, configuration). If a proper fix is blocked,
+> surface the blocker on the issue.
 
 ### CI discipline (quality gates)
 

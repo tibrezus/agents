@@ -55,10 +55,14 @@ independently falsifiable.
 4. **Milestone assigned** — the issue is associated with a milestone (current
    by convention, or per the project config).
 5. **Change made on the branch** — commits reference the issue
-   (`Refs #<n>` / `Fixes #<n>`). **No unnecessary duplication** — before
-   writing a new function/type, verify it does not already exist in model.c4's
-   `// Exports:` lines. Extend existing code when possible; only create new
-   code when no existing export can be extended. If you create a near-duplicate,
+   (`Refs #<n>` / `Fixes #<n>`). The implementation is **optimal**: it
+   addresses the root cause, uses the right abstraction, and follows the
+   language's idioms. **No workarounds at any level** — in code, tests, CI,
+   tooling, or configuration (see [hard rule 5](#hard-rules)). **No
+   unnecessary duplication** — before writing a new function/type, verify it
+   does not already exist in model.c4's `// Exports:` lines. Extend existing
+   code when possible; only create new code when no existing export can be
+   extended. If you create a near-duplicate,
    the PR must explain why reuse is not possible.
 
 6. **Change covered by tests** — unit tests for every behavior added or
@@ -94,6 +98,11 @@ independently falsifiable.
 4. Never change platform/repository rules (branch protection, force-push
    settings, merge-strategy constraints) to work around these rules. If a
    merge is blocked, the fix is on the branch, never in the platform config.
+5. Only optimal implementations are accepted. Workarounds at any level
+   (code, tests, CI, tooling, configuration) are forbidden — they defer
+   problems, they don't solve them. If a proper fix is genuinely blocked,
+   surface the blocker on the issue rather than routing around it silently.
+   "It works" is not the bar; "it is correct and well-structured" is.
 
 ## Continuous integration discipline
 
