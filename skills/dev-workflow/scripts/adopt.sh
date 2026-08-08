@@ -83,6 +83,7 @@ render() {
     -e "s|{{CI_WATCH}}|$CI_WATCH|g" \
     -e "s|{{TEST_COMMAND}}|$TEST_CMD|g" \
     -e "s|{{COUPLING_POLICY}}|strict|g" \
+    -e "s|{{SAFETY_LEVEL}}|none|g" \
     -e "s|{{MERGE_METHOD}}|squash|g" \
     "$TEMPLATE"
 }

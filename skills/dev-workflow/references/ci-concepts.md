@@ -139,6 +139,25 @@ artifact (or commit to a results branch) so each run is a queryable data
 point, not a log line that expires. This is what makes "reproducible
 behaviour over time" real.
 
+### 1.5 MC/DC for safety-critical boolean logic
+
+When a project declares `SAFETY_LEVEL: mcdc` in its AGENTS.md config block,
+every boolean decision in changed code must achieve Modified
+Condition/Decision Coverage — each atomic condition proven to independently
+affect the decision's outcome. This catches the masked-condition bug class
+that branch and condition coverage miss.
+
+MC/DC is a **deterministic pipeline** (AST → BDD → independence pairs →
+minimal test set → compiler measurement), not an LLM reasoning task. The
+agent's job is translation: a pre-computed spec (`mcdc-spec.json`) defines
+the exact test vectors; the agent generates test code from it, and the
+compiler's coverage instrumentation verifies correctness deterministically.
+
+It belongs in the **slow tier** as a reusable measurement job (§1.4),
+triggered pre-merge for safety-critical paths. Full playbook, spec format,
+language support matrix, and graceful degradation:
+[`mcdc.md`](mcdc.md).
+
 ## 2. Coupling is intentional or documented
 
 ### 2.1 What counts as coupling

@@ -54,6 +54,9 @@ skill's `references/ci-concepts.md`.
   hand-editing — see the skill's `ci-concepts.md`.
 - **Coupling policy:** `{{COUPLING_POLICY}}` — one of `strict` (default) /
   `documented-exceptions` / `legacy`; see the skill's `ci-concepts.md`.
+- **Safety level:** `{{SAFETY_LEVEL}}` — one of `none` (default) / `mcdc`.
+  When `mcdc`, every boolean decision in changed code must achieve Modified
+  Condition/Decision Coverage. See the skill's `mcdc.md`.
 - **Merge method:** `{{MERGE_METHOD}}`
 
 ### Before every change

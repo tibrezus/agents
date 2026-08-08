@@ -65,8 +65,10 @@ independently falsifiable.
    altered (fast tier). Extend the integration suite where one exists.
    **If the change introduces a measurement relevant over time** (benchmark,
    perf trace, A/B comparison, quality eval), wire it into CI as a reusable
-   slow-tier job — never leave it as an ad-hoc script. (See
-   [CI discipline](#continuous-integration-discipline).)
+   slow-tier job — never leave it as an ad-hoc script. For `SAFETY_LEVEL:
+   mcdc` projects, also achieve MC/DC for every boolean decision in the
+   changed code (see [CI discipline](#continuous-integration-discipline) and
+   [`references/mcdc.md`](references/mcdc.md)).
 7. **No undocumented coupling** — any coupling the change introduces between
    components is part of the intended architecture; if it is not, record it in
    the wiki (`/skill:llm-wiki`) **before** the PR merges.
@@ -116,6 +118,14 @@ the slow tier — wired, reusable, deterministic — not as an ad-hoc script.
 Reusability is the constraint that keeps CI lean: one harness, many
 invocations (composite actions, reusable workflows), never copy-pasted jobs.
 Depth: [`references/ci-concepts.md`](references/ci-concepts.md) §1.4.
+
+**Safety-critical boolean logic requires MC/DC.** When the project declares
+`SAFETY_LEVEL: mcdc`, every boolean decision in changed code must achieve
+Modified Condition/Decision Coverage — each condition proven to independently
+affect the outcome. This is a deterministic pipeline (spec-driven, not LLM
+reasoning). Load [`references/mcdc.md`](references/mcdc.md) when
+`SAFETY_LEVEL: mcdc` is set or when a change touches complex boolean
+decisions.
 
 **Coupling is intentional or documented.** Avoid coupling between components
 unless it is part of the intended architecture (build-time, runtime, data,
