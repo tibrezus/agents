@@ -31,6 +31,11 @@ gates hold for every change:
   part of the intended architecture. If coupling is unavoidable and not part
   of the documented design, record it in the wiki (`/skill:llm-wiki`) **before**
   the PR merges, per `COUPLING_POLICY` below.
+- **Measurements live in CI, not on laptops.** A benchmark, A/B comparison, or
+  quality eval relevant over time is wired into the slow tier as a **reusable**
+  job (`workflow_dispatch`), not an ad-hoc script. One harness, many
+  invocations — composite actions, reusable workflows — never copy-pasted jobs.
+  Depth: the skill's `ci-concepts.md` §1.4.
 
 Depth (what counts as coupling, detection heuristics, CI wiring) lives in the
 skill's `references/ci-concepts.md`.

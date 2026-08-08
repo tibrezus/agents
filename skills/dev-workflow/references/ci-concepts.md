@@ -92,6 +92,53 @@ that running it on every push harms the feedback loop (rule of thumb: > 30s
 beyond the fast tier). If it's fast, keep it in the fast tier — don't fragment
 the suite.
 
+### 1.4 Measurements as reproducible CI artifacts
+
+A measurement whose value is in comparing it across runs — a benchmark, a
+performance trace, an A/B comparison, a resource profile, a model-quality
+eval — is a **CI artifact**, not a script someone runs once. The reason is
+reproducibility: the same harness on the same runner class with the same
+inputs produces **comparable data points over time**, enabling regression
+detection and trend analysis. A one-off run on a laptop is an anecdote; a CI
+run is a measurement.
+
+**The rule:** if a change introduces or touches a measurement that should be
+comparable over time (now vs. next month, before vs. after this PR), wire it
+into CI — in the slow tier, manually triggered (`workflow_dispatch`). Manual
+triggering is not a fallback here; it is the **correct** trigger for work too
+expensive for every push but whose reproducibility over time is the point.
+Each manual run is a data point with a known runner, known inputs, known
+harness — queryable later, not lost to a terminal scrollback.
+
+**Reusability is the constraint that prevents bloat.** Each measurement does
+not get its own bespoke job. One harness, many invocations:
+
+| Mechanism | When |
+|---|---|
+| **Composite action** (`.github/actions/<name>/action.yml` / `.forgejo/actions/`) | shared setup + one measurement step, reused across workflows |
+| **Reusable workflow** (`on: workflow_call`) | a full slow-tier harness called from multiple workflows |
+| **Committed harness script** (`scripts/bench`, `scripts/ab-test`) | measurement logic lives in the repo, versioned, called by CI — not inlined in YAML |
+
+The anti-patterns:
+
+- **Ad-hoc script** — a benchmark in the repo with no CI wiring. Runs once
+  on a laptop, result lost. Looks like coverage; isn't.
+- **Copy-pasted job** — each new measurement gets a new YAML job with
+  duplicated checkout/setup/build. Bloats CI and drifts. Instead, one harness
+  takes the measurement name as a parameter.
+- **Non-deterministic harness** — unpinned deps, floating runner images, no
+  fixed seed. Runs aren't comparable; "regression" is noise.
+
+**Determinism matters.** Pin what you can: runner image, dependency
+versions, input data, RNG seeds. Record what you cannot (network latency,
+shared-hardware variance) as known noise. A measurement job that isn't
+deterministic is theater.
+
+**Results are artifacts, not stdout.** Upload measurement output as a CI
+artifact (or commit to a results branch) so each run is a queryable data
+point, not a log line that expires. This is what makes "reproducible
+behaviour over time" real.
+
 ## 2. Coupling is intentional or documented
 
 ### 2.1 What counts as coupling
@@ -226,6 +273,11 @@ When setting up or updating CI:
    as a dormant script.
 5. **Keep the matrix honest.** If CI runs on one OS/Go/Node version, the
    project has implicitly pinned that version; surface it, don't hide it.
+6. **Prefer reusable CI components over copy-pasted jobs.** When a change
+   adds CI work (measurement, build matrix, environment setup), check whether
+   a composite action or reusable workflow already exists — extend it, don't
+   duplicate. If none exists, create a reusable component, not a one-off job.
+   This keeps CI lean as it grows. (See [§1.4](#14-measurements-as-reproducible-ci-artifacts).)
 
 Per-platform patterns live in [`platform-commands.md`](platform-commands.md)
 for the *watch* side; the *run* side is project-defined via `TEST_COMMAND`.
@@ -237,7 +289,9 @@ A PR may merge only when **both** hold:
 - **Test gate** — the change is covered by unit tests (mandatory, fast tier)
   and, where a suite exists, extended integration tests; those tests run and
   pass in CI. Performance/integration/A-B tooling added by the PR runs in the
-  slow tier and passes before merge (or on manual trigger).
+  slow tier and passes before merge (or on manual trigger). A measurement
+  relevant over time is wired in as a reusable slow-tier job, not an ad-hoc
+  script (§1.4).
 - **Coupling gate** — every coupling the change introduces is either part of
   the documented architecture, or recorded in the wiki (via `llm-wiki`) before
   merge, per the project's `COUPLING_POLICY`.

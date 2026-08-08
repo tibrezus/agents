@@ -63,7 +63,9 @@ independently falsifiable.
 
 6. **Change covered by tests** — unit tests for every behavior added or
    altered (fast tier). Extend the integration suite where one exists.
-   Performance/A-B tooling goes in the slow tier. (See
+   **If the change introduces a measurement relevant over time** (benchmark,
+   perf trace, A/B comparison, quality eval), wire it into CI as a reusable
+   slow-tier job — never leave it as an ad-hoc script. (See
    [CI discipline](#continuous-integration-discipline).)
 7. **No undocumented coupling** — any coupling the change introduces between
    components is part of the intended architecture; if it is not, record it in
@@ -107,6 +109,13 @@ in the slow tier (pre-merge or `workflow_dispatch`). Tests that only run
 locally are dead weight; tooling added in a PR must be wired into the matching
 tier. *How* to write tests is the `tdd` skill's job. Depth:
 [`references/ci-concepts.md`](references/ci-concepts.md).
+
+**Measurements that matter over time are CI artifacts.** A benchmark, A/B
+comparison, or quality eval whose value is in comparing across runs belongs in
+the slow tier — wired, reusable, deterministic — not as an ad-hoc script.
+Reusability is the constraint that keeps CI lean: one harness, many
+invocations (composite actions, reusable workflows), never copy-pasted jobs.
+Depth: [`references/ci-concepts.md`](references/ci-concepts.md) §1.4.
 
 **Coupling is intentional or documented.** Avoid coupling between components
 unless it is part of the intended architecture (build-time, runtime, data,
