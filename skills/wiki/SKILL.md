@@ -31,7 +31,9 @@ CI on every push to the default branch. The llm-wiki instance's
 stale. Always read the project wiki first; use `raw/arch/` only when the
 project wiki has no C4 content.
 
-To access the project wiki: `git clone <remote>.wiki.git` and look for
+To access the project wiki: if already cloned locally, pull first
+(`git pull --ff-only`) — CI regenerates it on every push, so a stale clone
+gives outdated diagrams. Otherwise: `git clone <remote>.wiki.git`. Look for
 `Architecture.md` and `C4-Model.md`. Raw artifacts may also live on a
 dedicated branch (e.g. `arch-rig`).
 
