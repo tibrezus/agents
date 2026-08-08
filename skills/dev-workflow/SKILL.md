@@ -76,11 +76,20 @@ independently falsifiable.
 7. **No undocumented coupling** — any coupling the change introduces between
    components is part of the intended architecture; if it is not, record it in
    the wiki (`/skill:llm-wiki`) **before** the PR merges.
-8. **PR open** against the default branch.
-9. **CI green** — both tiers pass (fast: every push; slow: pre-merge or
-   manual). Red is fixed on the branch, never merged red.
-10. **Comment The Issue** — with the complete implementation.
-11. **Merged** — only now does the default branch move. Branch deleted, issue
+8. **Simplification pass** — step back from the implementation and ask: "can
+   this be simpler?" Re-read the full diff. Look for dead code, redundant
+   abstractions (interfaces with one implementation, wrappers that add
+   nothing), speculative generality ("we might need this later"), logic that
+   can be collapsed or inlined, and unnecessary indirection. **If a simpler
+   alternative exists, iterate on it now** — a complex implementation is not
+   optimal when a simpler one is available (hard rule 5). This pass runs
+   **before pushing to CI** (don't waste a CI cycle on over-engineered code)
+   and is re-checked **before merging** (the definitive deadline).
+9. **PR open** against the default branch.
+10. **CI green** — both tiers pass (fast: every push; slow: pre-merge or
+    manual). Red is fixed on the branch, never merged red.
+11. **Comment The Issue** — with the complete implementation.
+12. **Merged** — only now does the default branch move. Branch deleted, issue
     closed.
 
 **Hard rules** (they have shipped broken `main` branches):
@@ -100,9 +109,11 @@ independently falsifiable.
    merge is blocked, the fix is on the branch, never in the platform config.
 5. Only optimal implementations are accepted. Workarounds at any level
    (code, tests, CI, tooling, configuration) are forbidden — they defer
-   problems, they don't solve them. If a proper fix is genuinely blocked,
-   surface the blocker on the issue rather than routing around it silently.
-   "It works" is not the bar; "it is correct and well-structured" is.
+   problems, they don't solve them. A complex implementation is not optimal
+   when a simpler alternative exists — simplicity is a requirement, not a
+   preference. If a proper fix is genuinely blocked, surface the blocker on
+   the issue rather than routing around it silently. "It works" is not the
+   bar; "it is correct and well-structured" is.
 
 ## Continuous integration discipline
 
@@ -226,18 +237,25 @@ source "$(dirname "$(readlink -f "$0")")/scripts/host.sh"   # or source the abso
    If the change introduces coupling that is not part of the documented design,
    document it in the wiki now (`/skill:llm-wiki`) — before the PR. Commit with
    `Refs #$ISSUE` (or `Fixes #$ISSUE`).
-6. **Verify locally, then push and open the PR** (run the same suite CI will):
+6. **Simplification pass** — re-read the full diff (`git diff` against the
+   default branch). Ask: "can this be simpler?" Remove dead code, collapse
+   redundant abstractions, eliminate speculative generality. If you change
+   code, re-verify locally before proceeding. (Gate 8; hard rule 5.)
+7. **Verify locally, then push and open the PR** (run the same suite CI will):
    ```bash
    dw_run_tests || { echo "local tests red — fix before pushing"; exit 1; }
    git push -u origin "$BRANCH"
    dw_open_pr "$BRANCH" "$(dw_default_branch)" "<title>" "Closes #$ISSUE"
    ```
-7. **Watch CI to green:**
+8. **Watch CI to green:**
    ```bash
    PR=$(dw_pr_number_from_branch "$BRANCH")
    dw_watch_ci "$BRANCH" || { echo "CI red — fix on the branch and re-push"; exit 1; }
    ```
-8. **Rebase onto the default branch, then merge only when green**:
+9. **Re-simplify, then rebase onto the default branch, and merge only when
+   green** — take one more look at the diff before merging: is there anything
+   that can still be simplified? If so, fix it, re-run tests, and re-push
+   before merging.
    ```bash
    dw_rebase_onto_default            # rebase feature branch onto latest default
    dw_merge_pr "$PR" squash          # refuses to merge unless CI is green

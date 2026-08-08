@@ -64,7 +64,7 @@ expensive work doesn't block the inner dev loop:
 
 | Tier | When it runs | What belongs here | Gate |
 |---|---|---|---|
-| **Fast** | Every push, every PR | unit tests, lint, type-check | Gate 9 floor |
+| **Fast** | Every push, every PR | unit tests, lint, type-check | Gate 10 floor |
 | **Slow** | Pre-merge (required check) or manual (`workflow_dispatch`) | performance benchmarks, integration A/B harnesses, long evaluations, multi-service integration | blocks merge, not every commit |
 
 **The rule:** a test that is not executed by CI does not protect the change —

@@ -75,12 +75,15 @@ skill's `references/ci-concepts.md`.
    extend integration tests if a suite exists). Reference the issue in commits
    (`Fixes #<n>` / `Refs #<n>`). If the change adds coupling that is not part
    of the design, document it in the wiki first.
-5. **Push the branch** and open a PR against the default branch.
-6. **Watch CI to green** — the test suite passes, not just the build. If red,
+5. **Simplify** — re-read the diff. Can it be simpler? Remove dead code,
+   collapse abstractions, eliminate speculative generality. A complex
+   implementation is not optimal when a simpler alternative exists.
+6. **Push the branch** and open a PR against the default branch.
+7. **Watch CI to green** — the test suite passes, not just the build. If red,
    fix on the branch and re-push — never merge red.
-7. **Rebase the feature branch onto the default branch** so the merge is
-   conflict-free, then **merge only when green**, and delete the branch and
-   close the issue.
+8. **Re-simplify, then rebase the feature branch onto the default branch** so
+   the merge is conflict-free, then **merge only when green**, and delete the
+   branch and close the issue.
 
 A direct commit to the default branch requires an explicit user instruction,
 recorded on the issue.
