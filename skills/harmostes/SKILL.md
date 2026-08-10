@@ -27,12 +27,18 @@ pub/sub.
 | Resource | URL | When to read |
 |----------|-----|--------------|
 | **Managing Workflows** (primary guide) | [wiki/Managing-Workflows](https://github.com/tibrezus/harmostes/wiki/Managing-Workflows) | **Always** — create, deploy, trigger, monitor, remove |
-| Workflow CRD Reference | [wiki/Workflow-CRD-Reference](https://github.com/tibrezus/harmostes/wiki/Workflow-CRD-Reference) | When writing workflow YAML — every field documented |
+| Design Principles | [wiki/Design-Principles](https://github.com/tibrezus/harmostes/wiki/Design-Principles) | When understanding the 10 guiding principles |
 | Architecture | [wiki/Architecture](https://github.com/tibrezus/harmostes/wiki/Architecture) | When understanding components, execution model, data flow |
+| Execution Model | [wiki/Execution-Model](https://github.com/tibrezus/harmostes/wiki/Execution-Model) | When understanding trigger→worker→pipeline flow |
+| Gate Catalog | [wiki/Gate-Catalog](https://github.com/tibrezus/harmostes/wiki/Gate-Catalog) | When picking a gate or understanding workflow types |
+| Fork Maintenance | [wiki/Fork-Maintenance](https://github.com/tibrezus/harmostes/wiki/Fork-Maintenance) | When setting up or debugging fork sync |
+| Observability Views | [wiki/Observability-Views](https://github.com/tibrezus/harmostes/wiki/Observability-Views) | When understanding UI views (Flows, Sessions, Attempts) |
+| Workflow CRD Reference | [wiki/Workflow-CRD-Reference](https://github.com/tibrezus/harmostes/wiki/Workflow-CRD-Reference) | When writing workflow YAML — every field documented |
+| Credential Management | [wiki/Credential-Management](https://github.com/tibrezus/harmostes/wiki/Credential-Management) | When managing secrets, tokens, ExternalSecrets |
 | Event-Driven Worker Pool | [wiki/Event-Driven-Worker-Pool](https://github.com/tibrezus/harmostes/wiki/Event-Driven-Worker-Pool) | When debugging execution / pod issues |
 | Webhook Triggers | [wiki/Webhook-Triggers](https://github.com/tibrezus/harmostes/wiki/Webhook-Triggers) | When setting up instant triggers |
 | CONTEXT.md (glossary) | [repo/CONTEXT.md](https://github.com/tibrezus/harmostes/blob/main/CONTEXT.md) | When domain language is unclear |
-| ADRs (0001–0005) | [wiki Home → ADRs](https://github.com/tibrezus/harmostes/wiki/Home#adrs-current-architecture) | When understanding design decisions |
+| ADRs (0001–0005) | [wiki Home → ADRs](https://github.com/tibrezus/harmostes/wiki/Home#adrs-architecture-decisions) | When understanding design decisions |
 
 ## The gate-centric model
 
