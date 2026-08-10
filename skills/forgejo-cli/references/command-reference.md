@@ -250,6 +250,7 @@ Available Commands:
 
 ```
 $ fj api repo             # lists all 265 repo endpoints with one-line descriptions
+$ fj api repo | grep -i wiki    # → get-wiki-pages, get-wiki-page, create-wiki-page…
 $ fj api repo issue-edit-milestone --help
 Update a milestone
 Flags:
@@ -258,6 +259,12 @@ Flags:
       --owner string   owner
       --repo string    repo
 ```
+
+**Discover, don't guess.** Command names come from swagger operationIds and
+aren't always the obvious word. Always `fj api repo | grep <keyword>` for the
+real name first — a wrong name gives **empty stdout** (cobra reports
+`unknown flag: --owner` to stderr). Wiki example: `fj api repo get-wiki-pages
+--owner tibrez --repo rhesadox -H git.rezus.cloud`.
 
 ### Milestones (no polished command — use `fj api`)
 

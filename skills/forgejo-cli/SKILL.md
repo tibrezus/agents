@@ -164,6 +164,7 @@ fj api repo issue-edit-milestone    --owner tibrez --repo rhesadox --id 12 --bod
 fj api repo issue-delete-milestone  --owner tibrez --repo rhesadox --id 12 -H git.rezus.cloud
 ```
 
+(Find the exact name with `fj api repo | grep milestone` — see the `fj api` section.)
 `--id` is the opaque milestone id from `get-milestones-list` (milestones have no
 repo-local number like issues do). The create/edit body matches
 `{title, description, state, due_on}`.
@@ -172,17 +173,41 @@ repo-local number like issues do). The create/edit body matches
 
 Every Forgejo REST endpoint (all ~265 under `repo`) is auto-generated under `fj api`.
 Use it for anything the polished commands don't cover (milestones, labels, branches,
-admin, runners). `fj api repo` lists them all with one-line descriptions; each takes
-`--help` showing its flags:
+admin, runners, **wiki pages**).
+
+### ⚠️ Discover the exact name — never guess
+
+Command names are derived from swagger operationIds and are NOT always the obvious
+word. **Before running a `fj api` endpoint, grep the listing for the keyword** so
+you use the real name:
 
 ```bash
-fj api                                   # lists the service groups
-fj api repo                              # lists all repo endpoints (265)
-fj api repo issue-get-milestones-list --help    # shows --owner/--repo/--state/--page…
+fj api repo                              # lists all repo endpoints with descriptions
+fj api repo | grep -i wiki               # → get-wiki-pages, get-wiki-page, create-wiki-page…
+fj api repo | grep -i milestone          # → issue-create-milestone, issue-get-milestone…
+fj api repo | grep -iE 'branch|status'   # find branch / commit-status endpoints
+```
+
+If a `fj api repo <guess>` call returns **empty stdout**, you used a wrong
+subcommand name — cobra couldn't match it, treated your flags as belonging to the
+parent, and printed `Error: unknown flag: --owner` to **stderr** (so stdout looks
+empty). Grep the listing for the real name and retry.
+
+```bash
+fj api repo get-wiki-pages --owner tibrez --repo rhesadox -H git.rezus.cloud
+fj api repo issue-get-milestones-list --owner tibrez --repo rhesadox -H git.rezus.cloud
+fj api repo get --owner tibrez --repo rhesadox -H git.rezus.cloud   # view a repo
+fj api repo issue-edit-milestone --owner tibrez --repo rhesadox --id 12 \
+     --body '{"title":"v2","state":"closed"}' -H git.rezus.cloud
 ```
 
 Prefer the top-level polished commands where they exist (human-readable output);
-reach for `fj api` only for gaps.
+reach for `fj api` only for gaps. Each endpoint takes `--help` showing its flags.
+
+> **Naming history:** `fj` ≤ 16.0.2-rezuscloud.2 carried a redundant `repo-`
+> prefix on 159 repo endpoints (`repo-get-wiki-pages`, `repo-get`…). Build
+> `21fb276+` (16.0.2-rezuscloud.3) strips it. The `grep` discovery rule above is
+> correct for **both** versions — it always shows the names your binary accepts.
 
 ## Other discovery
 
@@ -199,6 +224,11 @@ fj version --client                             # client/api version (no server 
 
 - **Default host is `github.com`.** Without `-H` (and outside a git repo), `fj`
   targets github.com → `not logged in to github.com`. Always pass `-H <host>`.
+- **`fj api <guess>` returns empty stdout on a wrong name.** Cobra can't match the
+  subcommand, so it reports `unknown flag: --owner` to **stderr** and stdout is
+  empty. The `fj api` endpoints also **require `-H`** (`--host is required`) and
+  **require path flags** (`required flag(s) "owner", "repo" not set`). Always
+  `fj api <svc> | grep <keyword>` for the real name first.
 - **`fj issue view <N>` shows the body only.** Add `-c/--comments` for the thread.
 - **`issue`/`pr` list output uses the repo `Number`** (the `#1330` in the URL), not
   the internal DB id — pass that number to `view`/`comment`/`close`/`merge`.
