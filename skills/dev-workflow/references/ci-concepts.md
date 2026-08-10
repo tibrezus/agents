@@ -19,14 +19,23 @@ duplicated here:
 
 A build that compiles is necessary but not sufficient. CI is the gate where a
 change proves its behavior survives the project's full, environment-stable
-suite. The rule the gate enforces:
+suite. Two rules govern it:
 
 > A test that is not executed by CI does not protect the change. The next
 > contributor's laptop is not CI.
 
+> CI instrumentation is cumulative — it evolves with the project. The local
+> test command and the CI command are the same thing: run the project's own
+> runner (`make test`, `npm test`, `scripts/test`) locally, never a throwaway
+> script. Every test, lint check, or harness written for a change is wired
+> into CI and stays there. A one-off script that is deleted after local
+> verification leaves CI frozen while the code moves forward — it looks like
+> coverage but protects nothing.
+
 CI is authoritative; the local run is a fast feedback loop. Both matter, in
-that order: iterate locally (`dw_run_tests`), then let CI confirm on a clean
-runner.
+that order: iterate locally with the **project's own tooling** (not a parallel
+script), then let CI confirm on a clean runner. The local loop is only valid
+when it runs the same suite CI does — otherwise it lies.
 
 ### 1.1 Test policy (mandatory by default)
 
@@ -42,7 +51,10 @@ A change is **not covered** if:
 - it touches an integration-tested path but does not extend the integration
   test; or
 - its tests exist locally but are not wired into CI (e.g. a new test file CI
-  doesn't discover, a `*.skip`, an excluded directory).
+  doesn't discover, a `*.skip`, an excluded directory); or
+- **its validation was a throwaway script** — a one-off `test_my_change.sh`
+  that ran once locally and was deleted. If it wasn't wired into CI, it
+  protected nothing, and CI stayed frozen while the code moved on.
 
 ### 1.2 Writing the tests
 
@@ -249,7 +261,11 @@ If unset, treat the project as `strict`.
 ## 3. Wiring tests into CI (so the gate is real)
 
 The local `dw_run_tests` mirror and the CI pipeline must run the **same**
-ssuite, or the local loop lies.
+suite, or the local loop lies. There is no "my local test" vs "CI's test" —
+there is one suite. If you find yourself writing a script to validate your
+change that is not part of the project's test infrastructure, stop: extend
+the existing suite with your test, or wire your tool into CI. A script that
+runs once and is deleted is the anti-pattern this gate exists to kill.
 
 ### How the test command is resolved
 

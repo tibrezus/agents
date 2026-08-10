@@ -66,10 +66,12 @@ independently falsifiable.
    the PR must explain why reuse is not possible.
 
 6. **Change covered by tests** — unit tests for every behavior added or
-   altered (fast tier). Extend the integration suite where one exists.
+   altered (fast tier). Extend the integration suite where one exists. Every
+   test and tool you write is **wired into CI** — never a throwaway script
+   (run the project's own runner locally, not a one-off you'll delete).
    **If the change introduces a measurement relevant over time** (benchmark,
    perf trace, A/B comparison, quality eval), wire it into CI as a reusable
-   slow-tier job — never leave it as an ad-hoc script. For `SAFETY_LEVEL:
+   slow-tier job. For `SAFETY_LEVEL:
    mcdc` projects, also achieve MC/DC for every boolean decision in the
    changed code (see [CI discipline](#continuous-integration-discipline) and
    [`references/mcdc.md`](references/mcdc.md)).
@@ -123,13 +125,21 @@ the architecture did not ask for. Depth on both — what counts as coupling, how
 to detect it, how to wire tests into CI — lives in
 [`references/ci-concepts.md`](references/ci-concepts.md).
 
+**CI instrumentation evolves with the project — there is no throwaway test.**
+The local test command and the CI command are one and the same: run the
+project's own runner (`make test`, `npm test`, `scripts/test` — whatever CI
+runs), never a one-off script you delete after verifying. Every test, lint
+check, or harness you write for a change is wired into CI and stays there —
+extend the existing suite, don't create a parallel path. A throwaway script
+leaves CI frozen while the code moves on; the next regression walks straight
+past it. Depth: [`references/ci-concepts.md`](references/ci-concepts.md) §1.1.
+
 **Tests run in CI, on the right tier.** Unit tests are mandatory for every
 behavior added or altered (fast tier, every push). Extend the integration
 suite where one exists; if none exists, surface the gap — don't invent one
 unprompted. Performance benchmarks, integration A/B, and long evaluations go
-in the slow tier (pre-merge or `workflow_dispatch`). Tests that only run
-locally are dead weight; tooling added in a PR must be wired into the matching
-tier. *How* to write tests is the `tdd` skill's job. Depth:
+in the slow tier (pre-merge or `workflow_dispatch`). *How* to write tests is
+the `tdd` skill's job. Depth:
 [`references/ci-concepts.md`](references/ci-concepts.md).
 
 **Measurements that matter over time are CI artifacts.** A benchmark, A/B
@@ -241,7 +251,8 @@ source "$(dirname "$(readlink -f "$0")")/scripts/host.sh"   # or source the abso
    default branch). Ask: "can this be simpler?" Remove dead code, collapse
    redundant abstractions, eliminate speculative generality. If you change
    code, re-verify locally before proceeding. (Gate 8; hard rule 5.)
-7. **Verify locally, then push and open the PR** (run the same suite CI will):
+7. **Verify locally, then push and open the PR** (run the project's own test
+   runner — the same suite CI runs, never a throwaway script):
    ```bash
    dw_run_tests || { echo "local tests red — fix before pushing"; exit 1; }
    git push -u origin "$BRANCH"

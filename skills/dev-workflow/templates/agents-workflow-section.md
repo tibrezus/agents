@@ -30,6 +30,12 @@ gates hold for every change:
   the change adds or alters. If the project already has an integration-test
   suite, the change **extends** it for the paths it touches (never shrinks it).
   Tests must run in CI, not only locally. Load the `tdd` skill to write them.
+- **CI instrumentation evolves with the project.** Run the project's own test
+  runner locally — the same command CI runs (`make test`, `npm test`,
+  `scripts/test`) — never a throwaway script you delete after verifying. Every
+  test, lint check, or harness you write for a change is wired into CI and
+  stays there: extend the existing suite, don't create a parallel one. A
+  throwaway script leaves CI frozen while the code moves on.
 - **No undocumented coupling.** Avoid coupling between components unless it is
   part of the intended architecture. If coupling is unavoidable and not part
   of the documented design, record it in the wiki (`/skill:llm-wiki`) **before**
