@@ -42,7 +42,7 @@ workflow from parts — you pick a gate, and the gate dictates the plugins.
 | Gate | Purpose | Prepare | Deploy |
 |------|---------|---------|--------|
 | `wiki-lint` | Documentation sync (code → C4 docs → wiki) | `rig-emit` | `git-push` |
-| `review-validate` | PR review (fetch → agent → validate → post) | `pr-fetch` | `post-review` |
+| `pr-review` | PR review (fetch → agent → validate → post) | `pr-fetch` | `post-review` |
 | `fork-maintenance` | Fork maintenance (sync → resolve → build → deploy) | `merge-sync` | `fork-merge-deploy` |
 | `noop` | Passthrough (deterministic only, no LLM) | `rig-emit` | `git-push` |
 
@@ -134,7 +134,7 @@ Key properties:
 
 - **`dev-workflow`** — governs changes to the harmostes codebase itself (issue → branch → PR)
 - **`wiki`** (llm-wiki skill) — the wiki workflows use this skill to sync docs
-- **`pr-review`** — the review-validate workflows use this skill to review PRs
+- **`pr-review`** — the pr-review workflows use this skill to review PRs
 - **`fork-maintenance`** — the fork-maintenance workflows use this skill to maintain forks
 
 ## See Also
