@@ -32,12 +32,12 @@ gates hold for every change:
   Tests must run in CI, not only locally. Load the `tdd` skill to write them.
 - **CI instrumentation evolves with the project.** Run the project's own test
   runner locally — the same command CI runs (`make test`, `npm test`,
-  `scripts/test`) — never a throwaway script in `/tmp` you delete after
-  verifying. **Before writing any test, benchmark, or tool, check the project's
-  existing tooling folder** (`scripts/`, `tools/`, `bench/`) and extend it;
-  new tools live in the project, wired into CI, not in `/tmp`. Every test, lint
-  check, or harness is wired into CI and stays there: extend the existing
-  suite, don't create a parallel one.
+  `scripts/test`) — never a throwaway script you discard after verifying.
+  **Before writing any test, benchmark, or tool, check the project's existing
+  tooling folder** (`scripts/`, `tools/`, `bench/`) and extend it; new tools
+  are consolidated in the project and wired into CI. Every test, lint check,
+  or harness is wired into CI and stays there: extend the existing suite,
+  don't create a parallel one.
 - **No undocumented coupling.** Avoid coupling between components unless it is
   part of the intended architecture. If coupling is unavoidable and not part
   of the documented design, record it in the wiki (`/skill:llm-wiki`) **before**
