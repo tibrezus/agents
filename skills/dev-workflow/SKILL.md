@@ -55,38 +55,26 @@ independently falsifiable.
 4. **Milestone assigned** — the issue is associated with a milestone (current
    by convention, or per the project config).
 5. **Change made on the branch** — commits reference the issue
-   (`Refs #<n>` / `Fixes #<n>`). The implementation is **optimal**: it
-   addresses the root cause, uses the right abstraction, and follows the
-   language's idioms. **No workarounds at any level** — in code, tests, CI,
-   tooling, or configuration (see [hard rule 5](#hard-rules)). **No
-   unnecessary duplication** — before writing a new function/type, verify it
-   does not already exist in model.c4's `// Exports:` lines. Extend existing
-   code when possible; only create new code when no existing export can be
-   extended. If you create a near-duplicate,
-   the PR must explain why reuse is not possible.
+   (`Refs #<n>` / `Fixes #<n>`). The implementation is **optimal** (hard
+   rule 5): root cause, right abstraction, no workarounds. **No unnecessary
+   duplication** — before writing a new function/type, check model.c4's
+   `// Exports:` lines; extend what exists, and justify a near-duplicate on
+   the PR if reuse is impossible.
 
 6. **Change covered by tests** — unit tests for every behavior added or
-   altered (fast tier). Extend the integration suite where one exists. Every
-   test and tool you write is **wired into CI** — never a throwaway script
-   (run the project's own runner locally, not a one-off you'll delete).
-   **If the change introduces a measurement relevant over time** (benchmark,
-   perf trace, A/B comparison, quality eval), wire it into CI as a reusable
-   slow-tier job. For `SAFETY_LEVEL:
-   mcdc` projects, also achieve MC/DC for every boolean decision in the
-   changed code (see [CI discipline](#continuous-integration-discipline) and
-   [`references/mcdc.md`](references/mcdc.md)).
+   altered (fast tier); extend the integration suite where one exists. Every
+   test and tool is **wired into CI** — never a throwaway script (see [CI
+   discipline](#continuous-integration-discipline)). For
+   `SAFETY_LEVEL: mcdc` projects, also achieve MC/DC
+   ([`references/mcdc.md`](references/mcdc.md)).
 7. **No undocumented coupling** — any coupling the change introduces between
    components is part of the intended architecture; if it is not, record it in
    the wiki (`/skill:llm-wiki`) **before** the PR merges.
-8. **Simplification pass** — step back from the implementation and ask: "can
-   this be simpler?" Re-read the full diff. Look for dead code, redundant
-   abstractions (interfaces with one implementation, wrappers that add
-   nothing), speculative generality ("we might need this later"), logic that
-   can be collapsed or inlined, and unnecessary indirection. **If a simpler
-   alternative exists, iterate on it now** — a complex implementation is not
-   optimal when a simpler one is available (hard rule 5). This pass runs
-   **before pushing to CI** (don't waste a CI cycle on over-engineered code)
-   and is re-checked **before merging** (the definitive deadline).
+8. **Simplification pass** — re-read the full diff and ask "can this be
+   simpler?" Remove dead code, redundant abstractions, speculative
+   generality. A complex implementation is not optimal when a simpler one
+   exists (hard rule 5). Runs **before pushing to CI** and is re-checked
+   **before merging**.
 9. **PR open** against the default branch.
 10. **CI green** — both tiers pass (fast: every push; slow: pre-merge or
     manual). Red is fixed on the branch, never merged red.
@@ -126,31 +114,17 @@ to detect it, how to wire tests into CI — lives in
 [`references/ci-concepts.md`](references/ci-concepts.md).
 
 **CI instrumentation evolves with the project — there is no throwaway test.**
-The local test command and the CI command are one and the same: run the
-project's own runner (`make test`, `npm test`, `scripts/test` — whatever CI
-runs), never a one-off script in `/tmp` you delete after verifying. **Before
-writing any test, benchmark, A/B, or measurement tool, check the project's
-existing tooling folder** (`scripts/`, `tools/`, `bench/`) and extend it;
-new tools live in the project, wired into CI, not in `/tmp` — unless you
-explicitly decide a tool is a one-off diagnostic and note that on the issue.
-A throwaway script leaves CI frozen while the code moves on; the next
-regression walks straight past it. Depth:
-[`references/ci-concepts.md`](references/ci-concepts.md) §1.1.
-
-**Tests run in CI, on the right tier.** Unit tests are mandatory for every
-behavior added or altered (fast tier, every push). Extend the integration
-suite where one exists; if none exists, surface the gap — don't invent one
-unprompted. Performance benchmarks, integration A/B, and long evaluations go
-in the slow tier (pre-merge or `workflow_dispatch`). *How* to write tests is
-the `tdd` skill's job. Depth:
-[`references/ci-concepts.md`](references/ci-concepts.md).
-
-**Measurements that matter over time are CI artifacts.** A benchmark, A/B
-comparison, or quality eval whose value is in comparing across runs belongs in
-the slow tier — wired, reusable, deterministic — not as an ad-hoc script.
-Reusability is the constraint that keeps CI lean: one harness, many
-invocations (composite actions, reusable workflows), never copy-pasted jobs.
-Depth: [`references/ci-concepts.md`](references/ci-concepts.md) §1.4.
+Run the project's own runner locally (`make test`, `npm test`, `scripts/test`
+— whatever CI runs), never a one-off script in `/tmp`. **Before writing any
+test, benchmark, A/B, or measurement tool, check the project's existing
+tooling folder** (`scripts/`, `tools/`, `bench/`) and extend it; new tools
+live in the project, wired into CI, not in `/tmp` — unless you explicitly
+decide a tool is a one-off diagnostic and note that on the issue. Unit tests
+are mandatory (fast tier, every push); benchmarks and long evaluations go in
+the slow tier (pre-merge or `workflow_dispatch`) as reusable jobs, not ad-hoc
+scripts. A throwaway script leaves CI frozen while the code moves on; the
+next regression walks straight past it. Depth:
+[`references/ci-concepts.md`](references/ci-concepts.md) §1.
 
 **Safety-critical boolean logic requires MC/DC.** When the project declares
 `SAFETY_LEVEL: mcdc`, every boolean decision in changed code must achieve
@@ -245,20 +219,16 @@ source "$(dirname "$(readlink -f "$0")")/scripts/host.sh"   # or source the abso
    M=$(dw_resolve_milestone current)        # → "<id>:<title>"
    dw_set_milestone "$ISSUE" "${M%%:*}"
    ```
-5. **Make the change** on the branch, **including its tests** (unit mandatory;
-   extend integration tests if a suite exists — see [CI discipline](#continuous-integration-discipline)).
-   **Before writing any test, benchmark, or tool, check the project's existing
-   tooling folder** (`scripts/`, `tools/`, `bench/`) and extend it — new tools
-   live in the project, wired into CI, not in `/tmp`. If the change introduces
-   coupling that is not part of the documented design,
-   document it in the wiki now (`/skill:llm-wiki`) — before the PR. Commit with
-   `Refs #$ISSUE` (or `Fixes #$ISSUE`).
+5. **Make the change** on the branch, **including its tests** — extend the
+   project's existing tooling, don't create throwaway scripts in `/tmp`
+   (see [CI discipline](#continuous-integration-discipline)). If the change
+   introduces coupling not part of the documented design, document it in the
+   wiki now (`/skill:llm-wiki`). Commit with `Refs #$ISSUE`.
 6. **Simplification pass** — re-read the full diff (`git diff` against the
    default branch). Ask: "can this be simpler?" Remove dead code, collapse
    redundant abstractions, eliminate speculative generality. If you change
    code, re-verify locally before proceeding. (Gate 8; hard rule 5.)
-7. **Verify locally, then push and open the PR** (run the project's own test
-   runner — the same suite CI runs, never a throwaway script):
+7. **Verify locally, then push and open the PR:**
    ```bash
    dw_run_tests || { echo "local tests red — fix before pushing"; exit 1; }
    git push -u origin "$BRANCH"
