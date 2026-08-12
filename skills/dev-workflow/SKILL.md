@@ -128,11 +128,14 @@ to detect it, how to wire tests into CI — lives in
 **CI instrumentation evolves with the project — there is no throwaway test.**
 The local test command and the CI command are one and the same: run the
 project's own runner (`make test`, `npm test`, `scripts/test` — whatever CI
-runs), never a one-off script you delete after verifying. Every test, lint
-check, or harness you write for a change is wired into CI and stays there —
-extend the existing suite, don't create a parallel path. A throwaway script
-leaves CI frozen while the code moves on; the next regression walks straight
-past it. Depth: [`references/ci-concepts.md`](references/ci-concepts.md) §1.1.
+runs), never a one-off script in `/tmp` you delete after verifying. **Before
+writing any test, benchmark, A/B, or measurement tool, check the project's
+existing tooling folder** (`scripts/`, `tools/`, `bench/`) and extend it;
+new tools live in the project, wired into CI, not in `/tmp` — unless you
+explicitly decide a tool is a one-off diagnostic and note that on the issue.
+A throwaway script leaves CI frozen while the code moves on; the next
+regression walks straight past it. Depth:
+[`references/ci-concepts.md`](references/ci-concepts.md) §1.1.
 
 **Tests run in CI, on the right tier.** Unit tests are mandatory for every
 behavior added or altered (fast tier, every push). Extend the integration
@@ -244,7 +247,10 @@ source "$(dirname "$(readlink -f "$0")")/scripts/host.sh"   # or source the abso
    ```
 5. **Make the change** on the branch, **including its tests** (unit mandatory;
    extend integration tests if a suite exists — see [CI discipline](#continuous-integration-discipline)).
-   If the change introduces coupling that is not part of the documented design,
+   **Before writing any test, benchmark, or tool, check the project's existing
+   tooling folder** (`scripts/`, `tools/`, `bench/`) and extend it — new tools
+   live in the project, wired into CI, not in `/tmp`. If the change introduces
+   coupling that is not part of the documented design,
    document it in the wiki now (`/skill:llm-wiki`) — before the PR. Commit with
    `Refs #$ISSUE` (or `Fixes #$ISSUE`).
 6. **Simplification pass** — re-read the full diff (`git diff` against the
