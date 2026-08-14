@@ -107,12 +107,32 @@ These assume the reference implementation in `platform/fork-maintenance/` of the
 ### Sync one fork now (manual)
 
 ```bash
-# Run the sync engine for one fork, locally or via a one-off Job from the CronJob
-FORK_NAME=<fork> bash scripts/sync-fork.sh <fork>
-# exit 0 = up to date or PR opened (auto-merged if auto.merge); 2 = conflict; 3 = push failure
+# Run the sync engine for one fork, locally or via a one-off Job
+FORK_NAME=<fork> bash scripts/sync-fork.sh <fork>          # all phases (legacy single-shot)
+FORK_NAME=<fork> bash scripts/sync-fork.sh <fork> <phase> # one phase (see below)
+# all-mode exit codes: 0 = up to date or PR opened (auto-merged if auto.merge); 2 = conflict; 3 = push failure
 ```
 
-To trigger in-cluster from the CronJob template, extract its `jobTemplate` into a `Job` and set `FORK_NAME=<fork>`. Follow logs with `kubectl logs -n fork-maintenance job/<name> -f`.
+**Phase mode (graph-native workflows).** The engine is phase-addressable —
+`merge | hook | gates | validate | pr | tag` — and graph-native fork-maintenance
+workflows run each phase as its own harmostes node (`plugin fork-sync <fork>
+<phase>`). Phases share the clone via `HARMOSTES_WORKDIR/fork-<name>` and pass
+state through `.git/harmostes-state.env`. Phase semantics:
+
+| Phase | green | red |
+|---|---|---|
+| `merge` | `changed:true` merged / `changed:false` no-op (node skipped) | exit 2 conflict → `when:failed` edge → external resolver node |
+| `hook` | codegen complete | failed node |
+| `gates` | divergence + patches intact | pushes needs-fix PR, then fails honestly |
+| `validate` | declared checks green | failed node |
+| `pr` | `changed:true` merged / `changed:false` left for review | push failure |
+| `tag` | machine-cuts `v<upstream>-rezus.<N+1>` (version from the upstream host; `describe` output must be pure `vX.Y.Z`) | no release |
+
+Phased `merge` reads the **local mirror branch** (the alias remote), never the
+upstream host — the mirror action + webhook are the only upstream conduit.
+
+To trigger in-cluster, annotate the Workflow (`harmostes.dev/trigger-revision`)
+or push to the fork's mirror branch; watch nodes in the UI (Map/Attempts).
 
 ### Validate a fork locally (the same engine the CronJob uses)
 
