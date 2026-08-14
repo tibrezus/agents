@@ -92,7 +92,7 @@ echo ""
 echo "=== Merging upstream/$UPSTREAM_BRANCH into $SYNC_BRANCH ==="
 NEEDS_LLM=0
 if ! git merge --no-ff --no-edit \
-     -m "sync: merge upstream ${UPSTREAM_BRANCH} into ${FORK_DEFAULT_BRANCH} (${SYNC_DATE})" \
+     -m "RZ/sync: merge upstream ${UPSTREAM_BRANCH} into ${FORK_DEFAULT_BRANCH} (${SYNC_DATE})" \
      "upstream/${UPSTREAM_BRANCH}"; then
   NEEDS_LLM=1
   echo "  merge stopped on a conflict — harmostes will drive it"
@@ -174,7 +174,7 @@ echo ""
 echo "=== Conflicts resolved — opening PR + triggering merge ==="
 host_label_create "auto-merge" 0E8A16 2>/dev/null || true
 PR_URL=$(host_pr_create "$FORK_DEFAULT_BRANCH" "$SYNC_BRANCH" \
-  "sync: $FORK_NAME — merge conflicts resolved by agent ($SYNC_DATE)" \
+  "RZ/resolve: $FORK_NAME — merge conflicts resolved by agent ($SYNC_DATE)" \
   "Upstream merge conflicts (localized 3-way regions) resolved via harmostes (pi RPC + skill + wiki intent + gate-feedback loop)." \
   "auto-merge" 2>/dev/null || echo "")
 echo "  PR: ${PR_URL:-<none>}"
