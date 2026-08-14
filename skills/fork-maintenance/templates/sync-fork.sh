@@ -70,7 +70,7 @@ emit_conflict_event() {
   mkdir -p "$MAINT_DIR/manifests" 2>/dev/null || true
   echo "$payload" > "$MAINT_DIR/manifests/${FORK_NAME}-needs-fix.json"
   # Direct HTTP delivery to the resolver (replaces Dapr pub/sub — see header).
-  RESOLVER_URL="${RESOLVER_URL:-http://fork-conflict-resolver.fork-maintenance.svc.cluster.local/events}"   # Service port 80 → targetPort http(8080)
+  RESOLVER_URL="${RESOLVER_URL:-http://fork-conflict-resolver.harmostes.svc.cluster.local/events}"   # Service port 80 → targetPort http(8080)
   ce=$(echo "$payload" | jq -c '{source:"fork-sync", type:"fork.conflict.needs-resolution", data:.}')
   delivered=false
   for attempt in 1 2 3 4 5; do
@@ -180,7 +180,7 @@ git checkout -b "$SYNC_BRANCH" "$FORK_DEFAULT_BRANCH"
 
 # --no-ff guarantees an explicit, auditable merge commit (revertible via -m 1).
 if ! git merge --no-ff --no-edit \
-     -m "sync: merge upstream ${UPSTREAM_BRANCH} into ${FORK_DEFAULT_BRANCH} (${SYNC_DATE})" \
+     -m "RZ/sync: merge upstream ${UPSTREAM_BRANCH} into ${FORK_DEFAULT_BRANCH} (${SYNC_DATE})" \
      "upstream/${UPSTREAM_BRANCH}"; then
   # The merge stopped on conflicts (localized 3-way regions). Conclude it WITH
   # markers on the sync branch, open a needs-conflict-resolution PR for the LLM
@@ -345,6 +345,7 @@ echo "Patch status: $PATCH_STATUS"
 # 7. Generate manifest (diff-based — for audit)
 # =============================================================================
 MANIFEST_FILE="$MAINT_DIR/manifests/${FORK_NAME}-rezus.yaml"
+mkdir -p "$MAINT_DIR/manifests"
 if [ -f "$MAINT_DIR/scripts/generate-manifest.sh" ]; then
   echo ""
   echo "=== Generating divergence manifest ==="
@@ -370,7 +371,7 @@ git push --quiet origin "$SYNC_BRANCH" 2>&1 || {
 UPSTREAM_TAG=$(git describe --tags --abbrev=0 "upstream/$UPSTREAM_BRANCH" 2>/dev/null || echo "HEAD")
 UPSTREAM_COMMITS_RANGE="${MERGE_BASE:0:8}..${UPSTREAM_HEAD:0:8}"
 
-PR_TITLE="sync: merge upstream ${UPSTREAM_BRANCH} (${SYNC_DATE})"
+PR_TITLE="RZ/sync: merge upstream ${UPSTREAM_BRANCH} (${SYNC_DATE})"
 PR_LABEL="auto-merge"
 if [ "$PATCH_STATUS" = "needs-review" ]; then
   PR_LABEL="needs-conflict-resolution"
@@ -491,3 +492,8 @@ echo "  Label: $PR_LABEL"
 echo "  Patch status: $PATCH_STATUS"
 echo "  Divergence: $(if $DIVERGENCE_FAILED; then echo '❌ LOST (needs-fix)'; else echo '✅ intact'; fi)"
 [ -n "$RELEASE_TAG" ] && echo "  Released tag: $RELEASE_TAG (image build triggered)"
+
+# Exit 0 explicitly: with set -e, a bare `[ -n "" ] && ...` as the final
+# statement returns 1, which made every successful sync (auto.release: false
+# → empty RELEASE_TAG) report "sync failed (exit 1)" despite a merged PR.
+exit 0
