@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
 # =============================================================================
-# backport.sh — agent-driven upstream backports (the Codeberg CB/bp: model)
+# backport.sh — agent-driven upstream backports
 # =============================================================================
-# Codeberg's maintainers cherry-pick critical upstream fixes (security, data
-# integrity) onto their release branch BEFORE upstream cuts the next patch
-# release, prefixing each commit with "CB/bp:". This script replicates that
-# procedure as a deterministic engine pass; the pi agent covers the conflict
-# case (same escalation contract as sync-fork.sh).
+# Cherry-picks critical upstream fixes (security, data integrity) onto the
+# release branch ahead of the next upstream patch release, with RZ/bp:
+# provenance, through the same gate chain as a sync; the pi agent covers the
+# conflict case (same escalation contract as sync-fork.sh).
 #
 # Every backport lands through the SAME gate chain as a sync:
 #   cherry-pick (-x) → subject rewritten to "RZ/bp: <original>" →
@@ -74,7 +73,7 @@ git checkout --quiet -b "$BP_BRANCH" "origin/$FORK_DEFAULT_BRANCH"
 
 # ── 3. Cherry-pick with the RZ/bp: convention ───────────────────────────────
 # -x records "(cherry picked from commit <sha>)" — the standard backport
-# provenance line; the subject gets the RZ/bp: prefix (Codeberg's CB/bp:).
+# provenance line; the subject gets the RZ/bp: prefix.
 PICKED=()
 for SHA in "$@"; do
   SUBJECT=$(git log -1 --format='%s' "$SHA")
@@ -137,7 +136,7 @@ git push --quiet origin "$BP_BRANCH" 2>&1 || { echo "ERROR: push failed" >&2; ex
 
 echo "=== Opening PR ==="
 host_label_create "auto-merge" 0E8A16 2>/dev/null || true
-PR_BODY="Backport of ${#PICKED[@]} upstream commit(s) onto \`${FORK_DEFAULT_BRANCH}\` (Codeberg \`CB/bp:\` model, \`RZ/bp:\` convention).
+PR_BODY="Backport of ${#PICKED[@]} upstream commit(s) onto \`${FORK_DEFAULT_BRANCH}\` (RZ/bp: convention).
 
 $(printf '%s\n' "${PICKED[@]}" | sed 's/^/- `/;s/$/`/')
 

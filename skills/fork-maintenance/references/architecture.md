@@ -106,7 +106,7 @@ Track the upstream **release/maintenance branch** (e.g. `v16.0/forgejo`), not de
 
 ## Sync model: merge, not replay
 
-The engine **merges** the upstream release branch into the fork's release branch (off a `rezus/sync-<date>` branch that PRs back). It does **not** cherry-pick / replay customizations onto a fresh upstream. This is the Codeberg model and it is the right substrate for an LLM maintainer:
+The engine **merges** the upstream release branch into the fork's release branch (off a `rezus/sync-<date>` branch that PRs back). It does **not** cherry-pick / replay customizations onto a fresh upstream. This is the right substrate for an LLM maintainer:
 
 | Property | Merge (this design) | Replay / cherry-pick |
 |---|---|---|
