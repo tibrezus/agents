@@ -29,26 +29,24 @@ Every fork has exactly two branches (per major — see below):
 
 There is no third branch. You never commit to the release branch directly.
 
-**Branch-per-major, exactly as Codeberg does it** (they run `codeberg-16`, `codeberg-15`, …): the release branch is named for the upstream major it tracks (`rezus/forgejo-16`), and each major gets its own release line synced independently — a bad sync on the staging major cannot touch production. A new upstream major spawns a NEW branch; it never rebases the old one (see [Major-version transition](#agent-interventions-what-humans-do-at-codeberg) below).
+**Branch-per-major:** the release branch is named for the upstream major it tracks (`rezus/forgejo-16`), and each major gets its own release line synced independently — a bad sync on the staging major cannot touch production. A new upstream major spawns a NEW branch; it never rebases the old one (see [Major-version transition](#agent-interventions) below).
 
-## Version identity (the Codeberg model)
+## Version identity (upstream-identity versioning)
 
 **The fork mints no version of its own. Identity is the upstream version; everything else is provenance.**
 
 - **The binary reports the upstream version** it is based on (`16.0.2`), never a fork-branded one. There are no hand-edited version files, no hand-bumped build counters, no `16.0.2-rezuscloud.3`.
-- **`v*-rezus.N` tags are release TRIGGERS, not identities.** The sync engine's auto-release cuts them machine-computed (`<upstream-ver>-rezus.<N+1>` from `git describe`). The release workflow derives everything from the tag: identity `16.0.2`, provenance `+rezus.N` (semver *build metadata* — the `+gitea-1.22.0` trick: ignored for precedence and identity), docker-hyphen-encoded `16.0.2-rezus.N` (docker forbids `+`), plus a fingerprint tag `16.0.2-rezus.N-<shortsha>`.
+- **`v*-rezus.N` tags are release TRIGGERS, not identities.** The sync engine's auto-release cuts them machine-computed (`<upstream-ver>-rezus.<N+1>` from `git describe`). The release workflow derives everything from the tag: identity `16.0.2`, provenance `+rezus.N` (semver *build metadata* — ignored for precedence and identity), docker-hyphen-encoded `16.0.2-rezus.N` (docker forbids `+`), plus a fingerprint tag `16.0.2-rezus.N-<shortsha>`.
 - **"What's different vs upstream?" is answered by provenance, not version**: `git log v16.0.2..rezus/forgejo-16 --grep '^RZ/'` (see the commit convention below) plus the structural tools (additive paths, patch signatures).
-
-Codeberg's own deployment is the reference: `codeberg-16` carries their customizations as plain commits, upstream tags stay reachable, the deployed binary says `16.0.2` — full stop. We replicate that, adding only what a fork that *publishes images* needs: machine-cut trigger tags and SHA fingerprints.
 
 ## Commit convention (RZ/)
 
-Every commit the maintenance system (or its agents) creates on a release branch carries an `RZ/` subject prefix — the analogue of Codeberg's `CB/` prefixes:
+Every commit the maintenance system (or its agents) creates on a release branch carries an `RZ/` subject prefix:
 
 | Prefix | Who | Meaning |
 |--------|-----|---------|
 | `RZ/sync:` | sync engine | an upstream merge appended to the release line |
-| `RZ/bp:` | `backport.sh` / agent | an upstream commit cherry-picked ahead of the next upstream release (Codeberg's `CB/bp:`) — carries `(cherry picked from commit …)` |
+| `RZ/bp:` | `backport.sh` / agent | an upstream commit cherry-picked ahead of the next upstream release — carries `(cherry picked from commit …)` |
 | `RZ/resolve:` | conflict-resolver agent | conflict resolution on a sync/backport branch |
 | `RZ/feat:` / `RZ/fix:` | humans | new fork customizations |
 
@@ -56,7 +54,7 @@ The convention applies to NEW commits (existing history is immutable — merge m
 
 ## Sync model: merge + an LLM maintainer
 
-The engine **merges** the upstream release branch into the fork's release branch — it does **not** cherry-pick / replay customizations onto a fresh upstream. This is the model Codeberg uses for their own Forgejo fork, and it is the correct substrate for an LLM doing the maintenance:
+The engine **merges** the upstream release branch into the fork's release branch — it does **not** cherry-pick / replay customizations onto a fresh upstream. This is the correct substrate for an LLM doing the maintenance:
 
 ```bash
 git checkout -b rezus/sync-<date> rezus/<default>   # branch off the release line
@@ -98,7 +96,7 @@ A sync PR may merge only after **all** gates pass, in order. Each gate is a sepa
 4. **Patch signatures intact** — every feature patch's grep-verifiable proof string is still present (a merge didn't silently drop it).
 5. **Validation passed** — the checks *this fork* declares (go_build / clean_tree / integration), built with the **fork's declared toolchain**, all green, run in a real toolchain.
 6. **(Agentic) conflict resolved & re-validated** — if a semantic conflict required agent resolution, the resolution itself was validated before the PR is marked auto-mergeable.
-7. **(Opt-in) Auto-merge + auto-release** — if all above pass *and* `auto.merge: true`, the engine merges the PR immediately; if `auto.release: true` it also cuts the next machine tag `<upstream-ver>-rezus.<N+1>` so the fork's tag-triggered workflow builds an image that Flux image automation deploys (identity = upstream version; see [Version identity](#version-identity-the-codeberg-model)).
+7. **(Opt-in) Auto-merge + auto-release** — if all above pass *and* `auto.merge: true`, the engine merges the PR immediately; if `auto.release: true` it also cuts the next machine tag `<upstream-ver>-rezus.<N+1>` so the fork's tag-triggered workflow builds an image that Flux image automation deploys (identity = upstream version; see [Version identity](#version-identity-upstream-identity-versioning)).
 
 **The single most important gotcha** (it has shipped broken branches in production): after a conflicted merge, the divergence-cleanup step does `git add -A`, which **clears git's unmerged-path state** (`git diff --diff-filter=U` finds nothing) but **leaves `<<<<<<<` / `=======` / `>>>>>>>` markers in the file content**. The index-based conflict check passes and a non-building branch gets pushed. `sync-fork.sh` therefore *also* `git grep`s for textual markers regardless of index state. This is gate 1.
 
@@ -160,8 +158,8 @@ so the whole loop is testable without a git host.
 
 ### Backport an upstream fix now (agent — `backport.sh`)
 
-What Codeberg humans do by hand (`CB/bp:` cherry-picks of security/integrity
-fixes ahead of the next upstream release) is a deterministic engine pass:
+Backporting critical upstream fixes (security/integrity) ahead of the next
+upstream release is a deterministic engine pass:
 
 ```bash
 FORK_NAME=<fork> bash scripts/backport.sh <fork> <upstream-sha> [<upstream-sha> …]
@@ -181,18 +179,18 @@ regions per [references/conflict-resolution.md](references/conflict-resolution.m
 rewords to `RZ/bp:`, re-runs the gates, and pushes (gate-as-proof, same as a
 sync conflict).
 
-### Agent interventions (what humans do at Codeberg)
+### Agent interventions
 
-Codeberg's humans do four interventions. In this system each has an automated
-or agent-driven equivalent — **the agent replaces the human, the gates replace
-peer review**:
+Upstream maintenance has four human touchpoints. In this system each has an
+automated or agent-driven equivalent — **the agent replaces the human, the gates
+replace peer review**:
 
-| Codeberg (human) | Here |
+| Human touchpoint | Here |
 |------------------|------|
 | Merge upstream regularly | Event-driven sync: mirror-branch push webhook → `sync-fork.sh` (no human) |
 | Resolve merge conflicts | `resolve-conflict.sh`: pi agent + skill + gate-feedback loop (no human) |
-| `CB/bp:` backports of critical fixes | `backport.sh` (deterministic; agent on conflict) |
-| Create `codeberg-17` when a major lands | **Major-version transition runbook** (agent, below) |
+| Backports of critical fixes | `backport.sh` (deterministic; agent on conflict) |
+| Start the next major's release line | **Major-version transition runbook** (agent, below) |
 
 **Major-version transition runbook** (agent-executable; every step must pass
 its gate before the next):
@@ -211,7 +209,7 @@ its gate before the next):
    (`upstream.branch`, `fork.default_branch`, `fork.mirror_branch`), the
    Workflow CR `source.branch` (webhook now fires on the v17 mirror), the
    GitHub default branch, and the deployed chart's image tag. Old majors keep
-   their release branches (Codeberg keeps `codeberg-15`) — they simply stop
+   their release branches — they simply stop
    being synced when the Workflow CR moves.
 5. **Prove.** One webhook-triggered sync on the new line must come back green
    and cut `v17.0.0-rezus.1` before the transition is declared done.
@@ -300,7 +298,7 @@ Sync is **automatic and regular**: a Flux `GitRepository` polls each upstream (e
 Depending on the fork's `auto:` settings, a green sync PR either:
 
 - **`auto.merge: false` (default)** — sits for human review/merge.
-- **`auto.merge: true`** — merges immediately, and with `auto.release: true` cuts the next machine tag `<upstream-ver>-rezus.<N+1>`. The release workflow derives the pure-upstream VERSION + `+rezus.N` provenance from the tag (identity = upstream, Codeberg model) and builds an image that Flux image automation can deploy. **Fully hands-off — no human ever types a version.**
+- **`auto.merge: true`** — merges immediately, and with `auto.release: true` cuts the next machine tag `<upstream-ver>-rezus.<N+1>`. The release workflow derives the pure-upstream VERSION + `+rezus.N` provenance from the tag (identity = upstream) and builds an image that Flux image automation can deploy. **Fully hands-off — no human ever types a version.**
 
 The release branch is touched *only* by a merged PR, so a broken sync can never deploy.
 

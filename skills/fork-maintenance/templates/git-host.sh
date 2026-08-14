@@ -123,7 +123,8 @@ host_label_create() {
 
   case "$platform" in
     github)
-      gh label create "$label" --repo "$FORK_URL" --color "$color" \
+      # --repo accepts OWNER/REPO; full git URLs are not reliably resolved.
+      gh label create "$label" --repo "$owner_repo" --color "$color" \
         --if-not-exists --quiet 2>/dev/null || true
       ;;
     forgejo)

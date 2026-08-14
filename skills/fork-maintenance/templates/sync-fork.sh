@@ -4,7 +4,7 @@
 # =============================================================================
 # Merges the upstream release branch INTO the fork's release branch (off a sync
 # branch → PR), runs post-merge hooks, verifies patches + divergence integrity,
-# validates, and opens a host-routed PR. Merge model (Codeberg-style): the fork's
+# validates, and opens a host-routed PR. Merge model: the fork's
 # release branch carries our customizations as immutable commits; each sync
 # appends an upstream merge, so custom SHAs never change (append-only, bisectable,
 # no replay/accumulation). Conflicts are localized 3-way regions — the ideal
@@ -159,8 +159,7 @@ bash "$DT" capture "$WORKDIR" "upstream/$UPSTREAM_BRANCH" "$FORK_DEFAULT_BRANCH"
 # Sync strategy — MERGE model (see references/architecture.md "Sync model"):
 # the fork's release branch already carries our customizations as immutable
 # commits (stable SHAs). Each sync appends an upstream merge ON TOP, exactly as a
-# human maintainer would `git merge upstream/<branch>`. This is the Codeberg model
-# and it is the correct substrate for an LLM maintainer:
+# human maintainer would `git merge upstream/<branch>` — the right substrate for an LLM maintainer:
 #   • conflicts are LOCALIZED 3-way regions (base / ours / theirs) where upstream
 #     AND our patch both changed since the merge-base — small, precise, reviewable;
 #   • a bad resolution is ONE revertible merge commit (`git revert -m 1`);
