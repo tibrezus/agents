@@ -116,14 +116,15 @@ to detect it, how to wire tests into CI — lives in
 **CI instrumentation evolves with the project — there is no throwaway test.**
 Run the project's own runner locally (`make test`, `npm test`, `scripts/test`
 — whatever CI runs), never a throwaway script you discard after verifying.
-**Before writing any test, benchmark, A/B, or measurement tool, check the
-project's existing tooling folder** (`scripts/`, `tools/`, `bench/`) and
-extend it; new tools are consolidated in the project and wired into CI —
-unless you explicitly decide a tool is a one-off diagnostic and note that on
-the issue. Unit tests are mandatory (fast tier, every push); benchmarks and
-long evaluations go in the slow tier (pre-merge or `workflow_dispatch`) as
-reusable jobs, not ad-hoc scripts. A throwaway script leaves CI frozen while
-the code moves on; the next regression walks straight past it. Depth:
+**Consolidation is the default practice: before creating any component — a
+tool, a CI job, a wiki page — quickly check that an equivalent doesn't
+already exist** (tooling folders: `scripts/`, `tools/`, `bench/`) and extend
+it; new tools are wired into CI — unless you explicitly decide a tool is a
+one-off diagnostic and note that on the issue. Unit tests are mandatory
+(fast tier, every push); benchmarks and long evaluations go in the slow tier
+(pre-merge or `workflow_dispatch`) as reusable jobs, not ad-hoc scripts. A
+throwaway script leaves CI frozen while the code moves on; the next
+regression walks straight past it. Depth:
 [`references/ci-concepts.md`](references/ci-concepts.md) §1.
 
 **Safety-critical boolean logic requires MC/DC.** When the project declares
@@ -219,11 +220,11 @@ source "$(dirname "$(readlink -f "$0")")/scripts/host.sh"   # or source the abso
    M=$(dw_resolve_milestone current)        # → "<id>:<title>"
    dw_set_milestone "$ISSUE" "${M%%:*}"
    ```
-5. **Make the change** on the branch, **including its tests** — extend the
-   project's existing tooling, don't create throwaway scripts
-   (see [CI discipline](#continuous-integration-discipline)). If the change
-   introduces coupling not part of the documented design, document it in the
-   wiki now (`/skill:llm-wiki`). Commit with `Refs #$ISSUE`.
+5. **Make the change** on the branch, **including its tests** — consolidate:
+   extend existing tooling, CI jobs, and wiki pages instead of creating
+   duplicates (see [CI discipline](#continuous-integration-discipline)). If
+   the change introduces coupling not part of the documented design, document
+   it in the wiki now (`/skill:llm-wiki`). Commit with `Refs #$ISSUE`.
 6. **Simplification pass** — re-read the full diff (`git diff` against the
    default branch). Ask: "can this be simpler?" Remove dead code, collapse
    redundant abstractions, eliminate speculative generality. If you change

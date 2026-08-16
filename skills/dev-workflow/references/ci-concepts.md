@@ -27,13 +27,13 @@ suite. Two rules govern it:
 > CI instrumentation is cumulative — it evolves with the project. The local
 > test command and the CI command are the same thing: run the project's own
 > runner (`make test`, `npm test`, `scripts/test`) locally, never a throwaway
-> script. Before writing any test, benchmark, A/B, or measurement tool, check
-> the project's existing tooling folder (`scripts/`, `tools/`, `bench/`) and
-> extend it. Every tool is consolidated in the project and wired into CI,
-> unless you explicitly decide it is a one-off diagnostic and say so on the
-> issue. A one-off script that is discarded after local verification leaves
-> CI frozen while the code moves forward — it looks like coverage but
-> protects nothing.
+> script. Consolidation is the default practice: before creating any component
+> — a tool, a CI job, a wiki page — quickly check that an equivalent doesn't
+> already exist (tooling folders: `scripts/`, `tools/`, `bench/`) and extend
+> it. New tools are wired into CI, unless you explicitly decide a tool is a
+> one-off diagnostic and say so on the issue. A one-off script that is
+> discarded after local verification leaves CI frozen while the code moves
+> forward — it looks like coverage but protects nothing.
 
 CI is authoritative; the local run is a fast feedback loop. Both matter, in
 that order: iterate locally with the **project's own tooling** (not a parallel

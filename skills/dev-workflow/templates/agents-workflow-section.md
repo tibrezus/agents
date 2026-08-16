@@ -33,11 +33,11 @@ gates hold for every change:
 - **CI instrumentation evolves with the project.** Run the project's own test
   runner locally — the same command CI runs (`make test`, `npm test`,
   `scripts/test`) — never a throwaway script you discard after verifying.
-  **Before writing any test, benchmark, or tool, check the project's existing
-  tooling folder** (`scripts/`, `tools/`, `bench/`) and extend it; new tools
-  are consolidated in the project and wired into CI. Every test, lint check,
-  or harness is wired into CI and stays there: extend the existing suite,
-  don't create a parallel one.
+  Consolidation is the default: before creating any component — a tool, a CI
+  job, a wiki page — quickly check that an equivalent doesn't already exist
+  (tooling folders: `scripts/`, `tools/`, `bench/`) and extend it; new tools
+  are wired into CI. Every test, lint check, or harness is wired into CI and
+  stays there: extend the existing suite, don't create a parallel one.
 - **No undocumented coupling.** Avoid coupling between components unless it is
   part of the intended architecture. If coupling is unavoidable and not part
   of the documented design, record it in the wiki (`/skill:llm-wiki`) **before**
