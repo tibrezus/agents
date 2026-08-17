@@ -31,6 +31,25 @@ There is no third branch. You never commit to the release branch directly.
 
 **Branch-per-major:** the release branch is named for the upstream major it tracks (`rezus/forgejo-16`), and each major gets its own release line synced independently — a bad sync on the staging major cannot touch production. A new upstream major spawns a NEW branch; it never rebases the old one (see [Major-version transition](#agent-interventions) below).
 
+## Release channels (continuous deployment)
+
+```
+stable:   rezus/forgejo-16 → v*-rezus.N tags → immutable artifacts (images/chart/CLI)
+dev:      push to rezus/forgejo-16 → dev-build.yml → 16.0.2-dev.NNNNNN + dev-16/dev
+          → ImagePolicy forgejo-dev → ImageUpdateAutomation → prod rolls continuously
+dev-next: rezus/forgejo-next (upstream main + delta, fork-maintenance-forgejo-next
+          workflow) → next.NNNNNN/next → forgejo-dev-next canary (major pre-flight)
+```
+
+Operating notes:
+- zero-padded run numbers = fixed-width lexical order; ImagePolicy
+  `alphabetical.order: asc` (empirically selects the GREATEST match — flux v2.6)
+- -16 dev images are multi-arch (prod = arm64 control-plane); -next = amd64 canary
+- dev builds are cache-less (cross-platform gha cache breaks arm64 go-generate)
+- chart for the canary: oci://ghcr.io/tibrezus/charts + ghcr-pull secret
+- dev-next never cuts tags; stable tag policy: only on upstream identity change
+  or RZ/fix commits (Phase 3 — engine change pending)
+
 ## Version identity (upstream-identity versioning)
 
 **The fork mints no version of its own. Identity is the upstream version; everything else is provenance.**
