@@ -19,9 +19,17 @@ workflows may have updated it since your last operation. Before any
 git pull --ff-only
 ```
 
-**Read the RIG first if it exists** (`raw/arch/<project>/rig.json`) — it's
-the fastest way to understand structure (1–15K tokens). If none, use the wiki
-directly. The routing table below shows the minimal source per need.
+**Query the RIG database first if it exists** (`raw/arch/<project>/rig.db`) —
+the fastest way to understand structure, at ~200 tokens per question instead
+of a 100K+-token JSON read. The CLI ships with the module submodule:
+```bash
+Q=.llm-wiki/.github/actions/repo-map/rig-query.py
+python3 "$Q" raw/arch/<project>/rig.db overview
+python3 "$Q" raw/arch/<project>/rig.db component <name>   # full detail
+python3 "$Q" raw/arch/<project>/rig.db search 'symbol*'  # FTS5
+```
+Only if `rig.db` is absent, fall back to `rig.json` (legacy). The routing
+table below shows the minimal source per need.
 
 **C4 architecture: project wiki is authoritative.** When a project has
 its own wiki with C4 content (`Architecture.md`, `C4-Model.md`,
@@ -57,8 +65,6 @@ Never skip these files. They define the wiki's structure.
 
 ## Documentation Home
 
-## Documentation Home
-
 - **C4 boundary: llm-wiki carries context/container/component level only.**
   Code-level details (file paths, function signatures, implementation specifics,
   API reference) go to the **platform wiki** (GitHub/Forgejo) via `gh`/`fj`, not
@@ -79,7 +85,7 @@ not by reading the whole repo. Route by need:
 
 | You need to… | Read this | Why it's the minimal source |
 |---|---|---|
-| Catch a project's **structure** fast | `raw/arch/<project>/rig.json` | deterministic code graph, 1–15K tokens; often enough on its own |
+| Catch a project's **structure** fast | `rig-query.py raw/arch/<project>/rig.db overview` (+ `component`/`deps`/`search`) | targeted SQL — ~200 tokens per question vs 100K+ for the JSON |
 | Understand the **architecture views** | project's own wiki `Architecture.md` + `C4-Model.md`, else `raw/arch/<project>/model.c4` | CI-generated diagrams + full LikeC4 model (always current) or the llm-wiki's copy (may lag) |
 | Understand a **decision + its reasoning** | the matching `wiki/` page(s) | the *why*, captured live at decision time |
 | Find **what pages exist** | `index.md` | catalog, not a dir walk |
@@ -250,8 +256,8 @@ Create a new wiki page.
 Update wiki prose after a deterministic RIG/C4/Mermaid refresh. The graphs are
 already generated — your job is to summarize and route content.
 
-1. **Verify artifacts exist**: `ls raw/arch/<project>/` (rig.json, model.c4, *.mmd).
-2. **Read the RIG** to understand what changed (new/removed/changed components).
+1. **Verify artifacts exist**: `ls raw/arch/<project>/` (rig.db, rig.json, model.c4, *.mmd).
+2. **Query the RIG** for what changed: `rig-query.py ... overview` — compare component/symbol/edge counts with the previous log entry; `component <name>` for detail.
 3. **Do NOT generate graphs** — model.c4 and *.mmd are deterministic. Do NOT run rig-to-c4.py or likec4.
 4. **Embed Mermaid**: read `raw/arch/<project>/*.mmd`, copy into wiki pages as ` ```mermaid ` blocks.
 5. **Write C4-level prose only** (context/container/component). Summarize what changed in 1-3 sentences.
@@ -310,9 +316,11 @@ project repo.
 6. **Tell the human** to add the project to the wiki's `arch:` config with the
    Release asset URL as `rig_url` (and `rig_token_env` if private). From that
    point, the wiki CI will fetch and commit the RIG, and LC4 unlocks.
-7. **After the first RIG lands** in `raw/arch/<project>/rig.json`, run the
-   `arch-sync` command to write the initial LikeC4 model (`.c4`) from the RIG
-   and generate the Mermaid architecture diagrams.
+7. **After the first RIG lands** in `raw/arch/<project>/rig.json`, the
+   deterministic pipeline produces model.c4 + Mermaid automatically. Your job
+   (`arch-sync`) is prose only: query the DB (`rig-query.py ... overview`),
+   embed the generated Mermaid into wiki pages, summarize what changed.
+   **Never write model.c4 or run likec4 yourself.**
 
 ### `wiki prune <topic>`
 
