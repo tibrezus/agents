@@ -302,7 +302,10 @@ phase_merge() {
 # ── Phase: hook (per-fork codegen: SDK regen, chart vendor, …) ───────────────
 phase_hook() {
   cd_repo
-  HOOK_FILE="$MAINT_DIR/post-merge-hooks/${FORK_NAME}.sh"
+  # Def-level post_merge_hook wins (lets channels SHARE a hook — e.g.
+  # forgejo-next reuses forgejo.sh); convention fallback keeps old defs working.
+  HOOK_DEF=$(read_yaml '.post_merge_hook' 2>/dev/null || echo "")
+  HOOK_FILE="$MAINT_DIR/${HOOK_DEF:-post-merge-hooks/${FORK_NAME}.sh}"
   HOOK_RAN=false
   if [ -f "$HOOK_FILE" ]; then
     echo ""
