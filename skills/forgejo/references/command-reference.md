@@ -3,7 +3,8 @@
 Verbatim `--help` output for every command, plus live example output against
 `git.rezus.cloud` / `tibrez/rhesadox`. This is the complete command surface of the
 Go `fj` (rezuscloud Forgejo fork, `16.0.2-rezuscloud.x`). For targeting rules and
-workflow, see the parent `SKILL.md`.
+workflow, see the parent `SKILL.md`; for the API origin and the
+operationId→command derivation, see [`api.md`](api.md).
 
 Every command accepts the three global flags:
 
@@ -228,8 +229,9 @@ fj wiki view <PAGE>
 
 ## Raw API escape hatch — `fj api`
 
-Auto-generated from the swagger spec; one subcommand per SDK method. Prefer the
-polished commands above; reach for `fj api` only for gaps (milestones, labels,
+Auto-generated from the swagger spec; one subcommand per SDK method — see
+[`api.md`](api.md) for the origin and naming rules. Prefer the polished
+commands above; reach for `fj api` only for gaps (milestones, labels,
 branches, admin, runners).
 
 ```

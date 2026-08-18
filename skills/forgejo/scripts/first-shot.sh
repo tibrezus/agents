@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# forgejo-cli first-shot orientation.
+# forgejo first-shot orientation.
 # Prints: whether `fj` is installed + its version, every authenticated host,
 # and — if run inside a git checkout — the Forgejo remote(s) so you know which
 # `-H <host> -R <remote>` (or `-r owner/name`) to use.
 #
 # Run this BEFORE issuing any `fj` command when landing fresh on a task.
-#   bash "$HOME/.agents/skills/forgejo-cli/scripts/first-shot.sh"
+#   bash "$HOME/.agents/skills/forgejo/scripts/first-shot.sh"
 set -u
 
 say() { printf '\n\033[1m▸ %s\033[0m\n' "$*"; }
@@ -26,7 +26,7 @@ EOF
   exit 1
 fi
 
-say "authenticated hosts (from ~/.local/share/forgejo-cli/keys.json)"
+say "authenticated hosts (from ~/.local/share/forgejo/keys.json)"
 fj auth list 2>/dev/null | sed 's/^/  /' || echo "  (none — run: fj auth login <host>)"
 
 # Inside a git checkout? Show Forgejo remotes → tells you which -R works + owner/name.
