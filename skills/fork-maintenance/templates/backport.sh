@@ -42,9 +42,16 @@ DEF="$MAINT_DIR/forks/${FORK_NAME}.yaml"
 
 read_yaml() { yq e "$1" "$DEF"; }
 UPSTREAM_URL=$(read_yaml '.upstream.url')
-UPSTREAM_BRANCH=$(read_yaml '.upstream.branch')
 FORK_URL=$(read_yaml '.fork.url')
-FORK_DEFAULT_BRANCH=$(read_yaml '.fork.default_branch')
+# Release row: mapping-table defs carry theirs→ours rows; the release row is
+# the one with tags: derive. Legacy defs keep flat fields.
+if read_yaml '.mappings' >/dev/null 2>&1 && [ "$(read_yaml '.mappings | length')" != "0" ]; then
+  UPSTREAM_BRANCH=$(read_yaml '[.mappings[] | select(.tags == "derive")][0].theirs')
+  FORK_DEFAULT_BRANCH=$(read_yaml '[.mappings[] | select(.tags == "derive")][0].ours')
+else
+  UPSTREAM_BRANCH=$(read_yaml '.upstream.branch')
+  FORK_DEFAULT_BRANCH=$(read_yaml '.fork.default_branch')
+fi
 BP_BRANCH="rezus/bp-${SYNC_DATE}"
 
 echo "=== Backport: ${FORK_NAME} — $# upstream commit(s) → ${FORK_DEFAULT_BRANCH} ==="

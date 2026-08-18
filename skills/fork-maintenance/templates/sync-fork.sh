@@ -62,6 +62,14 @@ echo "=== [$PHASE] fork: $FORK_NAME ==="
 # Parse YAML definition into shell variables
 read_yaml() { yq -r "$1" "$DEF_FILE"; }
 
+# Mapping-table defs are SELF-HOSTED (sync.yml in the fork repo walks the
+# rows). The engine serves engine-transport forks only.
+if [ "$(read_yaml '.mappings | length' 2>/dev/null || echo 0)" != "0" ]; then
+  echo "fork ${FORK_NAME} is self-hosted (mapping table; transport declared per row)"
+  echo "sync runs in the fork repo: .github/workflows/sync.yml — nothing to do here"
+  exit 0
+fi
+
 UPSTREAM_URL=$(read_yaml '.upstream.url')
 UPSTREAM_BRANCH=$(read_yaml '.upstream.branch')
 FORK_URL=$(read_yaml '.fork.url')
