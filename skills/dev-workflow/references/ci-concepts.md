@@ -79,14 +79,13 @@ from `tdd`:
 | **Fast** | Every push, every PR | unit tests, lint, type-check | Gate 10 floor |
 | **Full (slow)** | **Dispatched once at ready declaration** — a merge gate, not a push gate | performance benchmarks, GPU/infra matrices, integration A/B, long evaluations, MC/DC | Gates 11–12 input |
 
-**Merge-gated validation (two-phase readiness).** The bors/merge-queue
-lineage, inverted for agent workflows: the guarantee lives at **merge
-time**, not PR-open time. During development only the fast tier runs,
-superseded runs cancelled via `concurrency`. At ready declaration:
-**rebase first** (the rebase changes the head SHA — it must precede the
-dispatch or it invalidates it), then dispatch the full pipeline on that
-SHA, then the adversarial review runs on the same SHA. Opening a PR early
-is therefore free; only readiness costs.
+**Merge-gated validation.** The bors/merge-queue lineage, inverted for
+agent workflows: the guarantee lives at **merge time**, not PR-open time.
+During development only the fast tier runs (superseded runs cancelled via
+`concurrency`); opening a PR early is free. At ready declaration: rebase
+first, dispatch the full pipeline on that SHA, then the adversarial review
+on the same SHA. Red full pipeline → back to developing, never into review
+— reviewing red CI is pointless; the review exists for what CI cannot see.
 
 **SHA binding + invalidation** — statuses attach to SHAs. Merge-ready =
 fast green + full green + review APPROVE at the *same* SHA that is the
@@ -99,22 +98,10 @@ branch head at merge:
 | Default branch moved | rerun | re-dispatch after re-rebase | re-review |
 | Review REQUEST_CHANGES → fixes | rerun | re-dispatch | re-review |
 
-**Platform mechanics:**
-
-- **GitHub** — heavy workflows on `workflow_dispatch` + required status
-  check in branch protection; dispatch with `gh workflow run <wf> --ref
-  <branch>`. The check shows "Expected" (unmergeable) until dispatched —
-  that pending state *is* the manual gate. Do **not** combine with merge
-  queues: they would re-run the full matrix on the merge group.
-- **Forgejo/Gitea** — same split; dispatch via `fj api repo
-  dispatch-workflow --workflowfilename <wf> --body '{"ref":"<branch>"}'`
-  (204 surfaces as `decode: EOF` — success). Required status in branch
-  protection blocks merge until the dispatch reports. `concurrency` is
-  workflow-level only (job-level is silently ignored). No merge queue
-  exists — dispatch + required check is the pattern.
-- **GitLab** — heavy jobs `when: manual` (blocking by default) +
-  "Pipelines must succeed"; play via the jobs API. Merge trains (Premium)
-  are the queued variant; unnecessary when dispatch is used.
+**Platform mechanics** (dispatch commands, quirks, merge-queue guidance):
+[`platform-commands.md`](platform-commands.md) — heavy workflows go on
+`workflow_dispatch` + a required status check (GitHub: pending = the gate;
+Forgejo: no merge queue exists; GitLab: blocking `when: manual` jobs).
 
 **Boundary rule:** a job belongs in the slow tier only if it takes long enough
 that running it on every push harms the feedback loop (rule of thumb: > 30s

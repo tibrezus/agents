@@ -33,6 +33,20 @@ host (`codeberg.org`) and token env var differ.
 The bolded rows are why `host.sh` exists: milestones, CI watching, and merging
 need different mechanisms and the agent should not have to remember them.
 
+## Merge-gated dispatch mechanics (slow tier)
+
+The slow tier runs `workflow_dispatch` + a **required status check** in
+branch protection — the pending state until dispatch *is* the manual gate.
+Platform notes:
+
+- **GitHub** — do **not** combine with merge queues; they would re-run the
+  full matrix on the merge group.
+- **Forgejo/Gitea** — no merge queue exists (dispatch + required check is
+  the pattern); `concurrency` is enforced at workflow level only, job-level
+  is silently ignored.
+- **GitLab** — heavy jobs `when: manual` (blocking by default) +
+  "Pipelines must succeed"; merge trains (Premium) are the queued variant.
+
 ## Tokens
 
 `dw_token()` picks the right env var per platform:

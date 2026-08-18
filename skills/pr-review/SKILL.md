@@ -21,14 +21,12 @@ Keep the context small. Do not read the whole repo. Route to the minimal source.
 
 ## Ingress contract — validated SHAs only
 
-This skill is invoked **only on a full-pipeline-green SHA** (dev-workflow
-gates 11→12): either the harmostes trigger pins the validated SHA, or
-`dw_request_review` refuses unvalidated heads. CI evidence in
-`pr-context.json` is green by contract. Red CI is fixed on the branch — it
-is never reviewed; the adversarial pass exists for what CI *cannot* see.
-The deterministic proof in Phase 0 (local build/test of the checked-out
-delta) remains — it catches nondeterminism and environment drift, not CI
-status.
+Invoked **only on a pipeline-green SHA** (dev-workflow gate 12): the
+harmostes trigger pins the validated SHA, or `dw_request_review` refuses
+unvalidated heads. CI evidence in `pr-context.json` is green by contract —
+red CI is fixed on the branch, never reviewed; this pass exists for what CI
+*cannot* see. Phase-0 deterministic proof (local build/test of the delta)
+remains — it catches nondeterminism and drift, not CI status.
 
 ## Context you have (assembled by pr-fetch)
 
@@ -203,15 +201,10 @@ json.dump(review, open("/workspace/review.json", "w"), indent=2)
 ```
 
 - `decision` — `APPROVE`, `REQUEST_CHANGES`, or `COMMENT`.
-- `reviewed_sha` — the head SHA of `/workspace/repo` (from `pr-context.json`).
-  **The cross-skill contract:** the body must end with the verdict trailer
-
-  ```
-  <!-- pr-review: <DECISION> @ <reviewed_sha> -->
-  ```
-
-  as its **last line** — `dw_wait_review` polls for it, `dw_merge_readiness`
-  binds it to the merge SHA. The decision keyword and full SHA are exact.
+- `reviewed_sha` — the head SHA of `/workspace/repo`. The body must **end**
+  with the trailer `<!-- pr-review: <DECISION> @ <reviewed_sha> -->` (exact
+  decision keyword, full SHA) — `dw_wait_review` polls for it,
+  `dw_merge_readiness` binds it to the merge SHA.
 - `body` — Markdown, structured by pillar (see above).
 - `comments` — inline review comments (optional, `[]` if none). Each has
   `path`, `line`, `body`.

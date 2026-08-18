@@ -303,12 +303,8 @@ dw_ci_green() { dw_watch_ci "$1"; }
 
 # ── full pipeline (merge-gated tier) ───────────────────────────────────────
 #
-# Precedence (highest first):
-#   1. DW_FULL_PIPELINE env var
-#   2. AGENTS.md project-config line "- **Full pipeline:** `<wf>[,<wf>...]`"
-#      ("none" = explicitly no full tier)
-#   3. Auto-detect: full-ci.yml in .github/.forgejo/.gitea workflows
-#   4. Empty → no full tier; the fast tier is the whole pipeline (gate 11 skipped)
+# Config precedence: DW_FULL_PIPELINE env > AGENTS.md "Full pipeline:" line
+# ("none" = explicitly off) > full-ci.yml autodetect > none (fast tier only).
 
 dw_full_pipeline_workflows() {
   local cfg="${DW_FULL_PIPELINE:-}"
@@ -339,8 +335,8 @@ dw_pr_head() {
 }
 
 # dw_dispatch_full_pipeline "<branch>" → dispatches every configured workflow
-#   on the branch. Prints the head SHA the dispatch was bound to (the SHA-binding
-#   anchor for dw_full_green / dw_merge_readiness). Call AFTER rebase.
+#   on the branch; prints the head SHA the dispatch is bound to (the anchor
+#   for dw_full_green / dw_merge_readiness). Call AFTER rebase.
 dw_dispatch_full_pipeline() {
   local branch="$1" wf
   local wfs; wfs=$(dw_full_pipeline_workflows)
@@ -354,10 +350,8 @@ dw_dispatch_full_pipeline() {
         gh workflow run "$wf" --repo "$owner_repo" --ref "$branch" \
           || dw_die "dispatch of $wf failed" ;;
       *)
-        # fj wraps POST .../actions/workflows/<file>/dispatches.
-        # Known quirk: a 204 success surfaces as "decode: EOF" on stderr with
-        # exit 0 — do not treat that noise as failure. The curl fallback
-        # covers hosts where fj auth is absent.
+        # fj quirk: 204 success surfaces as "decode: EOF" stderr noise with
+        # exit 0 — not a failure. curl fallback covers hosts without fj auth.
         local host token; host=$(dw_host); token=$(dw_token)
         fj api repo dispatch-workflow --owner "${owner_repo%%/*}" --repo "${owner_repo##*/}" \
           --workflowfilename "$wf" --body "{\"ref\":\"$branch\"}" >/dev/null 2>&1 \
@@ -465,12 +459,9 @@ dw_rebase_onto_default() {
 }
 
 # dw_merge_readiness "<pr#>" → the falsifiable merge gate. Exit 0 only when
-#   ALL checks pass at one frozen head SHA:
-#     1. head SHA resolved
-#     2. fast tier green @ head
-#     3. full pipeline green @ head (skipped when none configured)
-#     4. adversarial review APPROVE @ head (verdict-trailer contract)
-#     5. rebased: merge-base(head, default) == default head
+#   ALL pass at one frozen head SHA: fast tier green, full pipeline green
+#   (skipped when none configured), review APPROVE (verdict trailer), and
+#   merge-base(head, default) == default head.
 dw_merge_readiness() {
   local pr="$1" fail=0
   local head; head=$(dw_pr_head "$pr"); [ -n "$head" ] || dw_die "cannot resolve PR #$pr head"

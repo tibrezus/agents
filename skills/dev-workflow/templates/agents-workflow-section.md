@@ -21,9 +21,9 @@ default branch directly.
 > (code, tests, CI, tooling, configuration). If a proper fix is blocked,
 > surface the blocker on the issue.
 >
-> The full pipeline and an adversarial review run **once, at merge time**,
-> on the declared-ready head SHA — not on every push. `dw_merge_readiness`
-> verifies the whole chain before any merge.
+> The full pipeline and an adversarial review run **once, at merge time**, on
+> the declared-ready head SHA — every push before that runs the fast tier
+> only. `dw_merge_readiness` verifies the chain before any merge.
 
 ### CI discipline (quality gates)
 
@@ -54,16 +54,6 @@ gates hold for every change:
 
 Depth (what counts as coupling, detection heuristics, CI wiring) lives in the
 skill's `references/ci-concepts.md`.
-
-### Two-phase CI + review gate (merge-gated validation)
-
-Every push runs the **fast tier** only. When the change is ready: rebase
-onto the default branch, dispatch the **full pipeline** on that SHA
-(`dw_dispatch_full_pipeline`), request the **adversarial review**
-(`dw_request_review` — refused unless the pipeline is green at head), then
-merge only when `dw_merge_readiness` verifies fast + full + review APPROVE
-at one frozen head SHA. Any push after declaration re-opens the merge path.
-Depth: the skill's `ci-concepts.md` §1.3.
 
 ### Project configuration
 
