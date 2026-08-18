@@ -30,7 +30,11 @@ git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "adopt: not a git 
 
 # ── detect project metadata ────────────────────────────────────────────────
 platform() {
-  local url; url=$(git remote get-url origin 2>/dev/null) || echo "unknown"
+  local url
+  # NB: the || fallback must land IN the variable, not on stdout — a bare
+  # `url=$(...) || echo x` emits two lines ("x\nforgejo") and corrupts the
+  # sed rendering below.
+  url=$(git remote get-url origin 2>/dev/null) || url=""
   case "$url" in
     *github.com*)   echo github ;;
     *codeberg.org*) echo codeberg ;;
@@ -63,6 +67,22 @@ test_command() {
   echo "${cmd:-(project-specific — commit scripts/test or set CI_TEST_COMMAND)}"
 }
 
+# Full-pipeline workflow(s) for the merge-gated tier. Precedence mirrors
+# dw_full_pipeline_workflows in host.sh: existing AGENTS.md line →
+# full-ci.yml auto-detect → none.
+full_pipeline() {
+  local existing
+  if [ -f AGENTS.md ]; then
+    existing=$(sed -n 's/^[-*] \*\*[Ff]ull pipeline:\*\* `\([^`]*\)`.*/\1/p' AGENTS.md | head -1)
+    [ -n "$existing" ] && { echo "$existing"; return; }
+  fi
+  local d
+  for d in .github/workflows .forgejo/workflows .gitea/workflows; do
+    [ -f "$d/full-ci.yml" ] && { echo full-ci.yml; return; }
+  done
+  echo none
+}
+
 # Escape a value so it is safe as a sed *replacement* string (delimiter '|').
 # Needed because a detected test command can contain shell metacharacters such
 # as '&&' (CMake: configure && build && ctest); '&' in a sed replacement means
@@ -75,6 +95,7 @@ render() {
   DEFAULT_BRANCH=$(default_branch)
   CI_WATCH=$(ci_watch)
   TEST_CMD=$(_dw_sed_repl "$(test_command)")
+  FULL_PIPELINE=$(_dw_sed_repl "$(full_pipeline)")
   sed \
     -e "s|{{PLATFORM}}|$PLATFORM|g" \
     -e "s|{{DEFAULT_BRANCH}}|$DEFAULT_BRANCH|g" \
@@ -85,6 +106,7 @@ render() {
     -e "s|{{COUPLING_POLICY}}|strict|g" \
     -e "s|{{SAFETY_LEVEL}}|none|g" \
     -e "s|{{MERGE_METHOD}}|squash|g" \
+    -e "s|{{FULL_PIPELINE}}|$FULL_PIPELINE|g" \
     "$TEMPLATE"
 }
 

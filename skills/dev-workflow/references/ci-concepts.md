@@ -72,35 +72,49 @@ from `tdd`:
   assert on private structure. They fail on every refactor though behavior is
   unchanged.
 
-### 1.3 Test stratification — fast vs slow tier
-
-Not all tests should run on every push. CI is tiered by execution cost so
-expensive work doesn't block the inner dev loop:
+### 1.3 Test stratification — and merge-gated dispatch
 
 | Tier | When it runs | What belongs here | Gate |
 |---|---|---|---|
 | **Fast** | Every push, every PR | unit tests, lint, type-check | Gate 10 floor |
-| **Slow** | Pre-merge (required check) or manual (`workflow_dispatch`) | performance benchmarks, integration A/B harnesses, long evaluations, multi-service integration | blocks merge, not every commit |
+| **Full (slow)** | **Dispatched once at ready declaration** — a merge gate, not a push gate | performance benchmarks, GPU/infra matrices, integration A/B, long evaluations, MC/DC | Gates 11–12 input |
 
-**The rule:** a test that is not executed by CI does not protect the change —
-but it doesn't need to run on every push. The question is *which tier*, not
-*whether*. If a PR adds performance measurement, integration harness, or A/B
-tooling, that infrastructure must be wired into the slow tier — never left
-sitting in the repo unrun. A benchmark that only runs on someone's laptop is
-the same failure mode as a unit test that only runs locally: it looks like
-coverage but isn't.
+**Merge-gated validation (two-phase readiness).** The bors/merge-queue
+lineage, inverted for agent workflows: the guarantee lives at **merge
+time**, not PR-open time. During development only the fast tier runs,
+superseded runs cancelled via `concurrency`. At ready declaration:
+**rebase first** (the rebase changes the head SHA — it must precede the
+dispatch or it invalidates it), then dispatch the full pipeline on that
+SHA, then the adversarial review runs on the same SHA. Opening a PR early
+is therefore free; only readiness costs.
 
-**How to implement the tiers per platform:**
+**SHA binding + invalidation** — statuses attach to SHAs. Merge-ready =
+fast green + full green + review APPROVE at the *same* SHA that is the
+branch head at merge:
 
-- **GitHub Actions** — fast tier in the `on: [push, pull_request]` workflow;
-  slow tier as a separate workflow (`on: [workflow_dispatch]` + optionally
-  triggered by a label or the PR environment) that is a **required** status
-  check on the branch protection rule.
-- **Forgejo / Gitea Actions** — same model; `workflow_dispatch` +
-  conditional triggers.
-- **Manual fallback** — if the platform has no `workflow_dispatch`, gate the
-  slow tier behind a comment-triggered bot or a labeled re-run; the point is
-  it runs *before merge*, not never.
+| Event after ready declaration | Fast | Full pipeline | Review |
+|---|---|---|---|
+| Push touching build inputs (src/CI/tools) | rerun | re-dispatch | re-review |
+| Push touching docs/comments only | rerun | skip *(per-repo policy)* | delta only |
+| Default branch moved | rerun | re-dispatch after re-rebase | re-review |
+| Review REQUEST_CHANGES → fixes | rerun | re-dispatch | re-review |
+
+**Platform mechanics:**
+
+- **GitHub** — heavy workflows on `workflow_dispatch` + required status
+  check in branch protection; dispatch with `gh workflow run <wf> --ref
+  <branch>`. The check shows "Expected" (unmergeable) until dispatched —
+  that pending state *is* the manual gate. Do **not** combine with merge
+  queues: they would re-run the full matrix on the merge group.
+- **Forgejo/Gitea** — same split; dispatch via `fj api repo
+  dispatch-workflow --workflowfilename <wf> --body '{"ref":"<branch>"}'`
+  (204 surfaces as `decode: EOF` — success). Required status in branch
+  protection blocks merge until the dispatch reports. `concurrency` is
+  workflow-level only (job-level is silently ignored). No merge queue
+  exists — dispatch + required check is the pattern.
+- **GitLab** — heavy jobs `when: manual` (blocking by default) +
+  "Pipelines must succeed"; play via the jobs API. Merge trains (Premium)
+  are the queued variant; unnecessary when dispatch is used.
 
 **Boundary rule:** a job belongs in the slow tier only if it takes long enough
 that running it on every push harms the feedback loop (rule of thumb: > 30s
@@ -304,8 +318,8 @@ When setting up or updating CI:
    picked up without editing CI config (standard runners do this; bespoke
    allowlists don't).
 4. **Tier integration/performance tests separately.** They run in the slow
-   tier (pre-merge or manual `workflow_dispatch`), not on every push — see
-   [§1.3](#13-test-stratification--fast-vs-slow-tier). Fast tests stay in the
+   tier, dispatched at ready declaration — not on every push — see
+   [§1.3](#13-test-stratification--and-merge-gated-dispatch). Fast tests stay in the
    fast tier; don't fragment the suite. New performance/integration/A-B
    tooling added by a PR must land in the slow tier wired and running, never
    as a dormant script.
@@ -327,7 +341,7 @@ A PR may merge only when **both** hold:
 - **Test gate** — the change is covered by unit tests (mandatory, fast tier)
   and, where a suite exists, extended integration tests; those tests run and
   pass in CI. Performance/integration/A-B tooling added by the PR runs in the
-  slow tier and passes before merge (or on manual trigger). A measurement
+  slow tier and passes at ready declaration before merge. A measurement
   relevant over time is wired in as a reusable slow-tier job, not an ad-hoc
   script (§1.4).
 - **Coupling gate** — every coupling the change introduces is either part of

@@ -76,13 +76,55 @@ independently falsifiable.
    exists (hard rule 5). Runs **before pushing to CI** and is re-checked
    **before merging**.
 9. **PR open** against the default branch.
-10. **CI green** — both tiers pass (fast: every push; slow: pre-merge or
-    manual). Red is fixed on the branch, never merged red.
-11. **Comment The Issue** — with the complete implementation.
-12. **Merged** — only now does the default branch move. Branch deleted, issue
-    closed.
+10. **Fast CI green on every push** — lint/build/unit/targeted tests green
+    at the final head SHA. Red is fixed on the branch, never merged red.
+    The full pipeline does **not** run during development — it runs once,
+    at ready declaration (gate 11).
+11. **Full pipeline green on the merge SHA** — when the change is ready
+    (implementation complete, simplification pass done): rebase onto the
+    default branch, then dispatch the full pipeline
+    (`dw_dispatch_full_pipeline`) on that head SHA and watch it to green.
+    Any push after dispatch invalidates it — re-declare. Projects with no
+    configured full pipeline skip this gate (the fast tier *is* the
+    pipeline).
+12. **Adversarial review APPROVE on the merge SHA** — `dw_request_review`
+    (which refuses heads whose full pipeline is not green) triggers the
+    `pr-review` skill; the verdict must be APPROVE recorded at the same
+    head SHA. REQUEST_CHANGES → fix on the branch → re-declare ready.
+13. **Comment the issue** — with the complete implementation.
+14. **Merge-ready, then merged** — `dw_merge_readiness` verifies fast
+    green + full green + review APPROVE + rebased at one frozen head SHA;
+    only then `dw_merge_pr`. The default branch moves. Branch deleted,
+    issue closed.
 
-**Hard rules** (they have shipped broken `main` branches):
+## Two-phase readiness (merge-gated validation)
+
+The full pipeline runs **once per ready declaration, not once per push**.
+The lifecycle has two phases:
+
+- **Developing** (PR open, draft fine): every push runs the fast tier only,
+  superseded runs cancelled (`concurrency`). Iterate freely — CI pressure is
+  bounded by design, and early PRs don't storm the GPU matrix.
+- **Merge path** (declared ready): rebase → dispatch full pipeline →
+  adversarial review → merge-ready → merge. Heavy jobs run once, on the
+  final SHA.
+
+**SHA binding is the invariant:** fast status, full-pipeline status, and
+review verdict all attach to a head SHA. "Merge-ready" means all three are
+green/approved for the *same* SHA, which is also the branch head at merge
+time. Any push after declaration re-opens the merge path (re-dispatch,
+re-review). The rebase happens **before** dispatch — rebasing after would
+change the SHA and invalidate the chain.
+
+Reviewing red CI is pointless by contract — red full pipeline means back to
+developing, not into review. The ingress guard (`dw_request_review`) and the
+SHA-pinned trigger make this structural; the reviewer never sees an
+unvalidated SHA.
+
+Invalidation matrix + per-platform dispatch mechanics:
+[`references/ci-concepts.md`](references/ci-concepts.md) §1.3.
+
+## Hard rules
 
 1. A direct commit/push to the default branch is forbidden unless the user
    gave an explicit instruction that is recorded on the issue. When in doubt,
@@ -122,7 +164,8 @@ already exist** (tooling folders: `scripts/`, `tools/`, `bench/`) and extend
 it; new tools are wired into CI — unless you explicitly decide a tool is a
 one-off diagnostic and note that on the issue. Unit tests are mandatory
 (fast tier, every push); benchmarks and long evaluations go in the slow tier
-(pre-merge or `workflow_dispatch`) as reusable jobs, not ad-hoc scripts. A
+(dispatched once at ready declaration — gate 11) as reusable jobs, not
+ad-hoc scripts. A
 throwaway script leaves CI frozen while the code moves on; the next
 regression walks straight past it. Depth:
 [`references/ci-concepts.md`](references/ci-concepts.md) §1.
@@ -179,18 +222,21 @@ mandates + a pointer to this skill + a **Project configuration** block (see
 for the exact content — edit there, then re-`adopt`). Never hand-edit the
 marker block; change the template and re-adopt.
 
-### `review` — request automated PR review
+### `review` — request the adversarial review (gate 12)
 
 ```bash
 dw_request_review "<pr-number>" [label]
 ```
 
-Adds the `needs-review` label (default; override with the second arg) to a PR,
-triggering the harmostes pr-review workflow on monitored repos. The workflow
-clones the PR, evaluates it against this skill's gate chain, and posts a review
-within ~5 min. Not part of the mandatory procedure — use it when you want an
-automated review pass before merging. The label must exist on the repo
-(one-time setup: `gh label create needs-review --color fbca04`).
+**Guarded ingress.** Refuses unless the full pipeline (or the fast tier,
+when no full workflow is configured) is green at the PR's current head SHA —
+reviewing unvalidated code is pointless by contract. On success it adds the
+`needs-review` label (default; the label must exist on the repo — one-time
+`gh label create needs-review --color fbca04`), which triggers the harmostes
+pr-review workflow. The verdict lands as a review comment ending in the
+machine-readable trailer `<!-- pr-review: <DECISION> @ <sha> -->`;
+`dw_wait_review` polls for it, `dw_merge_readiness` binds it to the head
+SHA. REQUEST_CHANGES → fix on the branch → re-declare ready.
 
 ### Make a change (the per-change procedure)
 
@@ -235,19 +281,25 @@ source "$(dirname "$(readlink -f "$0")")/scripts/host.sh"   # or source the abso
    git push -u origin "$BRANCH"
    dw_open_pr "$BRANCH" "$(dw_default_branch)" "<title>" "Closes #$ISSUE"
    ```
-8. **Watch CI to green:**
+   Draft PR is fine — from here every push runs the **fast tier only**.
+8. **Develop against fast CI:**
+   ```bash
+   dw_watch_ci "$BRANCH" || { echo "fast CI red — fix on the branch and re-push"; exit 1; }
+   ```
+   Iterate until green and the simplification pass (gate 8) is done.
+9. **Declare ready — full pipeline, review, merge:**
    ```bash
    PR=$(dw_pr_number_from_branch "$BRANCH")
-   dw_watch_ci "$BRANCH" || { echo "CI red — fix on the branch and re-push"; exit 1; }
+   dw_rebase_onto_default "$BRANCH"        # hard rule 3 — BEFORE dispatch
+   dw_dispatch_full_pipeline "$BRANCH"     # gate 11 (no-op if none configured)
+   dw_watch_full_pipeline "$BRANCH" || { echo "full pipeline red — fix, re-push, re-declare"; exit 1; }
+   dw_request_review "$PR"                 # gate 12 — refuses unvalidated heads
+   dw_wait_review "$PR"                    # blocks for the verdict trailer
+   dw_merge_readiness "$PR" && dw_merge_pr "$PR" squash
    ```
-9. **Re-simplify, then rebase onto the default branch, and merge only when
-   green** — take one more look at the diff before merging: is there anything
-   that can still be simplified? If so, fix it, re-run tests, and re-push
-   before merging.
-   ```bash
-   dw_rebase_onto_default            # rebase feature branch onto latest default
-   dw_merge_pr "$PR" squash          # refuses to merge unless CI is green
-   ```
+   A REQUEST_CHANGES verdict means: address the findings on the branch, then
+   re-run this step from `dw_rebase_onto_default` — the new head SHA
+   re-opens gates 11 and 12. `dw_merge_pr` refuses anything not merge-ready.
 
 The agent is not bound to these exact commands — they illustrate the dispatch.
 Load [`references/platform-commands.md`](references/platform-commands.md) for
@@ -276,10 +328,13 @@ adjacent depth, and cross-references instead of duplicating it:
   unit/integration tests for a change.
 - **`fork-maintenance`** — *external* change: upstream moved, keep the fork's
   release branch green (two-branch mirror/release topology).
-- **`pr-review`** — *reviewer* counterpart to this skill's *initiator* role.
-  When the `review` subcommand triggers the harmostes pr-review workflow, that
-  workflow loads `pr-review` (not this skill) to evaluate the PR against the
-  same gate chain from the reviewer's perspective.
+- **`pr-review`** — *reviewer* counterpart and **gate 12**: adversarial
+  review APPROVE on the merge SHA is required for merge-ready. Its trigger
+  is SHA-guarded at ingress (by `dw_request_review` or the pinned harmostes
+  trigger), so it only ever evaluates full-pipeline-green code. When the
+  `review` subcommand fires, that workflow loads `pr-review` (not this
+  skill) to evaluate the PR against the same gate chain from the reviewer's
+  perspective.
 
 For forked repos `dev-workflow` and `fork-maintenance` both apply: this skill
 governs your own feature branches; fork-maintenance governs the upstream-sync

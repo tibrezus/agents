@@ -20,6 +20,10 @@ default branch directly.
 > Only optimal implementations are accepted — no workarounds at any level
 > (code, tests, CI, tooling, configuration). If a proper fix is blocked,
 > surface the blocker on the issue.
+>
+> The full pipeline and an adversarial review run **once, at merge time**,
+> on the declared-ready head SHA — not on every push. `dw_merge_readiness`
+> verifies the whole chain before any merge.
 
 ### CI discipline (quality gates)
 
@@ -51,6 +55,16 @@ gates hold for every change:
 Depth (what counts as coupling, detection heuristics, CI wiring) lives in the
 skill's `references/ci-concepts.md`.
 
+### Two-phase CI + review gate (merge-gated validation)
+
+Every push runs the **fast tier** only. When the change is ready: rebase
+onto the default branch, dispatch the **full pipeline** on that SHA
+(`dw_dispatch_full_pipeline`), request the **adversarial review**
+(`dw_request_review` — refused unless the pipeline is green at head), then
+merge only when `dw_merge_readiness` verifies fast + full + review APPROVE
+at one frozen head SHA. Any push after declaration re-opens the merge path.
+Depth: the skill's `ci-concepts.md` §1.3.
+
 ### Project configuration
 
 - **Platform:** `{{PLATFORM}}`
@@ -69,6 +83,9 @@ skill's `references/ci-concepts.md`.
   When `mcdc`, every boolean decision in changed code must achieve Modified
   Condition/Decision Coverage. See the skill's `mcdc.md`.
 - **Merge method:** `{{MERGE_METHOD}}`
+- **Full pipeline:** `{{FULL_PIPELINE}}` — slow-tier workflow(s) dispatched
+  at ready declaration. `none` = the fast tier is the whole pipeline. On
+  Forgejo set the workflow *name* if it differs from the filename.
 
 ### Before every change
 
@@ -86,12 +103,14 @@ skill's `references/ci-concepts.md`.
 5. **Simplify** — re-read the diff. Can it be simpler? Remove dead code,
    collapse abstractions, eliminate speculative generality. A complex
    implementation is not optimal when a simpler alternative exists.
-6. **Push the branch** and open a PR against the default branch.
-7. **Watch CI to green** — the test suite passes, not just the build. If red,
-   fix on the branch and re-push — never merge red.
-8. **Re-simplify, then rebase the feature branch onto the default branch** so
-   the merge is conflict-free, then **merge only when green**, and delete the
-   branch and close the issue.
+6. **Push the branch and open a PR** (draft is fine) — every push runs the
+   fast tier; iterate to green and finish the simplification pass.
+7. **Re-simplify, then declare ready:** rebase onto the default branch,
+   dispatch the full pipeline on that SHA and watch it green; then request
+   the adversarial review (`dw_request_review`) and wait for APPROVE.
+8. **Merge only when merge-ready** — `dw_merge_readiness` verifies fast +
+   full + review at the same head SHA — then delete the branch and close
+   the issue.
 
 A direct commit to the default branch requires an explicit user instruction,
 recorded on the issue.

@@ -203,13 +203,23 @@ dw_pr_number_from_branch() {
   esac
 }
 
-# dw_request_review "<pr#>" "[label]"  → adds the review-request label to a PR.
-#   Triggers the harmostes pr-review workflow (if the project is monitored).
-#   The label must exist on the repo (create it first if needed).
+# dw_request_review "<pr#>" "[label]"  → guarded ingress to the adversarial review.
+#   REFUSES unless the full pipeline (fast tier when none is configured) is
+#   green at the PR's current head SHA — reviewing unvalidated code is
+#   pointless by contract (dev-workflow gates 11→12 handoff).
 dw_request_review() {
   local pr="$1" label="${2:-needs-review}"
   local platform owner_repo
   platform=$(dw_detect_platform); owner_repo=$(dw_owner_repo)
+  local head; head=$(dw_pr_head "$pr")
+  [ -n "$head" ] || dw_die "cannot resolve head SHA of PR #$pr"
+  if [ -n "$(dw_full_pipeline_workflows)" ]; then
+    dw_full_green "$head" \
+      || dw_die "refusing review: full pipeline not green at head ${head:0:8} — declare ready first (dw_dispatch_full_pipeline), or fix red CI on the branch"
+  else
+    dw_watch_ci "$pr" >/dev/null 2>&1 \
+      || dw_die "refusing review: fast tier not green at head ${head:0:8} — fix on the branch and re-push"
+  fi
   case "$platform" in
     github)
       gh issue edit "$pr" --repo "$owner_repo" --add-label "$label" 2>/dev/null \
@@ -222,6 +232,35 @@ dw_request_review() {
         -d "$(jq -n --arg l "$label" '{labels:[$l]}')" >/dev/null ;;
   esac
   echo "dev-workflow: added '$label' label to PR #$pr — automated review will run within ~5 min" >&2
+}
+
+# dw_wait_review "<pr#>" → polls PR comments for the verdict trailer
+#   <!-- pr-review: APPROVE @ <sha> --> bound to the CURRENT head SHA.
+#   Exit 0 = APPROVE @ head; exit 2 = REQUEST_CHANGES (fix, re-declare);
+#   exit 1 = timeout (30 min).
+dw_wait_review() {
+  local pr="$1" head; head=$(dw_pr_head "$pr")
+  [ -n "$head" ] || dw_die "cannot resolve head SHA of PR #$pr"
+  local platform owner_repo
+  platform=$(dw_detect_platform); owner_repo=$(dw_owner_repo)
+  echo "dev-workflow: waiting for adversarial review verdict @ ${head:0:8}…" >&2
+  local bodies
+  for _ in $(seq 1 60); do
+    case "$platform" in
+      github) bodies=$(gh api "repos/$owner_repo/issues/$pr/comments" --jq '.[].body' 2>/dev/null) ;;
+      *) local host token; host=$(dw_host); token=$(dw_token)
+         bodies=$(curl -fsSL -H "Authorization: token $token" \
+           "https://$host/api/v1/repos/$owner_repo/issues/$pr/comments" 2>/dev/null | jq -r '.[].body // empty') ;;
+    esac
+    if echo "$bodies" | grep -qF "<!-- pr-review: APPROVE @ $head -->"; then
+      echo "dev-workflow: review APPROVE @ ${head:0:8}" >&2; return 0
+    fi
+    if echo "$bodies" | grep -qF "<!-- pr-review: REQUEST_CHANGES @ $head -->"; then
+      echo "dev-workflow: review REQUEST_CHANGES @ ${head:0:8} — address findings, then re-declare ready" >&2; return 2
+    fi
+    sleep 30
+  done
+  echo "dev-workflow: review verdict timed out after 30 min" >&2; return 1
 }
 
 # ── CI ──────────────────────────────────────────────────────────────────────
@@ -262,6 +301,130 @@ dw_watch_ci() {
 # dw_ci_green "<pr# or branch>"  → exit 0 if currently green, 1 otherwise
 dw_ci_green() { dw_watch_ci "$1"; }
 
+# ── full pipeline (merge-gated tier) ───────────────────────────────────────
+#
+# Precedence (highest first):
+#   1. DW_FULL_PIPELINE env var
+#   2. AGENTS.md project-config line "- **Full pipeline:** `<wf>[,<wf>...]`"
+#      ("none" = explicitly no full tier)
+#   3. Auto-detect: full-ci.yml in .github/.forgejo/.gitea workflows
+#   4. Empty → no full tier; the fast tier is the whole pipeline (gate 11 skipped)
+
+dw_full_pipeline_workflows() {
+  local cfg="${DW_FULL_PIPELINE:-}"
+  if { [ -z "$cfg" ] || [ "$cfg" = "auto" ]; } && [ -f AGENTS.md ]; then
+    cfg=$(sed -n 's/^[-*] \*\*[Ff]ull pipeline:\*\* `\([^`]*\)`.*/\1/p' AGENTS.md | head -1)
+  fi
+  [ "$cfg" = "none" ] && return 0
+  if [ -z "$cfg" ]; then
+    local d
+    for d in .github/workflows .forgejo/workflows .gitea/workflows; do
+      [ -f "$d/full-ci.yml" ] && { echo full-ci.yml; return; }
+    done
+    return 0
+  fi
+  echo "$cfg" | tr ',' ' '
+}
+
+# dw_pr_head "<pr#>" → head SHA of the PR
+dw_pr_head() {
+  local pr="$1" platform owner_repo
+  platform=$(dw_detect_platform); owner_repo=$(dw_owner_repo)
+  case "$platform" in
+    github) gh pr view "$pr" --repo "$owner_repo" --json headRefOid -q .headRefOid 2>/dev/null ;;
+    *) local host token; host=$(dw_host); token=$(dw_token)
+       curl -fsSL -H "Authorization: token $token" \
+         "https://$host/api/v1/repos/$owner_repo/pulls/$pr" 2>/dev/null | jq -r '.head.sha' ;;
+  esac
+}
+
+# dw_dispatch_full_pipeline "<branch>" → dispatches every configured workflow
+#   on the branch. Prints the head SHA the dispatch was bound to (the SHA-binding
+#   anchor for dw_full_green / dw_merge_readiness). Call AFTER rebase.
+dw_dispatch_full_pipeline() {
+  local branch="$1" wf
+  local wfs; wfs=$(dw_full_pipeline_workflows)
+  [ -z "$wfs" ] && { echo "dev-workflow: no full pipeline configured — fast tier is the pipeline" >&2; return 0; }
+  local sha; sha=$(git rev-parse "origin/$branch" 2>/dev/null || git rev-parse "$branch")
+  local platform owner_repo
+  platform=$(dw_detect_platform); owner_repo=$(dw_owner_repo)
+  for wf in $wfs; do
+    case "$platform" in
+      github)
+        gh workflow run "$wf" --repo "$owner_repo" --ref "$branch" \
+          || dw_die "dispatch of $wf failed" ;;
+      *)
+        # fj wraps POST .../actions/workflows/<file>/dispatches.
+        # Known quirk: a 204 success surfaces as "decode: EOF" on stderr with
+        # exit 0 — do not treat that noise as failure. The curl fallback
+        # covers hosts where fj auth is absent.
+        local host token; host=$(dw_host); token=$(dw_token)
+        fj api repo dispatch-workflow --owner "${owner_repo%%/*}" --repo "${owner_repo##*/}" \
+          --workflowfilename "$wf" --body "{\"ref\":\"$branch\"}" >/dev/null 2>&1 \
+          || curl -fsSL -H "Authorization: token $token" -X POST \
+               "https://$host/api/v1/repos/$owner_repo/actions/workflows/$wf/dispatches" \
+               -H 'Content-Type: application/json' -d "{\"ref\":\"$branch\"}" >/dev/null \
+          || dw_die "dispatch of $wf failed" ;;
+    esac
+    echo "dev-workflow: dispatched $wf on $branch @ ${sha:0:8}" >&2
+  done
+  echo "$sha"
+}
+
+# dw_full_green "<sha>" → exit 0 iff every configured workflow has a SUCCESS
+#   run with head_sha == <sha>. Empty config → checks combined commit status
+#   (fast tier) instead, mirroring dw_request_review's fallback.
+dw_full_green() {
+  local sha="$1" platform owner_repo wfs
+  platform=$(dw_detect_platform); owner_repo=$(dw_owner_repo)
+  wfs=$(dw_full_pipeline_workflows)
+  if [ -z "$wfs" ]; then
+    case "$platform" in
+      github)
+        gh pr checks "$(dw_pr_number_from_branch "$(git branch --show-current)")" \
+          --repo "$owner_repo" --json state -q 'length>0 and all(.[]?.state=="SUCCESS")' 2>/dev/null | grep -q true ;;
+      *) local host token; host=$(dw_host); token=$(dw_token)
+         [ "$(curl -fsSL -H "Authorization: token $token" \
+             "https://$host/api/v1/repos/$owner_repo/commits/$sha/status" 2>/dev/null \
+             | jq -r '.state // empty')" = success ] ;;
+    esac
+    return
+  fi
+  local wf
+  for wf in $wfs; do
+    case "$platform" in
+      github)
+        gh api "repos/$owner_repo/actions/runs?head_sha=$sha" --paginate \
+          --jq "[.workflow_runs[] | select((.path | endswith(\"$wf\")) or (.name==\"$wf\"))][0].conclusion" 2>/dev/null \
+          | grep -q '^success$' || return 1 ;;
+      *)
+        local host token; host=$(dw_host); token=$(dw_token)
+        # NOTE: Forgejo run records expose the workflow *name*, not filename —
+        # configure the name in Full pipeline: when they differ.
+        curl -fsSL -H "Authorization: token $token" \
+          "https://$host/api/v1/repos/$owner_repo/actions/runs?limit=100" 2>/dev/null \
+          | jq -e --arg sha "$sha" --arg wf "$wf" \
+              '[.workflow_runs[] | select(.commit_sha==$sha and .name==$wf)][0].status=="success"' >/dev/null || return 1 ;;
+    esac
+  done
+}
+
+# dw_watch_full_pipeline "<branch>" → blocks until all configured workflows
+#   are green at the branch head; 120×30s = 60 min budget (GPU matrices are long).
+#   No configured workflows → delegates to dw_watch_ci (fast tier is the pipeline).
+dw_watch_full_pipeline() {
+  local branch="$1" sha
+  [ -z "$(dw_full_pipeline_workflows)" ] && { dw_watch_ci "$branch"; return; }
+  sha=$(git rev-parse "origin/$branch" 2>/dev/null || git rev-parse "$branch")
+  echo "dev-workflow: waiting for full pipeline @ ${sha:0:8} (up to 60 min)…" >&2
+  local _
+  for _ in $(seq 1 120); do
+    dw_full_green "$sha" && { echo "dev-workflow: full pipeline green @ ${sha:0:8}" >&2; return 0; }
+    sleep 30
+  done
+  echo "dev-workflow: full pipeline timed out after 60 min" >&2; return 1
+}
+
 # ── tests (local mirror of CI) ──────────────────────────────────────────────
 #
 # These run the SAME suite CI runs, locally, for a fast feedback loop — the
@@ -288,6 +451,8 @@ dw_run_tests() {
 # dw_rebase_onto_default  → rebase current feature branch onto latest default.
 #   Fetches the default branch, rebases onto it, and force-pushes (with lease)
 #   the FEATURE branch only — never the default branch.
+#   Call at ready-declaration, BEFORE dw_dispatch_full_pipeline — never after
+#   (the rebase changes the head SHA and would invalidate the dispatched chain).
 dw_rebase_onto_default() {
   local default current
   default=$(dw_default_branch)
@@ -299,11 +464,53 @@ dw_rebase_onto_default() {
   git push --force-with-lease origin "$current" 2>&1 | grep -v '^remote:' | grep -v '^To ' || true
 }
 
-# dw_merge_pr "<pr#>" "<method: squash|merge|rebase>"  → rebases, then merges ONLY if CI green
+# dw_merge_readiness "<pr#>" → the falsifiable merge gate. Exit 0 only when
+#   ALL checks pass at one frozen head SHA:
+#     1. head SHA resolved
+#     2. fast tier green @ head
+#     3. full pipeline green @ head (skipped when none configured)
+#     4. adversarial review APPROVE @ head (verdict-trailer contract)
+#     5. rebased: merge-base(head, default) == default head
+dw_merge_readiness() {
+  local pr="$1" fail=0
+  local head; head=$(dw_pr_head "$pr"); [ -n "$head" ] || dw_die "cannot resolve PR #$pr head"
+  local platform owner_repo
+  platform=$(dw_detect_platform); owner_repo=$(dw_owner_repo)
+  echo "merge-readiness for PR #$pr @ ${head:0:8}:"
+  # 2. fast tier (combined status / pr checks)
+  if dw_watch_ci "$pr" >/dev/null 2>&1; then echo "  ✔ fast tier green"; else echo "  ✘ fast tier red"; fail=1; fi
+  # 3. full pipeline @ head
+  if [ -n "$(dw_full_pipeline_workflows)" ]; then
+    if dw_full_green "$head"; then echo "  ✔ full pipeline green @ ${head:0:8}"; else echo "  ✘ full pipeline not green @ ${head:0:8}"; fail=1; fi
+  else echo "  – full pipeline: none configured (fast tier is the pipeline)"; fi
+  # 4. review verdict trailer bound to head
+  local bodies=""
+  case "$platform" in
+    github) bodies=$(gh api "repos/$owner_repo/issues/$pr/comments" --jq '.[].body' 2>/dev/null) ;;
+    *) local host token; host=$(dw_host); token=$(dw_token)
+       bodies=$(curl -fsSL -H "Authorization: token $token" \
+         "https://$host/api/v1/repos/$owner_repo/issues/$pr/comments" 2>/dev/null | jq -r '.[].body // empty') ;;
+  esac
+  if echo "$bodies" | grep -qF "<!-- pr-review: APPROVE @ $head -->"; then
+    echo "  ✔ adversarial review APPROVE @ ${head:0:8}"
+  else echo "  ✘ no APPROVE verdict for ${head:0:8} (stale or missing — re-declare ready)"; fail=1; fi
+  # 5. rebase-clean against default
+  local default dbase dhead
+  default=$(dw_default_branch)
+  git fetch origin "$default" >/dev/null 2>&1
+  dbase=$(git merge-base "$head" "origin/$default" 2>/dev/null)
+  dhead=$(git rev-parse "origin/$default")
+  if [ "$dbase" = "$dhead" ]; then echo "  ✔ rebased onto origin/$default"; else echo "  ✘ not rebased onto origin/$default — re-declare ready (rebase BEFORE dispatch)"; fail=1; fi
+  return "$fail"
+}
+
+# dw_merge_pr "<pr#>" "<method: squash|merge|rebase>"  → merges ONLY a merge-ready PR.
+#   Does NOT rebase anymore — the rebase lives at ready-declaration; re-rebasing
+#   here would change the head SHA and invalidate the full-pipeline + review
+#   chain bound to it. Readiness is verified via dw_merge_readiness first.
 dw_merge_pr() {
   local pr="$1" method="${2:-squash}"
-  dw_rebase_onto_default
-  dw_ci_green "$pr" || dw_die "refusing to merge PR #$pr: CI is not green"
+  dw_merge_readiness "$pr" || dw_die "refusing to merge PR #$pr: not merge-ready (see checklist)"
   local platform owner_repo
   platform=$(dw_detect_platform); owner_repo=$(dw_owner_repo)
   case "$platform" in

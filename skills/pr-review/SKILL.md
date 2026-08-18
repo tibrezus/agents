@@ -19,6 +19,17 @@ context: the diff, the architecture graph (RIG + C4), and selective tools.
 
 Keep the context small. Do not read the whole repo. Route to the minimal source.
 
+## Ingress contract — validated SHAs only
+
+This skill is invoked **only on a full-pipeline-green SHA** (dev-workflow
+gates 11→12): either the harmostes trigger pins the validated SHA, or
+`dw_request_review` refuses unvalidated heads. CI evidence in
+`pr-context.json` is green by contract. Red CI is fixed on the branch — it
+is never reviewed; the adversarial pass exists for what CI *cannot* see.
+The deterministic proof in Phase 0 (local build/test of the checked-out
+delta) remains — it catches nondeterminism and environment drift, not CI
+status.
+
 ## Context you have (assembled by pr-fetch)
 
 - **`/workspace/pr-context.json`** — PR metadata, CI status, files changed.
@@ -156,6 +167,9 @@ there is no risk.
 | Only MINOR/NIT | COMMENT |
 | All investigated pillars pass + CI green + deterministic proof passes | APPROVE |
 
+"Deterministic proof" here is the reviewer's independent local run of the
+checked-out delta — pipeline CI is green by ingress contract.
+
 ## Output contract
 
 Write the review to `/workspace/review.json` using Python (NOT a bash heredoc —
@@ -164,7 +178,8 @@ heredocs break on Markdown backticks and special chars):
 ```python
 import json
 review = {
-    "decision": "COMMENT",
+    "decision": "APPROVE",
+    "reviewed_sha": "<head SHA of /workspace/repo>",
     "body": (
         "## Adversarial Review\n\n"
         "### Architectural Fit\n"
@@ -177,7 +192,8 @@ review = {
         "- **Performance:** (finding, or N/A)\n"
         "- **Observability:** (finding, or N/A)\n"
         "- **Test Quality:** (finding, or N/A)\n\n"
-        "### Verdict\n(decision + weighted reasoning)"
+        "### Verdict\n(decision + weighted reasoning)\n\n"
+        "<!-- pr-review: APPROVE @ <reviewed_sha> -->"
     ),
     "comments": [
         {"path": "src/foo.zig", "line": 42, "body": "Consider ..."}
@@ -187,6 +203,15 @@ json.dump(review, open("/workspace/review.json", "w"), indent=2)
 ```
 
 - `decision` — `APPROVE`, `REQUEST_CHANGES`, or `COMMENT`.
+- `reviewed_sha` — the head SHA of `/workspace/repo` (from `pr-context.json`).
+  **The cross-skill contract:** the body must end with the verdict trailer
+
+  ```
+  <!-- pr-review: <DECISION> @ <reviewed_sha> -->
+  ```
+
+  as its **last line** — `dw_wait_review` polls for it, `dw_merge_readiness`
+  binds it to the merge SHA. The decision keyword and full SHA are exact.
 - `body` — Markdown, structured by pillar (see above).
 - `comments` — inline review comments (optional, `[]` if none). Each has
   `path`, `line`, `body`.
@@ -204,12 +229,14 @@ This makes coverage auditable — a reader sees what was checked at a glance.
 - Do not investigate pillars whose triggers the diff doesn't touch. Mark N/A.
 - Do not state findings without evidence. Cite the code line, the RIG edge, the
   wiki page, or the deterministic check that failed.
+- Do not re-dispatch CI or wait for pipelines — ingress guarantees a green
+  SHA; review the delta.
 
 ## Relationship to other skills
 
-- **`dev-workflow`** — defines the gate chain (issue, branch, milestone, CI).
-  The Architect pillars map to dev-workflow gates: Coupling → Gate 7, Design
-  Intent → Gate 1. This skill adds the engineering-quality review (the five
-  Adversary pillars + Interface Stability) on top of the process gates.
+- **`dev-workflow`** — defines the gate chain; this skill **is gate 12**
+  (adversarial review APPROVE on the merge SHA). The Architect pillars map
+  to dev-workflow gates: Coupling → Gate 7, Design Intent → Gate 1. The
+  verdict trailer is what `dw_merge_readiness` consumes as merge currency.
 - **`llm-wiki`** — the wiki consulted for Design Intent. The RIG and C4 model
   are the deterministic architecture graph; the wiki pages are the reasoning.

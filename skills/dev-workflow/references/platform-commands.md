@@ -26,6 +26,9 @@ host (`codeberg.org`) and token env var differ.
 | Open PR | `gh pr create --base --head` | `fj pr create --base --head` |
 | **Watch CI** | `gh pr checks <n> --watch` (blocks) | **no `--watch`** — poll `fj actions tasks` or the commit status API |
 | **Merge PR** | `gh pr merge --squash --delete-branch` | **REST only** — `POST .../pulls/<n>/merge` |
+| **Dispatch full pipeline** | `gh workflow run <wf> --ref <branch>` | `fj api repo dispatch-workflow ... --body '{"ref":"<branch>"}'` → `decode: EOF` = success (204) |
+| **Resolve PR head SHA** | `gh pr view <n> --json headRefOid` | `GET .../pulls/<n>` → `.head.sha` |
+| **Runs for a SHA** | `gh api .../actions/runs?head_sha=<sha>` | `GET .../actions/runs?limit=100` → filter `.commit_sha` + `.name` |
 
 The bolded rows are why `host.sh` exists: milestones, CI watching, and merging
 need different mechanisms and the agent should not have to remember them.
@@ -64,6 +67,12 @@ Base: `https://<host>/api/v1/repos/<owner>/<repo>/...`
 - Set issue milestone: `PATCH .../issues/<n>` body `{"milestone": <id>}`
 - Merge PR: `POST .../pulls/<n>/merge` body `{"Do": "squash" | "merge" | "rebase"}`
 - CI status for a commit: `GET .../commits/<sha>/status` → `.state` ∈ `success|failure|error|pending`
+- Dispatch workflow: `POST .../actions/workflows/<filename>/dispatches`
+  body `{"ref": "<branch>"}` (the `fj` wrapper is preferred). Run records
+  expose the workflow **name**, not filename — configure the name in
+  `Full pipeline:` when they differ.
+- PR comments (where the review verdict trailer lands):
+  `GET .../issues/<pr>/comments` — PRs share the issues comment API.
 
 All calls need `Authorization: token <TOKEN>`.
 
