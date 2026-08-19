@@ -32,8 +32,11 @@ workflow-templates.yaml       {templateRef, source,       /workflows/new
    gate, prepare/agent/deploy plugins, skill, task template, model.
    Changed **only** via k8s-config MR (Flux-managed). One place per shape.
 2. **Instances** are created **only** in the harmostes UI
-   (`/workflows/new`): pick a template, supply name + schedule + scope
-   (label/repos/wiki). The stored CR is thin — it duplicates nothing.
+   (`/workflows/new`): pick a template, supply name + schedule + the
+   template's **declared scope fields**. The form renders from the
+   template's `spec.scope` schema (name/kind string|list/label/description/
+   default); only declared keys are stored in `spec.config`. The CR is
+   thin — it duplicates nothing.
 3. The UI stamps `harmostes.dev/owner` from the authenticated session
    (`StampOwnerLabel`). All UI reads are owner-scoped, so **a workflow
    created in the UI is visible to its creator by construction**.
@@ -65,10 +68,18 @@ four intact:
 
 | Piece | Where | Must remain |
 |---|---|---|
-| Creation routes | `internal/ui/server.go` (`GET /workflows/new`, `POST /workflows`, `POST /workflows/{name}/delete`) | Registered and owner-stamping |
+| Creation routes | `internal/ui/server.go` (`GET /workflows/new`, `POST /workflows`, `POST /workflows/{name}/delete`) | Registered, templateRef-only, owner-stamping |
 | Owner stamping | `internal/ui/workflows.go` (`StampOwnerLabel`) | Server-set from session, never client input |
 | Template resolution | `api/v1alpha1/template.go` (`ApplyTemplateDefaults`) + worker fetch in `cmd/harmostes-worker/main.go` | Field-wise, instance wins, nil-safe; applied after CR fetch |
 | Read-path resolution | `internal/ui` (`resolveWorkflow` in list/detail/graph) + creation RBAC in `chart/templates/ui-rbac.yaml` | Thin instances render merged shape; UI SA has workflow create/delete |
+| Scope schema | `api/v1alpha1/workflowtemplate_types.go` (`ScopeParam`) + `scopeConfigJSON` in `internal/ui/workflows.go` | The template owns its config dialect: form renders from `spec.scope`, creation stores ONLY declared keys (defaults on empty) |
+| One archetype registry | `internal/ui` (no gateCatalog — deleted; grouping by `templateRef`) | No hardcoded archetype catalogs anywhere; adding a template is YAML only |
+
+**Also reject** any PR that reintroduces a Go-side gate/archetype catalog,
+hardcodes instance-config keys in the creation form (the pr-review keys are
+pr-review's declaration, not the form's business), or copies CRD YAML into
+k8s-config (CRDs are single-sourced from the kernel repo via the
+`harmostes-crds` Flux source).
 
 **Reject** any PR that: re-adds example Workflow CR YAML (`examples/`),
 re-introduces a YAML/GitOps creation flow in docs or code, lets an instance
@@ -81,9 +92,12 @@ from any component other than the UI.
   re-created; the kustomization carries the warning comment).
 - Templates in `workflow-templates.yaml` must carry **full executable
   defaults** — model, taskTemplate with `configMap` + `key`, plugin
-  configMaps — because instances inherit everything they don't override.
-- CRD copies (`crd.yaml`) must include `spec.templateRef` + `spec.config`
-  and stay in sync with `chart/crds/`.
+  configMaps — **and a `spec.scope` declaration** for every instance-config
+  key their prepare plugin consumes (the UI form is useless without it).
+- CRDs: k8s-config holds **zero CRD bytes** — the `harmostes-crds`
+  GitRepository + Kustomization source `chart/crds/` from the kernel repo
+  (`prune: false`; fresh clusters: apply
+  `platform/harmostes/gitrepository-crds.yaml` once directly).
 
 ### Documentation changes
 
