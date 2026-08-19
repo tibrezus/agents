@@ -220,6 +220,23 @@ dw_request_review() {
     dw_watch_ci "$pr" >/dev/null 2>&1 \
       || dw_die "refusing review: fast tier not green at head ${head:0:8} — fix on the branch and re-push"
   fi
+  # Ensure the label exists (GitHub 422s / Gitea 404s unknown labels) — same
+  # create-if-missing pattern as dw_trigger_full_pipeline, so there is no
+  # per-repo one-time setup.
+  case "$platform" in
+    github)
+      gh label create "$label" --repo "$owner_repo" --color fbca04 \
+        --description "request the adversarial review (declare ready)" >/dev/null 2>&1 || true ;;
+    *)
+      local rhost rtoken exists
+      rhost=$(dw_host); rtoken=$(dw_token)
+      exists=$(curl -fsSL -H "Authorization: token $rtoken" \
+        "https://$rhost/api/v1/repos/$owner_repo/labels?limit=50" 2>/dev/null \
+        | jq -r --arg l "$label" '.[] | select(.name==$l) | .id' | head -1)
+      [ -z "$exists" ] && curl -fsSL -H "Authorization: token $rtoken" -H 'Content-Type: application/json' \
+        -X POST "https://$rhost/api/v1/repos/$owner_repo/labels" \
+        -d "$(jq -n --arg n "$label" '{name:$n,color:"fbca04",description:"request the adversarial review (declare ready)"}')" >/dev/null ;;
+  esac
   case "$platform" in
     github)
       gh issue edit "$pr" --repo "$owner_repo" --add-label "$label" 2>/dev/null \
@@ -231,7 +248,7 @@ dw_request_review() {
         -X POST "https://$host/api/v1/repos/$owner_repo/issues/$pr/labels" \
         -d "$(jq -n --arg l "$label" '{labels:[$l]}')" >/dev/null ;;
   esac
-  echo "dev-workflow: added '$label' label to PR #$pr — automated review will run within ~5 min" >&2
+  echo "dev-workflow: added '$label' label to PR #$pr — the reviewer polls the label (every ~10 min); verdict typically lands within 15 min" >&2
 }
 
 # dw_wait_review "<pr#>" → polls PR comments for the verdict trailer

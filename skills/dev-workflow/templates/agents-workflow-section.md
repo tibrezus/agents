@@ -39,9 +39,8 @@ gates hold for every change:
   `scripts/test`) — never a throwaway script you discard after verifying.
   Consolidation is the default: before creating any component — a tool, a CI
   job, a wiki page — quickly check that an equivalent doesn't already exist
-  (tooling folders: `scripts/`, `tools/`, `bench/`) and extend it; new tools
-  are wired into CI. Every test, lint check, or harness is wired into CI and
-  stays there: extend the existing suite, don't create a parallel one.
+  (tooling folders: `scripts/`, `tools/`, `bench/`) and extend it. Extend the
+  existing suite; never create a parallel one.
 - **No undocumented coupling.** Avoid coupling between components unless it is
   part of the intended architecture. If coupling is unavoidable and not part
   of the documented design, record it in the wiki (`/skill:llm-wiki`) **before**
