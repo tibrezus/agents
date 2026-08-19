@@ -26,7 +26,8 @@ host (`codeberg.org`) and token env var differ.
 | Open PR | `gh pr create --base --head` | `fj pr create --base --head` |
 | **Watch CI** | `gh pr checks <n> --watch` (blocks) | **no `--watch`** — poll `fj actions tasks` or the commit status API |
 | **Merge PR** | `gh pr merge --squash --delete-branch` | **REST only** — `POST .../pulls/<n>/merge` |
-| **Dispatch full pipeline** | `gh workflow run <wf> --ref <branch>` | `fj api repo dispatch-workflow ... --body '{"ref":"<branch>"}'` → `decode: EOF` = success (204) |
+| **Trigger full pipeline (label)** | `gh issue edit <n> --add-label full-pipeline` | `POST .../issues/<pr>/labels` body `{"labels":["full-pipeline"]}` |
+| **Dispatch full pipeline (fallback)** | `gh workflow run <wf> --ref <branch>` | `fj api repo dispatch-workflow ... --body '{"ref":"<branch>"}'` → `decode: EOF` = success (204) |
 | **Resolve PR head SHA** | `gh pr view <n> --json headRefOid` | `GET .../pulls/<n>` → `.head.sha` |
 | **Runs for a SHA** | `gh api .../actions/runs?head_sha=<sha>` | `GET .../actions/runs?limit=100` → filter `.commit_sha` + `.name` |
 
@@ -85,16 +86,19 @@ Base: `https://<host>/api/v1/repos/<owner>/<repo>/...`
   body `{"ref": "<branch>"}` (the `fj` wrapper is preferred). Run records
   expose the workflow **name**, not filename — configure the name in
   `Full pipeline:` when they differ.
-- **Label-triggered full pipeline** — a workflow can also fire on
+- **Label-triggered full pipeline (primary)** — the workflow fires on
   `pull_request: types: [labeled]` guarded by
-  `github.event.label.name == 'full-pipeline'` (verified in Gitea ≥1.22:
+  `github.event.label.name == 'full-pipeline'`; `dw_trigger_full_pipeline`
+  sets the label (agent path, auto-creates it, toggles on re-trigger) and a
+  human ticking it in the UI is equivalent. Verified in Gitea ≥1.22:
   `HookIssueLabelUpdated` → `labeled`; without a `types` filter, label
-  events do NOT fire; any label change converts to `labeled`, so the
-  guard is mandatory; one run per label). Setting the label on a PR is
-  the human equivalent of `dw_dispatch_full_pipeline` — the run lands on
-  the head SHA, and `dw_full_green` verifies it identically. Re-trigger
-  after a push: remove → re-add the label. Must be defined on the base
-  branch (default) to take effect.
+  events do NOT fire; any label change converts to `labeled`, so the guard
+  is mandatory; one run per label; the trigger must be defined on the base
+  branch (default). The run lands on the PR head SHA and `dw_full_green`
+  verifies it identically to a dispatch. Re-trigger after a push: remove →
+  re-add (the helper does this automatically).
+- Dispatch (`dw_dispatch_full_pipeline`) remains the fallback for workflows
+  wired with `workflow_dispatch` only.
 - PR comments (where the review verdict trailer lands):
   `GET .../issues/<pr>/comments` — PRs share the issues comment API.
 

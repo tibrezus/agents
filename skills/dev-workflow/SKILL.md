@@ -84,11 +84,12 @@ independently falsifiable.
 10. **Fast CI green on every push** — lint/build/unit/targeted tests. Red
     is fixed on the branch, never merged red.
 11. **Full pipeline green on the merge SHA** — at ready declaration: rebase
-    onto the default branch, trigger the full pipeline (`dw_dispatch_full_pipeline`;
-    on Forgejo repos with the `full-pipeline` label, setting it on the PR is
-    the equivalent human trigger), watch green at that head SHA. Any later
-    push invalidates it — re-declare (re-dispatch or label toggle). Skipped
-    when no full workflow is configured (the fast tier *is* the pipeline).
+    onto the default branch, then set the `full-pipeline` label on the PR
+    (`dw_trigger_full_pipeline`; a human ticking the label in the UI is
+    equivalent), which runs the full pipeline on that head SHA; watch it
+    green. Any later push invalidates it — re-trigger (the helper toggles
+    the label). Skipped when no full workflow is configured (the fast tier
+    *is* the pipeline).
 12. **Adversarial review APPROVE on the merge SHA** — `dw_request_review`
     (guarded ingress: refuses heads without a green pipeline) triggers the
     `pr-review` skill; APPROVE must land at the same head SHA.
@@ -99,7 +100,7 @@ independently falsifiable.
 
 **Two-phase readiness:** every push runs the fast tier only; the full
 pipeline + adversarial review run **once, at ready declaration, on the
-final SHA** (rebase *before* dispatch). Statuses bind to SHAs: merge-ready
+final SHA** (rebase *before* triggering). Statuses bind to SHAs: merge-ready
 = fast + full + review green at the *same* SHA that is the branch head at
 merge; any push after declaration re-opens the merge path (red pipeline →
 back to developing, never into review). Depth:
@@ -274,8 +275,8 @@ source "$(dirname "$(readlink -f "$0")")/scripts/host.sh"   # or source the abso
 9. **Declare ready — full pipeline, review, merge:**
    ```bash
    PR=$(dw_pr_number_from_branch "$BRANCH")
-   dw_rebase_onto_default "$BRANCH"        # hard rule 3 — BEFORE dispatch
-   dw_dispatch_full_pipeline "$BRANCH"     # gate 11 (no-op if none configured)
+   dw_rebase_onto_default "$BRANCH"        # hard rule 3 — BEFORE triggering
+   dw_trigger_full_pipeline "$PR"          # gate 11: sets the full-pipeline label (no-op if none configured)
    dw_watch_full_pipeline "$BRANCH" || { echo "full pipeline red — fix, re-push, re-declare"; exit 1; }
    dw_request_review "$PR"                 # gate 12 — refuses unvalidated heads
    dw_wait_review "$PR"                    # blocks for the verdict trailer

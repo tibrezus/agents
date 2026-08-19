@@ -215,7 +215,7 @@ dw_request_review() {
   [ -n "$head" ] || dw_die "cannot resolve head SHA of PR #$pr"
   if [ -n "$(dw_full_pipeline_workflows)" ]; then
     dw_full_green "$head" \
-      || dw_die "refusing review: full pipeline not green at head ${head:0:8} — declare ready first (dw_dispatch_full_pipeline), or fix red CI on the branch"
+      || dw_die "refusing review: full pipeline not green at head ${head:0:8} — declare ready first (dw_trigger_full_pipeline), or fix red CI on the branch"
   else
     dw_watch_ci "$pr" >/dev/null 2>&1 \
       || dw_die "refusing review: fast tier not green at head ${head:0:8} — fix on the branch and re-push"
@@ -334,9 +334,10 @@ dw_pr_head() {
   esac
 }
 
-# dw_dispatch_full_pipeline "<branch>" → dispatches every configured workflow
-#   on the branch; prints the head SHA the dispatch is bound to (the anchor
-#   for dw_full_green / dw_merge_readiness). Call AFTER rebase.
+# dw_dispatch_full_pipeline "<branch>" → low-level API dispatch of every
+#   configured workflow on the branch. FALLBACK only, for workflows wired
+#   with workflow_dispatch alone — the primary trigger is the full-pipeline
+#   label (dw_trigger_full_pipeline). Prints the bound head SHA.
 dw_dispatch_full_pipeline() {
   local branch="$1" wf
   local wfs; wfs=$(dw_full_pipeline_workflows)
@@ -363,6 +364,56 @@ dw_dispatch_full_pipeline() {
     echo "dev-workflow: dispatched $wf on $branch @ ${sha:0:8}" >&2
   done
   echo "$sha"
+}
+
+# dw_trigger_full_pipeline "<pr#|branch>" → THE primary full-pipeline trigger:
+#   sets the full-pipeline label on the PR (removing it first if set, so a
+#   re-trigger after a push always fires exactly one fresh labeled event).
+#   Creates the label if missing. Works for agents and mirrors the human
+#   action (ticking the label in the UI). Prints the bound head SHA.
+dw_trigger_full_pipeline() {
+  local pr="$1"
+  case "$pr" in ''|*[!0-9]*) pr=$(dw_pr_number_from_branch "$pr") ;; esac
+  [ -n "$pr" ] || dw_die "cannot resolve a PR from '$1'"
+  [ -z "$(dw_full_pipeline_workflows)" ] && { echo "dev-workflow: no full pipeline configured — fast tier is the pipeline" >&2; return 0; }
+  local label="${DW_FULL_PIPELINE_LABEL:-full-pipeline}"
+  local head; head=$(dw_pr_head "$pr")
+  [ -n "$head" ] || dw_die "cannot resolve head SHA of PR #$pr"
+  local platform owner_repo
+  platform=$(dw_detect_platform); owner_repo=$(dw_owner_repo)
+  case "$platform" in
+    github)
+      gh label create "$label" --repo "$owner_repo" --color 0ea5e9 \
+        --description "run the full pipeline on the current head (declare ready)" >/dev/null 2>&1 || true
+      gh issue edit "$pr" --repo "$owner_repo" --remove-label "$label" >/dev/null 2>&1 || true
+      gh issue edit "$pr" --repo "$owner_repo" --add-label "$label" >/dev/null 2>&1 \
+        || dw_die "failed to set '$label' on PR #$pr" ;;
+    *)
+      local host token lid exists
+      host=$(dw_host); token=$(dw_token)
+      # ensure the label exists — CHECK FIRST: Gitea allows duplicate names on
+      # create (no unique constraint), so a blind POST can mint duplicates
+      exists=$(curl -fsSL -H "Authorization: token $token" \
+        "https://$host/api/v1/repos/$owner_repo/labels?limit=50" 2>/dev/null \
+        | jq -r --arg l "$label" '.[] | select(.name==$l) | .id' | head -1)
+      [ -z "$exists" ] && curl -fsSL -H "Authorization: token $token" -H 'Content-Type: application/json' \
+        -X POST "https://$host/api/v1/repos/$owner_repo/labels" \
+        -d "$(jq -n --arg n "$label" '{name:$n,color:"0ea5e9",description:"run the full pipeline on the current head (declare ready)"}')" >/dev/null
+      # remove if present (loop: handles duplicate-name attach states) →
+      # exactly one fresh labeled event on re-add
+      for lid in $(curl -fsSL -H "Authorization: token $token" \
+        "https://$host/api/v1/repos/$owner_repo/issues/$pr/labels" 2>/dev/null \
+        | jq -r --arg l "$label" '.[] | select(.name==$l) | .id'); do
+        curl -fsSL -X DELETE -H "Authorization: token $token" \
+          "https://$host/api/v1/repos/$owner_repo/issues/$pr/labels/$lid" >/dev/null 2>&1 || true
+      done
+      curl -fsSL -H "Authorization: token $token" -H 'Content-Type: application/json' \
+        -X POST "https://$host/api/v1/repos/$owner_repo/issues/$pr/labels" \
+        -d "$(jq -n --arg l "$label" '{labels:[$l]}')" >/dev/null \
+        || dw_die "failed to set '$label' on PR #$pr" ;;
+  esac
+  echo "dev-workflow: set '$label' on PR #$pr — full pipeline will run @ ${head:0:8}" >&2
+  echo "$head"
 }
 
 # dw_full_green "<sha>" → exit 0 iff every configured workflow has a SUCCESS
@@ -445,7 +496,7 @@ dw_run_tests() {
 # dw_rebase_onto_default  → rebase current feature branch onto latest default.
 #   Fetches the default branch, rebases onto it, and force-pushes (with lease)
 #   the FEATURE branch only — never the default branch.
-#   Call at ready-declaration, BEFORE dw_dispatch_full_pipeline — never after
+#   Call at ready-declaration, BEFORE dw_trigger_full_pipeline — never after
 #   (the rebase changes the head SHA and would invalidate the dispatched chain).
 dw_rebase_onto_default() {
   local default current

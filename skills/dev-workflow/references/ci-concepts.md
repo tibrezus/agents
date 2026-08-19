@@ -83,7 +83,8 @@ from `tdd`:
 agent workflows: the guarantee lives at **merge time**, not PR-open time.
 During development only the fast tier runs (superseded runs cancelled via
 `concurrency`); opening a PR early is free. At ready declaration: rebase
-first, dispatch the full pipeline on that SHA, then the adversarial review
+first, trigger the full pipeline on that SHA (the `full-pipeline` label),
+then the adversarial review
 on the same SHA. Red full pipeline → back to developing, never into review
 — reviewing red CI is pointless; the review exists for what CI cannot see.
 

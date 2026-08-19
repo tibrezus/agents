@@ -98,7 +98,8 @@ skill's `references/ci-concepts.md`.
    green and the simplification pass is done. The PR is the expensive
    step: it triggers CI on the forge, so it opens **once**, locally green.
 7. **Re-simplify, then declare ready:** rebase onto the default branch,
-   dispatch the full pipeline on that SHA and watch it green; then request
+   trigger the full pipeline on that SHA (`dw_trigger_full_pipeline` — sets
+   the `full-pipeline` label) and watch it green; then request
    the adversarial review (`dw_request_review`) and wait for APPROVE.
 8. **Merge only when merge-ready** — `dw_merge_readiness` verifies fast +
    full + review at the same head SHA — then delete the branch and close
