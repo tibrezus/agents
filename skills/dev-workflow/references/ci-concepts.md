@@ -81,12 +81,13 @@ from `tdd`:
 
 **Merge-gated validation.** The bors/merge-queue lineage, inverted for
 agent workflows: the guarantee lives at **merge time**, not PR-open time.
-During development only the fast tier runs (superseded runs cancelled via
-`concurrency`); opening a PR early is free. At ready declaration: rebase
-first, trigger the full pipeline on that SHA (the `full-pipeline` label),
-then the adversarial review
-on the same SHA. Red full pipeline → back to developing, never into review
-— reviewing red CI is pointless; the review exists for what CI cannot see.
+Development iterates locally — the PR opens **once**, locally green (gate 9
+in `SKILL.md`; an open PR consumes forge CI on every push). After it opens,
+pushes re-run the fast tier only, with superseded runs cancelled via
+`concurrency`. At ready declaration: rebase first, trigger the full pipeline
+on that SHA (the `full-pipeline` label), then the adversarial review on the
+same SHA. Red full pipeline → back to developing, never into review —
+reviewing red CI is pointless; the review exists for what CI cannot see.
 
 **SHA binding + invalidation** — statuses attach to SHAs. Merge-ready =
 fast green + full green + review APPROVE at the *same* SHA that is the
@@ -94,10 +95,14 @@ branch head at merge:
 
 | Event after ready declaration | Fast | Full pipeline | Review |
 |---|---|---|---|
-| Push touching build inputs (src/CI/tools) | rerun | re-dispatch | re-review |
-| Push touching docs/comments only | rerun | skip *(per-repo policy)* | delta only |
+| Any push (source **or** docs-only) | rerun | re-dispatch | re-review |
 | Default branch moved | rerun | re-dispatch after re-rebase | re-review |
 | Review REQUEST_CHANGES → fixes | rerun | re-dispatch | re-review |
+
+The mechanics make no push-kind distinction: statuses bind to SHAs
+(`dw_full_green` and `dw_merge_readiness` check at the head SHA), so even a
+docs-only push after declaration re-opens the path. Fold such edits in
+**before** declaring ready.
 
 **Platform mechanics** (dispatch commands, quirks, merge-queue guidance):
 [`platform-commands.md`](platform-commands.md) — heavy workflows go on
@@ -320,7 +325,8 @@ When setting up or updating CI:
    This keeps CI lean as it grows. (See [§1.4](#14-measurements-as-reproducible-ci-artifacts).)
 
 Per-platform patterns live in [`platform-commands.md`](platform-commands.md)
-for the *watch* side; the *run* side is project-defined via `TEST_COMMAND`.
+for the *watch* side; the *run* side is project-defined via a committed
+runner or `CI_TEST_COMMAND` (precedence above).
 
 ## 4. The two gates, restated as a merge contract
 

@@ -32,8 +32,9 @@ the right host via [`scripts/host.sh`](scripts/host.sh)) and multi-project
 A change may merge only after **all** gates pass, in order. Each gate is
 independently falsifiable.
 
-1. **Grounded in documented design — read before implementing.** Pull the
-   llm-wiki repo, then read in this order (mandatory if the file exists):
+1. **Grounded in documented design — read before implementing.** If the
+   project participates in the llm-wiki KB, pull it and read in this order
+   (each item: mandatory if it exists):
 
    - **project's own wiki** (`<repo>.wiki.git` → `C4-Model.md`,
      `Architecture.md`) — **authoritative** for architecture: CI-regenerated
@@ -50,8 +51,7 @@ independently falsifiable.
    is the primary tool against code duplication — use it.
 2. **Issue exists** — an open issue (found or created) describes the change.
 3. **Branch tied to the issue** — a branch whose name contains the issue
-   number, created off the default branch. No work on the default branch;
-   rebase an existing branch onto the default before starting.
+   number, created off the default branch. No work on the default branch.
 4. **Milestone assigned** — the issue is associated with a milestone (current
    by convention, or per the project config).
 5. **Change made on the branch** — commits reference the issue
@@ -83,27 +83,26 @@ independently falsifiable.
     loop.
 10. **Fast CI green on every push** — lint/build/unit/targeted tests. Red
     is fixed on the branch, never merged red.
-11. **Full pipeline green on the merge SHA** — at ready declaration: rebase
+11. **Full pipeline green on the head SHA** — at ready declaration: rebase
     onto the default branch, then set the `full-pipeline` label on the PR
     (`dw_trigger_full_pipeline`; a human ticking the label in the UI is
     equivalent), which runs the full pipeline on that head SHA; watch it
     green. Any later push invalidates it — re-trigger (the helper toggles
     the label). Skipped when no full workflow is configured (the fast tier
     *is* the pipeline).
-12. **Adversarial review APPROVE on the merge SHA** — `dw_request_review`
+12. **Adversarial review APPROVE on the head SHA** — `dw_request_review`
     (guarded ingress: refuses heads without a green pipeline) triggers the
     `pr-review` skill; APPROVE must land at the same head SHA.
-13. **Comment the issue** — with the complete implementation.
-14. **Merge-ready, then merged** — `dw_merge_readiness` verifies fast +
+13. **Merge-ready, then merged** — `dw_merge_readiness` verifies fast +
     full + review + rebase at one frozen head SHA; only then `dw_merge_pr`.
-    Branch deleted, issue closed.
+    Branch deleted; the merged PR (`Closes #n`) closes the issue and is the
+    implementation record — no separate issue comment required.
 
-**Two-phase readiness:** every push runs the fast tier only; the full
-pipeline + adversarial review run **once, at ready declaration, on the
-final SHA** (rebase *before* triggering). Statuses bind to SHAs: merge-ready
-= fast + full + review green at the *same* SHA that is the branch head at
-merge; any push after declaration re-opens the merge path (red pipeline →
-back to developing, never into review). Depth:
+**Two-phase readiness:** development pushes run the fast tier only; the
+full pipeline + adversarial review run **once, at ready declaration, on the
+final head SHA** (rebase *before* triggering). Statuses bind to SHAs, so any
+push after declaration — source or docs — re-opens the path; a red pipeline
+means back to developing, never into review. Depth:
 [`references/ci-concepts.md`](references/ci-concepts.md) §1.3.
 
 ## Hard rules
@@ -139,18 +138,13 @@ to detect it, how to wire tests into CI — lives in
 
 **CI instrumentation evolves with the project — there is no throwaway test.**
 Run the project's own runner locally (`make test`, `npm test`, `scripts/test`
-— whatever CI runs), never a throwaway script you discard after verifying.
-**Consolidation is the default practice: before creating any component — a
-tool, a CI job, a wiki page — quickly check that an equivalent doesn't
-already exist** (tooling folders: `scripts/`, `tools/`, `bench/`) and extend
-it; new tools are wired into CI — unless you explicitly decide a tool is a
-one-off diagnostic and note that on the issue. Unit tests are mandatory
-(fast tier, every push); benchmarks and long evaluations go in the slow tier
-(dispatched once at ready declaration — gate 11) as reusable jobs, not
-ad-hoc scripts. A
-throwaway script leaves CI frozen while the code moves on; the next
-regression walks straight past it. Depth:
-[`references/ci-concepts.md`](references/ci-concepts.md) §1.
+— whatever CI runs) and wire every new test or tool into CI; before creating
+a component (tool, CI job, wiki page), check that an equivalent doesn't
+already exist and extend it instead. Unit tests are mandatory (fast tier,
+every push); benchmarks and long evaluations go in the slow tier (dispatched
+once at ready declaration — gate 11) as reusable jobs. A throwaway script
+leaves CI frozen while the code moves on — it looks like coverage but
+protects nothing. Depth: [`references/ci-concepts.md`](references/ci-concepts.md) §1.
 
 **Safety-critical boolean logic requires MC/DC.** When the project declares
 `SAFETY_LEVEL: mcdc`, every boolean decision in changed code must achieve
@@ -212,11 +206,11 @@ dw_request_review "<pr-number>" [label]
 
 **Guarded ingress:** refuses unless the pipeline is green at the PR's head
 SHA (full pipeline, or fast tier when none is configured). On success it
-adds the `needs-review` label (one-time setup: `gh label create needs-review
---color fbca04`), which triggers the harmostes pr-review workflow. The
-verdict lands as a comment ending in the trailer `<!-- pr-review: <DECISION>
-@ <sha> -->` — `dw_wait_review` polls for it, `dw_merge_readiness` binds it
-to the merge SHA.
+adds the `needs-review` label (created if missing — no per-repo setup),
+which triggers the harmostes pr-review workflow (a ~10-minute label poll;
+the verdict typically lands within 15 minutes). The verdict lands as a
+comment ending in the trailer `<!-- pr-review: <DECISION> @ <sha> -->` —
+`dw_wait_review` polls for it, `dw_merge_readiness` binds it to the head SHA.
 
 ### Make a change (the per-change procedure)
 
@@ -280,7 +274,7 @@ source "$(dirname "$(readlink -f "$0")")/scripts/host.sh"   # or source the abso
    dw_watch_full_pipeline "$BRANCH" || { echo "full pipeline red — fix, re-push, re-declare"; exit 1; }
    dw_request_review "$PR"                 # gate 12 — refuses unvalidated heads
    dw_wait_review "$PR"                    # blocks for the verdict trailer
-   dw_merge_readiness "$PR" && dw_merge_pr "$PR" squash
+   dw_merge_pr "$PR" squash                # gate 13 — refuses unless merge-ready
    ```
    A REQUEST_CHANGES verdict means: address the findings, then re-run this
    step — the new head SHA re-opens gates 11 and 12.
@@ -313,13 +307,13 @@ adjacent depth, and cross-references instead of duplicating it:
 - **`fork-maintenance`** — *external* change: upstream moved, keep the fork's
   release branch green (two-branch mirror/release topology).
 - **`pr-review`** — **gate 12**, the reviewer counterpart: adversarial
-  review APPROVE on the merge SHA is required for merge-ready. It is
+  review APPROVE on the head SHA is required for merge-ready. It is
   SHA-guarded at ingress, so it only ever evaluates pipeline-green code.
 
 For forked repos `dev-workflow` and `fork-maintenance` both apply: this skill
 governs your own feature branches; fork-maintenance governs the upstream-sync
-PRs. All three share the CI-watch pattern (`gh pr checks --watch` / commit
-status polling).
+PRs. CI-watching is one pattern everywhere (`gh pr checks --watch` on GitHub,
+commit-status polling on Forgejo).
 
 The gate chain above is the done-checklist — a change is "done" only when every
 gate has passed and the default branch has moved via the merged PR.

@@ -27,6 +27,10 @@ host (`codeberg.org`) and token env var differ.
 | **Watch CI** | `gh pr checks <n> --watch` (blocks) | **no `--watch`** — poll `fj actions tasks` or the commit status API |
 | **Merge PR** | `gh pr merge --squash --delete-branch` | **REST only** — `POST .../pulls/<n>/merge` |
 | **Trigger full pipeline (label)** | `gh issue edit <n> --add-label full-pipeline` | `POST .../issues/<pr>/labels` body `{"labels":["full-pipeline"]}` |
+
+(Label name overridable via `DW_FULL_PIPELINE_LABEL`; `dw_trigger_full_pipeline`
+creates it if missing and toggles it for re-triggers — same for `needs-review`
+in `dw_request_review`.)
 | **Dispatch full pipeline (fallback)** | `gh workflow run <wf> --ref <branch>` | `fj api repo dispatch-workflow ... --body '{"ref":"<branch>"}'` → `decode: EOF` = success (204) |
 | **Resolve PR head SHA** | `gh pr view <n> --json headRefOid` | `GET .../pulls/<n>` → `.head.sha` |
 | **Runs for a SHA** | `gh api .../actions/runs?head_sha=<sha>` | `GET .../actions/runs?limit=100` → filter `.commit_sha` + `.name` |
