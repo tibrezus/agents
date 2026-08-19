@@ -85,6 +85,16 @@ Base: `https://<host>/api/v1/repos/<owner>/<repo>/...`
   body `{"ref": "<branch>"}` (the `fj` wrapper is preferred). Run records
   expose the workflow **name**, not filename — configure the name in
   `Full pipeline:` when they differ.
+- **Label-triggered full pipeline** — a workflow can also fire on
+  `pull_request: types: [labeled]` guarded by
+  `github.event.label.name == 'full-pipeline'` (verified in Gitea ≥1.22:
+  `HookIssueLabelUpdated` → `labeled`; without a `types` filter, label
+  events do NOT fire; any label change converts to `labeled`, so the
+  guard is mandatory; one run per label). Setting the label on a PR is
+  the human equivalent of `dw_dispatch_full_pipeline` — the run lands on
+  the head SHA, and `dw_full_green` verifies it identically. Re-trigger
+  after a push: remove → re-add the label. Must be defined on the base
+  branch (default) to take effect.
 - PR comments (where the review verdict trailer lands):
   `GET .../issues/<pr>/comments` — PRs share the issues comment API.
 

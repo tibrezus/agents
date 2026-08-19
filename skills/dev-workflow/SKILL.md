@@ -84,10 +84,11 @@ independently falsifiable.
 10. **Fast CI green on every push** — lint/build/unit/targeted tests. Red
     is fixed on the branch, never merged red.
 11. **Full pipeline green on the merge SHA** — at ready declaration: rebase
-    onto the default branch, dispatch the full pipeline
-    (`dw_dispatch_full_pipeline`), watch green at that head SHA. Any later
-    push invalidates it — re-declare. Skipped when no full workflow is
-    configured (the fast tier *is* the pipeline).
+    onto the default branch, trigger the full pipeline (`dw_dispatch_full_pipeline`;
+    on Forgejo repos with the `full-pipeline` label, setting it on the PR is
+    the equivalent human trigger), watch green at that head SHA. Any later
+    push invalidates it — re-declare (re-dispatch or label toggle). Skipped
+    when no full workflow is configured (the fast tier *is* the pipeline).
 12. **Adversarial review APPROVE on the merge SHA** — `dw_request_review`
     (guarded ingress: refuses heads without a green pipeline) triggers the
     `pr-review` skill; APPROVE must land at the same head SHA.
