@@ -93,8 +93,10 @@ skill's `references/ci-concepts.md`.
 5. **Simplify** — re-read the diff. Can it be simpler? Remove dead code,
    collapse abstractions, eliminate speculative generality. A complex
    implementation is not optimal when a simpler alternative exists.
-6. **Push the branch and open a PR** (draft is fine) — every push runs the
-   fast tier; iterate to green and finish the simplification pass.
+6. **Green locally, then open the PR** — run the project's CI workloads
+   locally (the same suite the fast tier runs: build, lint, tests) until
+   green and the simplification pass is done. The PR is the expensive
+   step: it triggers CI on the forge, so it opens **once**, locally green.
 7. **Re-simplify, then declare ready:** rebase onto the default branch,
    dispatch the full pipeline on that SHA and watch it green; then request
    the adversarial review (`dw_request_review`) and wait for APPROVE.

@@ -75,7 +75,12 @@ independently falsifiable.
    generality. A complex implementation is not optimal when a simpler one
    exists (hard rule 5). Runs **before pushing to CI** and is re-checked
    **before merging**.
-9. **PR open** against the default branch.
+9. **PR open — only after the local CI mirror is green.** The project's
+    fast-tier workloads run locally first (build, lint, unit/targeted tests
+    — `dw_run_tests` + the project's lint) and the PR opens **once**, when
+    all of it passes. Opening a PR is the expensive step: it triggers CI on
+    the forge, so early scaffolding stays on the branch with the local
+    loop.
 10. **Fast CI green on every push** — lint/build/unit/targeted tests. Red
     is fixed on the branch, never merged red.
 11. **Full pipeline green on the merge SHA** — at ready declaration: rebase
@@ -248,18 +253,23 @@ source "$(dirname "$(readlink -f "$0")")/scripts/host.sh"   # or source the abso
    default branch). Ask: "can this be simpler?" Remove dead code, collapse
    redundant abstractions, eliminate speculative generality. If you change
    code, re-verify locally before proceeding. (Gate 8; hard rule 5.)
-7. **Verify locally, then push and open the PR:**
+7. **Green locally first — the PR is the expensive step:**
    ```bash
    dw_run_tests || { echo "local tests red — fix before pushing"; exit 1; }
+   ```
+   Run the project's fast-tier workloads locally (build + lint +
+   `dw_run_tests`) until green and the simplification pass (gate 8) is
+   done. Opening a PR consumes CI on the forge — push and open it **once**,
+   when the local mirror is green:
+   ```bash
    git push -u origin "$BRANCH"
    dw_open_pr "$BRANCH" "$(dw_default_branch)" "<title>" "Closes #$ISSUE"
    ```
-   Draft PR is fine — from here every push runs the **fast tier only**.
-8. **Develop against fast CI:**
+8. **Fast CI confirms on a clean runner** (it re-runs what you ran
+   locally):
    ```bash
    dw_watch_ci "$BRANCH" || { echo "fast CI red — fix on the branch and re-push"; exit 1; }
    ```
-   Iterate until green and the simplification pass (gate 8) is done.
 9. **Declare ready — full pipeline, review, merge:**
    ```bash
    PR=$(dw_pr_number_from_branch "$BRANCH")
