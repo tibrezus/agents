@@ -21,8 +21,23 @@ Keep the context small. Do not read the whole repo. Route to the minimal source.
 
 ## Ingress contract — validated SHAs only
 
-Invoked **only on a pipeline-green SHA** (dev-workflow gate 12): the
-harmostes trigger pins the validated SHA, or `dw_request_review` refuses
+**This skill owns the review contract**: the two-stance methodology below,
+the verdict vocabulary (APPROVE / REQUEST_CHANGES / COMMENT), the trailer
+format `<!-- pr-review: DECISION @ sha -->`, the `reviewed_sha` currency
+rule, and the label lifecycle (set by the requester; consumed ONLY by a
+verdict posted at the exact reviewed SHA). `dev-workflow` requests and
+consumes verdicts; it never re-states these rules.
+
+Two ingress points, one contract:
+- **harmostes (automated):** the event-armed Review-Ready Gate (ADR-0006)
+  proceeds only when the label is present ∧ every merge-rule required
+  context is green at the head SHA; the workspace plugin provisions the
+  knowns (clone at head, PR context, tools); the agent runs this skill.
+- **manual:** `dw_request_review` guards greenness requester-side, then
+  sets the same label — human-ticking the label in the UI is equivalent.
+
+Invoked **only on a pipeline-green SHA**: the harmostes gate pins the
+validated SHA, or `dw_request_review` refuses
 unvalidated heads. CI evidence in `pr-context.json` is green by contract —
 red CI is fixed on the branch, never reviewed; this pass exists for what CI
 *cannot* see. Phase-0 deterministic proof (local build/test of the delta)

@@ -206,11 +206,17 @@ dw_request_review "<pr-number>" [label]
 
 **Guarded ingress:** refuses unless the pipeline is green at the PR's head
 SHA (full pipeline, or fast tier when none is configured). On success it
-adds the `needs-review` label (created if missing — no per-repo setup),
-which triggers the harmostes pr-review workflow (a ~10-minute label poll;
-the verdict typically lands within 15 minutes). The verdict lands as a
-comment ending in the trailer `<!-- pr-review: <DECISION> @ <sha> -->` —
-`dw_wait_review` polls for it, `dw_merge_readiness` binds it to the head SHA.
+adds the `needs-review` label (created if missing — no per-repo setup).
+
+The label is the single portable trigger: the harmostes **Review-Ready
+Gate** (event-armed, ADR-0006) wakes on the label webhook and re-verifies
+label ∧ merge-rule greenness itself — verdicts land within minutes, not a
+10-minute poll. **The review methodology and the verdict contract are
+owned by the `pr-review` skill** (stances, pillars, trailer format, label
+lifecycle) — this skill only requests and consumes; it never duplicates
+those rules. The verdict lands as a comment ending in the trailer
+`<!-- pr-review: <DECISION> @ <sha> -->` — `dw_wait_review` polls for it,
+`dw_merge_readiness` binds it to the head SHA.
 
 ### Make a change (the per-change procedure)
 
