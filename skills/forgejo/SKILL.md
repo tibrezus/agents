@@ -67,7 +67,7 @@ directly on the deployed branch).
 | Polished commands (bespoke UX) | `staging/src/forgejo.org/fj/pkg/cmd/<group>.go` — only when the DSL can't express it (e.g. `issue view --comments` threads); thin wrapper over SDK methods |
 | CLI tests | `staging/src/forgejo.org/fj/tests/integration/` |
 | Build locally | `go build -o /tmp/fj ./cmd/fj` (never leave a root `./fj` — it shadows the staging module) |
-| Ship | prebuilt tarball in the fork's GitHub Release (tag `forgejo-v*`); CLI version == Forgejo release |
+| Ship | prebuilt binaries in the fork's GitHub Release (tag `v*-rezus.*`): `fj-{linux,darwin}-{amd64,arm64}.tar.gz` + `fj-windows-{amd64,arm64}.zip` + `checksums.txt` — CLI version == Forgejo release |
 
 A polished command never talks HTTP directly — it wraps the generated SDK
 method. If the *SDK method itself* is missing, the fix is in the generator /
