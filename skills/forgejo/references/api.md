@@ -109,14 +109,19 @@ staging/src/forgejo.org/client-go/gen/main.go   # reads swagger.json →
                                                 #   SDK services + fj api cobra tree
   groupByService() / classify(path)             # path-first-segment → service
   cmdNameFor(svc, opID)                         # kebab + strip redundant prefix
+  genPolished() (-polish-out)                   # polish.json → zz_generated_polished.go
 ```
 
 - The spec input is vendored next to the generator (`swagger.json`); regenerate
   when re-baselining on a new Forgejo release (v17+ changes the op set).
-- The polished commands (`fj issue`, `fj pr`, `fj actions`…) are **hand-written**
-  in `staging/src/forgejo.org/fj/pkg/cmd/` on top of the same generated SDK —
-  they add human-readable output and CI-log access (upstream Rust `fj` lacks
-  job logs). A new polished command = thin wrapper over one SDK method.
+- CRUD-shaped polished groups (`fj milestone` today) are **descriptor-driven**
+  since PR #78: an entry in `gen/polish.json` (op + params/args/body bindings +
+  printf row/line rendering via the shared render helpers) regenerated into
+  `zz_generated_polished.go`. Validation fails the build on unknown
+  op/field/helper or verb/format mismatch — wiring errors can't ship. Groups
+  with bespoke UX (e.g. `issue view --comments`) stay hand-written in
+  `staging/src/forgejo.org/fj/pkg/cmd/` on top of the same generated SDK
+  (upstream Rust `fj` lacks job logs and a polish generator).
 - `fj` ships prebuilt in the fork's GitHub Release (`fj-<os>-<arch>.tar.gz`,
   tag `forgejo-v*`); the release version equals the Forgejo release it targets.
 

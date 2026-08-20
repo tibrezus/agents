@@ -63,7 +63,8 @@ directly on the deployed branch).
 | What | Where |
 |---|---|
 | Generated SDK + `fj api` tree | `staging/src/forgejo.org/client-go/gen/main.go` (`classify()`, `cmdNameFor()`) |
-| Polished commands | `staging/src/forgejo.org/fj/pkg/cmd/<group>.go` — thin wrapper over one SDK method + readable output |
+| Polished commands (CRUD-shaped) | **descriptor**: `staging/src/forgejo.org/client-go/gen/polish.json` → regen → `zz_generated_polished.go`. A group is a descriptor entry, never a hand-written file (PR #78). Column expressions reference the shared render helpers by name; verb/format mismatches fail the build. |
+| Polished commands (bespoke UX) | `staging/src/forgejo.org/fj/pkg/cmd/<group>.go` — only when the DSL can't express it (e.g. `issue view --comments` threads); thin wrapper over SDK methods |
 | CLI tests | `staging/src/forgejo.org/fj/tests/integration/` |
 | Build locally | `go build -o /tmp/fj ./cmd/fj` (never leave a root `./fj` — it shadows the staging module) |
 | Ship | prebuilt tarball in the fork's GitHub Release (tag `forgejo-v*`); CLI version == Forgejo release |
