@@ -268,7 +268,7 @@ real name first — a wrong name gives **empty stdout** (cobra reports
 `unknown flag: --owner` to stderr). Wiki example: `fj api repo get-wiki-pages
 --owner tibrez --repo rhesadox -H git.rezus.cloud`.
 
-### Milestones (no polished command — use `fj api`)
+### Milestones (no polished command — use `fj api`; gap tracked in rezuscloud/forgejo#73)
 
 ```bash
 fj api repo issue-get-milestones-list --owner tibrez --repo rhesadox -H git.rezus.cloud
