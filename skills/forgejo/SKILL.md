@@ -48,7 +48,7 @@ task hits a missing surface:
 
 | Gap | Workaround | Issue | State |
 |---|---|---|---|
-| `fj milestone` — no polished group; opaque `--id` + JSON `--body` | `fj api repo issue-*-milestone` | [rezuscloud/forgejo#73](https://github.com/rezuscloud/forgejo/issues/73) | open |
+| `fj milestone` — no polished group; opaque `--id` + JSON `--body` | `fj milestone` group (merged · [PR #76](https://github.com/rezuscloud/forgejo/pull/76)) | [#73](https://github.com/rezuscloud/forgejo/issues/73) | merged, awaiting release cut |
 | `fj actions runs` — no query flags (`--limit`/`--status`/`--head-sha`/…) despite the API having them | `fj api repo list-action-runs --head-sha … --limit …` | [rezuscloud/forgejo#74](https://github.com/rezuscloud/forgejo/issues/74) | open |
 
 (Resolved gaps: drop the row when the release ships; note it in the release.)
@@ -155,7 +155,6 @@ fj api repo issue-create-milestone  --owner tibrez --repo rhesadox \
 - **Wrong `fj api` name → empty stdout** — the error is on stderr. Grep first.
 - **`--body` field names aren't in `--help`** — they come from the swagger
   request schema; mine the spec when unsure.
-- **Milestone `--id` is opaque** (from `get-milestones-list`) — see gap #73.
 - **`fj auth list` reads local `keys.json`**, not env vars.
 - **CI lists exit 0 on failures** — parse output, not the exit code.
 

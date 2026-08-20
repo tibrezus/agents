@@ -271,16 +271,21 @@ real name first — a wrong name gives **empty stdout** (cobra reports
 `unknown flag: --owner` to stderr). Wiki example: `fj api repo get-wiki-pages
 --owner tibrez --repo rhesadox -H git.rezus.cloud`.
 
-### Milestones (no polished command — use `fj api`; gap tracked in rezuscloud/forgejo#73)
+### Milestones (fj milestone — PR #76)
 
 ```bash
-fj api repo issue-get-milestones-list --owner tibrez --repo rhesadox -H git.rezus.cloud
-fj api repo issue-create-milestone --owner tibrez --repo rhesadox \
-     --body '{"title":"v2"}' -H git.rezus.cloud
-fj api repo issue-edit-milestone --owner tibrez --repo rhesadox --id 12 \
-     --body '{"title":"v2","state":"closed"}' -H git.rezus.cloud
-fj api repo issue-delete-milestone --owner tibrez --repo rhesadox --id 12 -H git.rezus.cloud
+fj milestone list [-s open|closed|all] [--name <title-substring>] -H <host> -r <o>/<r>
+                            # rows: #ID ✅/✗ [state] title (ids for view/edit/close/delete)
+fj milestone view <ID>      # title, state, due, open/closed issue counts, description
+fj milestone create -t <title> [-d <desc>] [--due 2026-09-30T00:00:00Z]
+fj milestone edit <ID> [-t] [-d] [--state open|closed] [--due]   # partial: only provided flags change
+fj milestone close <ID>     # ≡ edit --state closed
+fj milestone delete <ID>
 ```
+
+`--due` is RFC3339 and validated; edit is a partial PATCH (unset flags leave
+fields untouched — verified live). Generate-a-gap escape hatch stays available:
+`fj api repo issue-*-milestone` for anything the group lacks.
 `--id` is the opaque milestone id from `get-milestones-list` (milestones have no
 repo-local number like issues). Body schema: `{title, description, state, due_on}`.
 
