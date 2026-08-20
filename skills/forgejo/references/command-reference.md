@@ -1,8 +1,13 @@
 # `fj` command reference — the full drivethrough
 
-Verbatim `--help` output for every command, plus live example output against
-`git.rezus.cloud` / `tibrez/rhesadox`. This is the complete command surface of the
-Go `fj` (rezuscloud Forgejo fork, `16.0.2-rezuscloud.x`). For targeting rules and
+Verbatim `--help` output for the top-level and group commands, plus live
+example output against
+`git.rezus.cloud` / `tibrez/rhesadox`. This is the complete human-facing
+command surface of the
+Go `fj` (rezuscloud Forgejo fork, `16.0.2-rezuscloud.x`); the 506 generated
+`api` endpoints are covered structurally (per-command `--help` + the
+`fj api <svc> | grep` listing — every one renders help client-side, no
+host/auth needed). For targeting rules and
 workflow, see the parent `SKILL.md`; for the API origin and the
 operationId→command derivation, see [`api.md`](api.md).
 
@@ -271,7 +276,7 @@ real name first — a wrong name gives **empty stdout** (cobra reports
 `unknown flag: --owner` to stderr). Wiki example: `fj api repo get-wiki-pages
 --owner tibrez --repo rhesadox -H git.rezus.cloud`.
 
-### Milestones (fj milestone — PR #76)
+### Milestones (fj milestone — descriptor-generated since #78; first `polish.json` group)
 
 ```bash
 fj milestone list [-s open|closed|all] [--name <title-substring>] -H <host> -r <o>/<r>

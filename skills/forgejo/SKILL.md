@@ -86,8 +86,10 @@ means you forgot `-H`.
 
 ## Command surface — by subcommand
 
-The three global flags apply everywhere. Per-command `--help` verbatim + live
-examples: [`references/command-reference.md`](references/command-reference.md).
+The three global flags apply everywhere. Per-group `--help` verbatim + live
+examples: [`references/command-reference.md`](references/command-reference.md)
+(506 `api` endpoints are not repeated there — discover them via the listing
+below; each takes `--help`).
 
 ### `auth` — multi-instance credentials
 Credentials live in `~/.local/share/forgejo-cli/keys.json` (portable across
@@ -135,7 +137,7 @@ empty until CI schedules).
 `fj org list|view` · `fj wiki list|view <PAGE>` (wiki needs `-r`)
 
 ### `api` — the generated tree (everything else)
-Milestones, labels, branches, admin, runners, wiki CRUD, … — one subcommand
+Labels, branches, admin, runners, wiki CRUD, … — one subcommand
 per operationId. **Discover, never guess** (a wrong name = empty stdout,
 `unknown flag: --owner` on stderr):
 
@@ -145,6 +147,10 @@ fj api repo issue-get-milestones-list --owner tibrez --repo rhesadox -H git.rezu
 fj api repo issue-create-milestone  --owner tibrez --repo rhesadox \
      --body '{"title":"v2"}' -H git.rezus.cloud
 ```
+
+`--help` and these listings render client-side — no host/auth needed (cobra
+handles help before RunE); `--body` field names still come from the spec,
+not `--help`.
 
 ### `version` / `whoami`
 `fj version [--client|--short]` — client + API (spec) + server versions.
