@@ -282,7 +282,7 @@ project repo.
      `pyproject.toml`/`setup.py` (Python), `Cargo.toml` (Rust).
    - Detect the build system.
 2. **Generate the workflow** that produces a RIG JSON using the reusable
-   Action `tibrezus/llm-wiki/.github/actions/repo-map@vN`:
+   Action `tibrezus/llm-wiki-core/.github/actions/repo-map@vN`:
 
    ```yaml
    # .github/workflows/repo-map.yml
@@ -295,7 +295,7 @@ project repo.
        runs-on: ubuntu-latest
        steps:
          - uses: actions/checkout@v4
-         - uses: tibrezus/llm-wiki/.github/actions/repo-map@v1
+         - uses: tibrezus/llm-wiki-core/.github/actions/repo-map@v1
            with:
              language: go          # detected language
          - name: Publish RIG
