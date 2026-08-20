@@ -49,6 +49,7 @@ task hits a missing surface:
 | Gap | Workaround | Issue | State |
 |---|---|---|---|
 | `fj milestone` — no polished group; opaque `--id` + JSON `--body` | `fj api repo issue-*-milestone` | [rezuscloud/forgejo#73](https://github.com/rezuscloud/forgejo/issues/73) | open |
+| `fj actions runs` — no query flags (`--limit`/`--status`/`--head-sha`/…) despite the API having them | `fj api repo list-action-runs --head-sha … --limit …` | [rezuscloud/forgejo#74](https://github.com/rezuscloud/forgejo/issues/74) | open |
 
 (Resolved gaps: drop the row when the release ships; note it in the release.)
 

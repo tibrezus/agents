@@ -63,6 +63,13 @@ commands). Collision-free by construction (operationIds are unique).
 - **Path parameters** (`{owner}`, `{repo}`, `{id}`…) → **required flags**
   (`--owner`, `--repo`, `--id`). Missing ones: `required flag(s) "owner" not set`.
 - **Query parameters** → optional flags (`--state`, `--page`, …).
+- **List-typed query params** (swagger `type: array`, e.g. `status`, `event`
+  of list-action-runs) take a **comma-separated flag value** but travel on the
+  wire as **repeated query params** (`?status=a&status=b`) — the server reads
+  them via `FormStrings` (`url.Values[key]`); a joined or bracketed value is
+  a 400. The SDK serializes them with `qry.Add` per element; the CLI splits
+  the flag with `parseStringSlice` (same helper for polished and generated
+  commands — reuse it, never hand-roll).
 - **Request body** → `--body` taking JSON that must match the operation's
   schema `$ref` (e.g. `CreateMilestoneOption`: `{title, description, state, due_on}`).
 - **Responses** print as JSON on stdout; errors print to stderr with non-zero exit.

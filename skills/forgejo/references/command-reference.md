@@ -166,6 +166,9 @@ Manage repository actions
 Available Commands:  dispatch  jobs  logs  runs  secrets  tasks  variables
 
 fj actions runs            # recent runs: #ID (sha) STATE (event): title
+                            # filters (PR #75): --limit --page --status --event
+                            #   --head-sha --ref --workflow-id --run-number
+                            #   --status/--event comma-separated lists
 fj actions jobs <RUN>      # jobs in a run: #ID name [status] runs_on:<label>
 fj actions tasks           flags: -p, --page int (default 1)
 fj actions logs            flags: --run int    download all jobs' logs (zip)

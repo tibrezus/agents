@@ -297,7 +297,7 @@ dw_watch_ci() {
     *)
       local host token sha status conclusion
       host=$(dw_host); token=$(dw_token)
-      sha=$(git rev-parse "origin/$ref" 2>/dev/null || git rev-parse HEAD)
+      sha=$(git rev-parse --verify -q "origin/$ref" 2>/dev/null || git rev-parse --verify -q HEAD)
       echo "dev-workflow: polling CI on $owner_repo @ ${sha:0:8} (forgejo has no --watch)…" >&2
       for _ in $(seq 1 120); do
         # Forgejo actions status for the commit
@@ -359,7 +359,7 @@ dw_dispatch_full_pipeline() {
   local branch="$1" wf
   local wfs; wfs=$(dw_full_pipeline_workflows)
   [ -z "$wfs" ] && { echo "dev-workflow: no full pipeline configured — fast tier is the pipeline" >&2; return 0; }
-  local sha; sha=$(git rev-parse "origin/$branch" 2>/dev/null || git rev-parse "$branch")
+  local sha; sha=$(git rev-parse --verify -q "origin/$branch" 2>/dev/null || git rev-parse --verify -q "$branch")
   local platform owner_repo
   platform=$(dw_detect_platform); owner_repo=$(dw_owner_repo)
   for wf in $wfs; do
@@ -477,7 +477,7 @@ dw_full_green() {
 dw_watch_full_pipeline() {
   local branch="$1" sha
   [ -z "$(dw_full_pipeline_workflows)" ] && { dw_watch_ci "$branch"; return; }
-  sha=$(git rev-parse "origin/$branch" 2>/dev/null || git rev-parse "$branch")
+  sha=$(git rev-parse --verify -q "origin/$branch" 2>/dev/null || git rev-parse --verify -q "$branch")
   echo "dev-workflow: waiting for full pipeline @ ${sha:0:8} (up to 60 min)…" >&2
   local _
   for _ in $(seq 1 120); do
