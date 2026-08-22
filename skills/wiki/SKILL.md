@@ -1,6 +1,6 @@
 ---
 name: llm-wiki
-description: "Operate on an LLM Wiki knowledge base — a persistent, compounding artifact maintained by LLM agents. Supports two documentation workflows: Generic (Mermaid diagrams, raw-source inputs) and Architecture/LC4 (LikeC4 models → Mermaid, code-graph-driven C4). Commands: read, update, create, prune, list, arch-sync. Use when the user asks to look something up, update wiki content, add/remove pages, sync architecture diagrams from a code graph, or get an overview of the knowledge base."
+description: "Operate on an LLM Wiki knowledge base — a persistent, compounding artifact maintained by LLM agents, and the architecture-context provider for implementation work (dev-workflow gate 1 loads a project's rig.db graph through this skill). Supports two documentation workflows: Generic (Mermaid diagrams, raw-source inputs) and Architecture/LC4 (LikeC4 models → Mermaid, code-graph-driven C4). Commands: read, update, create, prune, list, arch-sync. Use when the user asks to look something up, update wiki content, add/remove pages, sync architecture diagrams from a code graph, or get an overview of the knowledge base."
 ---
 
 # LLM Wiki Skill
@@ -96,6 +96,24 @@ not by reading the whole repo. Route by need:
 | Find **what pages exist** | `index.md` | catalog, not a dir walk |
 | See **what changed recently** | `log.md` | append-only activity |
 | Move between related pages | a page's `## See Also` | the bidirectional link graph |
+
+### Serving implementation context (dev-workflow gate 1)
+
+The wiki's core purpose is to make implementation follow the project's
+architecture: **when you are about to write code in a graph-covered project
+(dev-workflow gate 1), the wiki provides the most compressed accurate picture
+of the architecture for your context.** The load protocol, in order:
+
+1. `rig overview` — every component, edge, and file count (~400 tokens).
+2. `rig component <name>` + `rig search '<term>*'` for the area being
+   changed — doc comments, exported symbols, exact `file:line` anchors.
+3. The project wiki's merged `Architecture.md` for rendered views + the
+   LikeC4 model (component descriptions verbatim from source doc comments).
+4. Matching `wiki/` pages for the *why* (decisions, trade-offs).
+
+**Deduplication rule:** before writing a new function/type, `rig search` the
+capability — if it is already exported, extend it. This is the single highest
+value the graph provides to code work.
 
 **Two layers, distinct jobs:** `raw/` = structure (RIG, deterministic,
 evidence-backed); `wiki/` = reasoning (decisions, trade-offs, recorded live).

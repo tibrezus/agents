@@ -50,6 +50,7 @@ task hits a missing surface:
 |---|---|---|---|
 | `fj milestone` — no polished group; opaque `--id` + JSON `--body` | `fj milestone` group (merged · [PR #76](https://github.com/rezuscloud/forgejo/pull/76)) | [#73](https://github.com/rezuscloud/forgejo/issues/73) | merged, awaiting release cut |
 | `fj actions runs` — no query flags (`--limit`/`--status`/`--head-sha`/…) despite the API having them | `fj actions runs` flags (merged · [PR #75](https://github.com/rezuscloud/forgejo/pull/75)) | [#74](https://github.com/rezuscloud/forgejo/issues/74) | merged, awaiting release cut |
+| `fj actions` — no job-level surface (`jobs <run-id>` / `job view|logs <id>`) despite the API exposing run-jobs + job-logs | `fj actions jobs` subcommand | [#86](https://github.com/rezuscloud/forgejo/issues/86) | open |
 
 (Resolved gaps: drop the row when the release ships; note it in the release.)
 

@@ -32,23 +32,33 @@ the right host via [`scripts/host.sh`](scripts/host.sh)) and multi-project
 A change may merge only after **all** gates pass, in order. Each gate is
 independently falsifiable.
 
-1. **Grounded in documented design — read before implementing.** If the
-   project participates in the llm-wiki KB, pull it and read in this order
+1. **Grounded in documented design — load architectural context before
+   implementing.** The purpose: insert the most compressed, accurate picture
+   of the project's architecture into context so the implementation follows
+   the project's structure and best practice. If the project has an
+   architecture graph (`rig.db` — via the [llm-wiki](/skill:llm-wiki)
+   pipeline, a wiki checkout, or committed in-repo), load in this order
    (each item: mandatory if it exists):
 
-   - **project's own wiki** (`<repo>.wiki.git` → `C4-Model.md`,
-     `Architecture.md`) — **authoritative** for architecture: CI-regenerated
-     on every push, always current. Read this FIRST for C4 views and exported
-     API surface (every `// Exports:` line lists functions/types each file
-     provides). If a capability you need is already exported, extend it —
-     do not duplicate.
-   - `raw/arch/<project>/model.c4` — **fallback** only when the project wiki
-     has no C4 content. May be stale.
-   - `raw/arch/<project>/rig.json` — component graph, dependencies, source files
-   - relevant `wiki/` pages — decisions, trade-offs
+   1. **`rig overview`** — the whole graph in ~400 tokens: every build-target
+      component, its type, file count, dependency edges, symbol counts.
+      (pi `rig` tool, auto-discovers `raw/arch/<project>/rig.db`;
+      elsewhere: `python3 .llm-wiki/.github/actions/repo-map/rig-query.py
+      <rig.db> overview`.)
+   2. **Targeted drill-down into the area you're touching** —
+      `rig component <name>` (deps + files + doc comments),
+      `rig search '<term>*'` (FTS5 symbol search → exact `file:line`),
+      `rig deps <name> --reverse` (blast radius). Hundreds of tokens, not
+      thousands.
+   3. **project's own wiki `Architecture.md`** — the merged human page
+      (rendered views, source map, LikeC4 model, CI registry),
+      CI-regenerated on every push: **authoritative** for architecture.
+   4. relevant llm-wiki `wiki/` pages — decisions, trade-offs, the *why*.
 
-   Implementation without this context is invalid. The C4 model API surface
-   is the primary tool against code duplication — use it.
+   Implementation without this context is invalid. **The graph is the
+   primary tool against code duplication**: before writing a new
+   function/type, `rig search` for the name/capability — if it already
+   exists as an export, extend it instead of duplicating.
 2. **Issue exists** — an open issue (found or created) describes the change.
 3. **Branch tied to the issue** — a branch whose name contains the issue
    number, created off the default branch. No work on the default branch.
@@ -57,9 +67,9 @@ independently falsifiable.
 5. **Change made on the branch** — commits reference the issue
    (`Refs #<n>` / `Fixes #<n>`). The implementation is **optimal** (hard
    rule 5): root cause, right abstraction, no workarounds. **No unnecessary
-   duplication** — before writing a new function/type, check model.c4's
-   `// Exports:` lines; extend what exists, and justify a near-duplicate on
-   the PR if reuse is impossible.
+   duplication** — before writing a new function/type, `rig search` the
+   graph for the capability; extend what exists, and justify a near-duplicate
+   on the PR if reuse is impossible.
 
 6. **Change covered by tests** — unit tests for every behavior added or
    altered (fast tier); extend the integration suite where one exists. Every
@@ -303,10 +313,12 @@ than silently proceeding without a milestone.
 This skill owns **enforcement** (the gates). It deliberately does not own the
 adjacent depth, and cross-references instead of duplicating it:
 
-- **`llm-wiki`** — the project's persistent knowledge base. Consult it
-  **at the start** (`consult`/`read`) to ground a change in documented design;
-  write to it **before merge** when a change adds coupling that is not part of
-  that design (pages, ADRs, cross-references).
+- **`llm-wiki`** — the project's persistent knowledge base **and the
+  architecture-context provider** (its `rig` tool is how gate 1 loads a
+  project's graph into context in ~400 tokens). Consult it **at the start**
+  (`rig overview` / `read`) to ground a change in documented design; write to
+  it **before merge** when a change adds coupling that is not part of that
+  design (pages, ADRs, cross-references).
 - **`tdd`** — *how* to write the tests this skill requires (behavior over
   implementation, vertical red-green slices, mocking). Load it when writing the
   unit/integration tests for a change.
