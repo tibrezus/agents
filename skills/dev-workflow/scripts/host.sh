@@ -351,6 +351,23 @@ dw_pr_head() {
   esac
 }
 
+# dw_require_rebased_head "<head-sha>" "<refspec-resolving-to-head>" → die
+#   unless the head is a descendant of the CURRENT default-branch head.
+#   Enforces gate 11's rebase-before-trigger at EVERY full-pipeline trigger
+#   path (label or dispatch, first run or re-trigger): the pipeline must
+#   never burn a run on a stale head. <refspec> (branch or refs/pull/N/head)
+#   makes the head object fetchable when absent locally.
+dw_require_rebased_head() {
+  local head="$1" refspec="$2" default dbase dhead
+  default=$(dw_default_branch)
+  git fetch -q origin "$default" 2>/dev/null || true
+  [ -n "$refspec" ] && git fetch -q origin "$refspec" 2>/dev/null || true
+  dhead=$(git rev-parse -q --verify "origin/$default" 2>/dev/null)
+  [ -n "$dhead" ] || dw_die "cannot resolve origin/$default — fetch failed"
+  dbase=$(git merge-base "$head" "origin/$default" 2>/dev/null)
+  [ "$dbase" = "$dhead" ] || dw_die "refusing full-pipeline trigger: head ${head:0:8} is not rebased onto origin/$default (${dhead:0:8}) — rebase the PR branch (dw_rebase_onto_default), re-push, then trigger"
+}
+
 # dw_dispatch_full_pipeline "<branch>" → low-level API dispatch of every
 #   configured workflow on the branch. FALLBACK only, for workflows wired
 #   with workflow_dispatch alone — the primary trigger is the full-pipeline
@@ -360,6 +377,7 @@ dw_dispatch_full_pipeline() {
   local wfs; wfs=$(dw_full_pipeline_workflows)
   [ -z "$wfs" ] && { echo "dev-workflow: no full pipeline configured — fast tier is the pipeline" >&2; return 0; }
   local sha; sha=$(git rev-parse --verify -q "origin/$branch" 2>/dev/null || git rev-parse --verify -q "$branch")
+  dw_require_rebased_head "$sha" "$branch"
   local platform owner_repo
   platform=$(dw_detect_platform); owner_repo=$(dw_owner_repo)
   for wf in $wfs; do
@@ -387,7 +405,9 @@ dw_dispatch_full_pipeline() {
 #   sets the full-pipeline label on the PR (removing it first if set, so a
 #   re-trigger after a push always fires exactly one fresh labeled event).
 #   Creates the label if missing. Works for agents and mirrors the human
-#   action (ticking the label in the UI). Prints the bound head SHA.
+#   action (ticking the label in the UI). REFUSES heads not rebased onto the
+#   current default (dw_require_rebased_head) — rebase before every trigger.
+#   Prints the bound head SHA.
 dw_trigger_full_pipeline() {
   local pr="$1"
   case "$pr" in ''|*[!0-9]*) pr=$(dw_pr_number_from_branch "$pr") ;; esac
@@ -396,6 +416,7 @@ dw_trigger_full_pipeline() {
   local label="${DW_FULL_PIPELINE_LABEL:-full-pipeline}"
   local head; head=$(dw_pr_head "$pr")
   [ -n "$head" ] || dw_die "cannot resolve head SHA of PR #$pr"
+  dw_require_rebased_head "$head" "refs/pull/$pr/head"
   local platform owner_repo
   platform=$(dw_detect_platform); owner_repo=$(dw_owner_repo)
   case "$platform" in

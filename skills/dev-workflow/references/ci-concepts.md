@@ -85,8 +85,9 @@ Development iterates locally — the PR opens **once**, locally green (gate 9
 in `SKILL.md`; an open PR consumes forge CI on every push). After it opens,
 pushes re-run the fast tier only, with superseded runs cancelled via
 `concurrency`. At ready declaration: rebase first, trigger the full pipeline
-on that SHA (the `full-pipeline` label), then the adversarial review on the
-same SHA. Red full pipeline → back to developing, never into review —
+on that SHA (the `full-pipeline` label — the trigger helper refuses heads
+not rebased onto the current default, first run and re-triggers alike),
+then the adversarial review on the same SHA. Red full pipeline → back to developing, never into review —
 reviewing red CI is pointless; the review exists for what CI cannot see.
 
 **SHA binding + invalidation** — statuses attach to SHAs. Merge-ready =

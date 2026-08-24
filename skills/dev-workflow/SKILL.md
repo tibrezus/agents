@@ -95,11 +95,14 @@ independently falsifiable.
     is fixed on the branch, never merged red.
 11. **Full pipeline green on the head SHA** — at ready declaration: rebase
     onto the default branch, then set the `full-pipeline` label on the PR
-    (`dw_trigger_full_pipeline`; a human ticking the label in the UI is
-    equivalent), which runs the full pipeline on that head SHA; watch it
-    green. Any later push invalidates it — re-trigger (the helper toggles
-    the label). Skipped when no full workflow is configured (the fast tier
-    *is* the pipeline).
+    (`dw_trigger_full_pipeline`), which runs the full pipeline on that head
+    SHA; watch it green. **The rebase is enforced at the trigger** — the
+    helper refuses any head that is not a descendant of the current default
+    head, on the first trigger and on every re-trigger alike (a human
+    ticking the label in the UI carries the same obligation). Any later
+    push or default-branch move invalidates the run — re-rebase, then
+    re-trigger (the helper toggles the label). Skipped when no full
+    workflow is configured (the fast tier *is* the pipeline).
 12. **Adversarial review APPROVE on the head SHA** — `dw_request_review`
     (guarded ingress: refuses heads without a green pipeline) triggers the
     `pr-review` skill; APPROVE must land at the same head SHA.
@@ -110,7 +113,8 @@ independently falsifiable.
 
 **Two-phase readiness:** development pushes run the fast tier only; the
 full pipeline + adversarial review run **once, at ready declaration, on the
-final head SHA** (rebase *before* triggering). Statuses bind to SHAs, so any
+final head SHA** (rebase *before* triggering — the trigger refuses unrebased
+heads). Statuses bind to SHAs, so any
 push after declaration — source or docs — re-opens the path; a red pipeline
 means back to developing, never into review. Depth:
 [`references/ci-concepts.md`](references/ci-concepts.md) §1.3.
@@ -286,7 +290,7 @@ source "$(dirname "$(readlink -f "$0")")/scripts/host.sh"   # or source the abso
    ```bash
    PR=$(dw_pr_number_from_branch "$BRANCH")
    dw_rebase_onto_default "$BRANCH"        # hard rule 3 — BEFORE triggering
-   dw_trigger_full_pipeline "$PR"          # gate 11: sets the full-pipeline label (no-op if none configured)
+   dw_trigger_full_pipeline "$PR"          # gate 11: sets the full-pipeline label; REFUSES unrebased heads (no-op if none configured)
    dw_watch_full_pipeline "$BRANCH" || { echo "full pipeline red — fix, re-push, re-declare"; exit 1; }
    dw_request_review "$PR"                 # gate 12 — refuses unvalidated heads
    dw_wait_review "$PR"                    # blocks for the verdict trailer
