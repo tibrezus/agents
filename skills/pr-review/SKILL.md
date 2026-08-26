@@ -120,12 +120,16 @@ Investigate the relevant structural pillars:
 - **Coupling**: does the diff add imports/calls across components? If a RIG
   exists, check whether each new dependency is an edge in the graph. If not,
   is the coupling documented in the wiki/ADR? Undocumented cross-component
-  edges are findings. Then check **architecture decay** from `rig overview`:
-  a new dependency cycle (A→B plus B→A), a touched component becoming a hub
-  (`rig deps --reverse`), or growth concentrated in an already-largest
-  component (file/symbol counts) — findings even when each edge is
-  individually documented; scalability is a graph *shape* property, not an
-  edge property. **Evidence**: cite the RIG edge, the overview edges/counts,
+  edges are findings. Then check **architecture decay** against a
+  deterministic baseline, not by eyeball: fetch the base graph — the
+  project's arch package at the merge-base SHA (package versions are the
+  SHA series; `fj`/token auth) or the kb `raw/arch/<proj>/rig.db` at the
+  base commit — run `rig-fitness.py <db> --json` (module repo-map) on base
+  and head, and diff: new cycles, fan-in growth on touched components,
+  size growth concentrated in the largest component, new duplicated
+  symbols. Findings even when each edge is individually documented —
+  scalability is a graph *shape* property, not an edge property.
+  **Evidence**: cite the delta (e.g. `fan-in 3→9 on decode`), the RIG edge,
   or the import line.
 - **Design Intent**: does the change align with the wiki's documented
   decisions? Read the relevant entity/concept/ADR pages for the touched
