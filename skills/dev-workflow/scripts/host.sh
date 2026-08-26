@@ -482,12 +482,13 @@ dw_full_green() {
           | grep -q '^success$' || return 1 ;;
       *)
         local host token; host=$(dw_host); token=$(dw_token)
-        # NOTE: Forgejo run records expose the workflow *name*, not filename —
-        # configure the name in Full pipeline: when they differ.
+        # NOTE: Forgejo run records expose the workflow FILE id
+        # (workflow_id, e.g. "decode.yml") — not a display name. Match
+        # the configured value with or without the .yml suffix.
         curl -fsSL -H "Authorization: token $token" \
           "https://$host/api/v1/repos/$owner_repo/actions/runs?limit=100" 2>/dev/null \
-          | jq -e --arg sha "$sha" --arg wf "$wf" \
-              '[.workflow_runs[] | select(.commit_sha==$sha and .name==$wf)][0].status=="success"' >/dev/null || return 1 ;;
+          | jq -e --arg sha "$sha" --arg wf "$wf" --arg wfy "$wf.yml" \
+              '[.workflow_runs[] | select(.commit_sha==$sha and (.workflow_id==$wf or .workflow_id==$wfy))][0].status=="success"' >/dev/null || return 1 ;;
     esac
   done
 }
