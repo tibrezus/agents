@@ -1,6 +1,6 @@
 ---
 name: llm-wiki
-description: "Operate on an LLM Wiki knowledge base — a persistent, compounding artifact maintained by LLM agents, and the architecture-context provider for implementation work (dev-workflow gate 1 loads a project's rig.db graph through this skill). Supports two documentation workflows: Generic (Mermaid diagrams, raw-source inputs) and Architecture/LC4 (LikeC4 models → Mermaid, code-graph-driven C4). Commands: read, update, create, prune, list, arch-sync. Use when the user asks to look something up, update wiki content, add/remove pages, sync architecture diagrams from a code graph, or get an overview of the knowledge base."
+description: "Operate on an LLM Wiki knowledge base — a persistent, compounding artifact maintained by LLM agents, and the architecture-context provider for implementation work (dev-workflow gate 1 loads a project's rig.db graph through this skill). Enforces the documentation hierarchy: code comments → repo wiki (intra-repo interactions) → llm-wiki (cross-repo interactions), no duplication, active demotion when a lower layer appears. Supports two documentation workflows: Generic (Mermaid diagrams, raw-source inputs) and Architecture/LC4 (LikeC4 models → Mermaid, code-graph-driven C4). Commands: read, update, create, prune, list, arch-sync. Use when the user asks to look something up, update wiki content, add/remove pages, sync architecture diagrams from a code graph, or get an overview of the knowledge base."
 ---
 
 # LLM Wiki Skill
@@ -9,6 +9,62 @@ An LLM Wiki is a **persistent, compounding knowledge base** — not a RAG index.
 Knowledge is compiled once and kept current by LLM agents. The human curates
 sources and asks questions; the agent does the writing, cross-referencing,
 filing, and bookkeeping.
+
+## Documentation Hierarchy — where documentation lives
+
+Documentation sits **as close to the source code as possible**. The wiki
+system is three layers; each layer documents only the **interactions**
+between the elements of the layer below it:
+
+| Layer | Lives in | Documents |
+|---|---|---|
+| **0 — Code** | doc comments next to the source (`///`, `//!`, docstrings) | one **component**: behavior, invariants, usage |
+| **1 — Repository wiki** | the project's own platform wiki (`<repo>.wiki.git`, GitHub/Forgejo) | **interactions inside one repo**: how components and entities relate, design choices, architecture, ADRs |
+| **2 — LLM-wiki** | the wiki instance | **interactions between repositories**: cross-repo flows, system-level design |
+
+Placement rules (hard):
+
+1. **A single component is documented in code only.** Never in a repo
+   wiki, never in the llm-wiki — those layers document *interactions*, not
+   members.
+2. **A single project is documented in its repo wiki only.** The llm-wiki
+   never carries one repo's internals; it documents how repositories
+   interact with each other.
+3. **Temporary admission, mandatory migration.** While a project has no
+   repo wiki, its pages may live in the llm-wiki as placeholders. The
+   moment the repo wiki is created, that content **moves** into it; the
+   llm-wiki keeps only the cross-repo view plus a link. Same one layer
+   down: component notes parked in a repo wiki move into code comments
+   when the code is next touched.
+4. **No duplication across layers — link instead.** When content exists at
+   two layers, the **lower layer is authoritative**; the upper copy becomes
+   a link. Never copy content upward for visibility — the link graph
+   provides visibility.
+5. **The boundary is the subject, not the name.** A page about an external
+   technology (Forgejo, Flux, …) is layer 2 when it describes how *your
+   repositories* interact with it; a page confined to what one of your
+   repos does internally is layer 1 even if it names many technologies.
+
+### Maintaining the hierarchy
+
+Placement is audited on every write — `update`, `create`, `arch-sync` all
+begin by asking *which layer owns this content*; misplaced content is
+**moved down**, never copied or summarized into place. The closer
+documentation sits to the code it describes, the more likely it is to be
+maintained when that code changes — that is the whole point.
+
+**Migration trigger — a project's repo wiki is created:**
+
+1. Move the project's single-project pages into the repo wiki (adapt
+   format: platform wikis are flat — kebab-case filenames, no directories).
+2. Keep in the llm-wiki only the cross-repo remainder — a thin page linking
+   to the repo wiki and holding its interactions with other repositories.
+3. Prune pure-internal leftovers (`wiki prune`), fix inbound links, update
+   `index.md`, append `log.md`, push, watch CI green.
+
+**Layer 1 → 0 works the same:** when a repo-wiki section describes a single
+component, fold its content into that component's doc comments and leave a
+link behind.
 
 ## Before You Start
 
@@ -70,18 +126,22 @@ Never skip these files. They define the wiki's structure.
 
 ## Documentation Home
 
-- **C4 boundary: llm-wiki carries context/container/component level only.**
-  Code-level details (file paths, function signatures, implementation specifics,
-  API reference) go to the **platform wiki** (GitHub/Forgejo) via `gh`/`fj`, not
-  the llm-wiki. This keeps the llm-wiki unbloated.
-- **No in-repo `docs/` folders.** Move `docs/`, ADRs, or design docs to the
-  wiki (structure + reasoning) or the platform wiki (important ADRs via
-  `gh`/`fj`). Root files (`README.md`, `AGENTS.md`, `CONTEXT.md`) are
-  **indexes** — link to real docs, don't duplicate them.
-- **Platform wikis** (GitHub/Forgejo) are first-class surfaces for low-level
-  details and important ADRs. Some projects also push **auto-generated C4
-  architecture diagrams** to their platform wiki (`Architecture.md`,
-  `C4-Model.md`, `Component---*.md`) via CI — check both when reading a project.
+Corollaries of the hierarchy above:
+
+- **C4 boundary:** the llm-wiki carries context/container-level and
+  cross-repo reasoning; code-level detail (file paths, signatures,
+  implementation specifics) belongs to layer 1 (repo wiki) or layer 0
+  (code). If a `wiki/` page states something knowable only by reading one
+  repo's source, it belongs in that repo's wiki or its code — not here.
+- **No in-repo `docs/` folders.** Move `docs/`, ADRs, or design docs down
+  the hierarchy: repo wiki for structure + reasoning + ADRs, code comments
+  for component behavior. Root files (`README.md`, `AGENTS.md`,
+  `CONTEXT.md`) are **indexes** — link to real docs, don't duplicate them.
+- **Platform wikis are layer 1 — first-class.** They hold a project's
+  low-level details and important ADRs. Some projects also push
+  **auto-generated C4 architecture** to them (`Architecture.md`,
+  `C4-Model.md`, `Component---*.md`) via CI — check both when reading a
+  project.
 
 ## How to absorb this wiki (least-context routing)
 
@@ -221,7 +281,11 @@ Search the wiki for information about a topic.
 
 Ingest new information into the wiki (Generic workflow).
 
-1. **Understand the change.** Read relevant existing pages.
+1. **Understand the change.** Read relevant existing pages, then run the
+   **placement audit** (Documentation Hierarchy): content about a single
+   component belongs in code comments; a single project's internals belong
+   in that project's repo wiki. Route misplaced content to its layer —
+   moved, not copied — instead of writing it here.
 2. **Save source** to `raw/` (e.g. `2026-06-26-topic-name.md`). **Never modify
    `raw/`** after saving.
 3. **Update existing pages**: add information, add Markdown cross-references, update
@@ -237,13 +301,19 @@ Ingest new information into the wiki (Generic workflow).
 
 Create a new wiki page.
 
-1. Classify the entity type:
+1. **Placement gate** (Documentation Hierarchy) — decide the layer before
+   writing anything:
+   - one component → **code comments** (do it in the code, not a page);
+   - one project's internals → that **project's repo wiki** (temporary
+     admission in the llm-wiki only while its repo wiki does not exist);
+   - cross-repo / system-level → proceed below.
+2. Classify the entity type:
    - Specific technology/product → **entity**
    - Cross-cutting idea/pattern → **concept**
    - Step-by-step procedure → **guide**
    - Catalog/comparison/lookup → **reference**
-2. Check for overlap — search `index.md` and `qmd query`.
-3. Write the page:
+3. Check for overlap — search `index.md` and `qmd query`.
+4. Write the page:
 
    ```markdown
    ---
@@ -269,10 +339,10 @@ Create a new wiki page.
    - [related-2](../type/related-2.md) — description
    ```
 
-4. Add Markdown links from existing pages to the new page. Use relative paths:
+5. Add Markdown links from existing pages to the new page. Use relative paths:
    from `wiki/concepts/x.md` to `wiki/entities/y.md` → `[y](../entities/y.md)`.
-5. Ensure bidirectional links.
-6. Update `index.md`, append to `log.md`, validate with `npm run check`.
+6. Ensure bidirectional links.
+7. Update `index.md`, append to `log.md`, validate with `npm run check`.
 
 ### `wiki arch-sync <project>`
 
@@ -285,8 +355,11 @@ already generated — your job is to summarize and route content.
    detail. Compare component/symbol/edge counts with the previous log entry.
 3. **Do NOT generate graphs** — model.c4 is deterministic. Do NOT run rig-to-c4.py or likec4.
 4. **Embed Mermaid**: read `raw/arch/<project>/*.mmd`, copy into wiki pages as ` ```mermaid ` blocks.
-5. **Write C4-level prose only** (context/container/component). Summarize what changed in 1-3 sentences.
-6. **Offload low-level details** (file paths, function docs, implementation specifics) to the **platform wiki** via `gh`/`fj`. Keep llm-wiki unbloated.
+5. **Write interaction-level prose only** (context/container; see
+   Documentation Hierarchy). Summarize what changed in 1-3 sentences.
+6. **Route by hierarchy:** single-component detail goes into code comments;
+   single-project architecture goes to the project's repo wiki (`gh`/`fj`);
+   the llm-wiki keeps only the cross-repo view. Keep it unbloated.
 7. **Preserve manual content** (deployment notes, runbooks, config).
 8. **Update `index.md`** and **append to `log.md`**.
 9. **Commit** (do NOT push — gate runs next).
@@ -457,6 +530,12 @@ corresponding tool to watch CI. Do not assume — check.
 Before committing any wiki change:
 
 - [ ] `npm run check` passes (markdownlint + remark + wiki-health)
+- [ ] **Placement audit done — content sits at the lowest layer that can
+      hold it** (code comments → repo wiki → llm-wiki)
+- [ ] **No duplication: nothing copied across layers; lower layer
+      authoritative, upper layers link**
+- [ ] **Single-project pages only as temporary admission** (repo wiki
+      absent) — flagged for migration when it appears
 - [ ] New pages: all 6 frontmatter fields present, correct type directory
 - [ ] Tags: 2-7 items, first matches type, all lowercase
 - [ ] `## See Also` with ≥2 links
