@@ -1,6 +1,6 @@
 ---
 name: pr-review
-description: "Review a pull request using a pillar-driven adversarial methodology. Two adversaries cover eight CI quality pillars: the Architect (structural fit: coupling, design intent, interface stability) and the Adversary (behavioral soundness: correctness, security, performance, observability, test quality). A Judge adjudicates. The reviewer scans the diff to determine which pillars apply, investigates those selectively, and marks the rest N/A — making coverage visible without bloating every review. Leverages deterministic proof (lint/tests/CI via bash), the architecture graph (RIG + C4), and selective web search. Two ingress points: manual (dev-workflow review subcommand) or automated (harmostes pr-review workflow)."
+description: "Review a pull request using a pillar-driven adversarial methodology. Two adversaries cover eight CI quality pillars: the Architect (structural fit: coupling & architecture decay, design intent & DRY, interface stability) and the Adversary (behavioral soundness: correctness, security, performance, observability, test quality). A Judge adjudicates. The reviewer scans the diff to determine which pillars apply, investigates those selectively, and marks the rest N/A — making coverage visible without bloating every review. Leverages deterministic proof (lint/tests/CI via bash), the architecture graph (RIG + C4), and selective web search. Two ingress points: manual (dev-workflow review subcommand) or automated (harmostes pr-review workflow)."
 ---
 
 # PR Review — Pillar-Driven Adversarial Toolkit
@@ -76,8 +76,8 @@ which pillars are relevant. Investigate those; mark the rest N/A.
 
 | Pillar | Question | Proof | Trigger (investigate when…) |
 |--------|----------|-------|-----------------------------|
-| **Coupling** | Does it respect component boundaries in the RIG? | RIG edge check | the diff adds imports/calls across components |
-| **Design Intent** | Aligned with documented decisions / ADRs? **Does the diff duplicate existing functionality?** | wiki pages + model.c4 `// Exports:` | the change touches documented architecture, **or adds new functions/types** |
+| **Coupling** | Does it respect component boundaries in the RIG — and keep the graph's shape scalable (no cycles, hubs, god-components)? | RIG edge check + `rig overview` shape | the diff adds imports/calls across components, or grows a component's footprint |
+| **Design Intent** | Aligned with documented decisions / ADRs? **Does the diff duplicate existing functionality?** | `rig search` (whole graph) + wiki pages + model.c4 `// Exports:` | the change touches documented architecture, **or adds new functions/types** |
 | **Interface Stability** | Breaking changes to exported symbols / API contracts? | grep exports + diff | the change modifies public/exported API |
 
 ### Adversary — behavioral soundness (5 pillars)
@@ -120,14 +120,22 @@ Investigate the relevant structural pillars:
 - **Coupling**: does the diff add imports/calls across components? If a RIG
   exists, check whether each new dependency is an edge in the graph. If not,
   is the coupling documented in the wiki/ADR? Undocumented cross-component
-  edges are findings. **Evidence**: cite the RIG or the import line.
+  edges are findings. Then check **architecture decay** from `rig overview`:
+  a new dependency cycle (A→B plus B→A), a touched component becoming a hub
+  (`rig deps --reverse`), or growth concentrated in an already-largest
+  component (file/symbol counts) — findings even when each edge is
+  individually documented; scalability is a graph *shape* property, not an
+  edge property. **Evidence**: cite the RIG edge, the overview edges/counts,
+  or the import line.
 - **Design Intent**: does the change align with the wiki's documented
   decisions? Read the relevant entity/concept/ADR pages for the touched
-  components. **Also**: does the diff add new functions/types that duplicate
-  capabilities already in the codebase? Check model.c4's `// Exports:` lines
-  for the touched components — if a new function mirrors an existing export,
-  that's a finding. **Evidence**: cite the wiki page/ADR or the model.c4
-  export line that is being duplicated.
+  components. **Also (DRY)**: for every new exported function/type, `rig
+  search` the graph for its name and capability keywords — a matching export
+  in **any** component (not only the touched ones) is a finding: extend the
+  existing symbol instead of adding a near-duplicate. Without a rig.db,
+  fall back to model.c4 `// Exports:` + `grep`. **Evidence**: cite the rig
+  search hit (symbol + file:line), the wiki page/ADR, or the export line
+  being duplicated.
 - **Interface Stability**: does the diff modify exported/public symbols, API
   contracts, or schema? `grep` for usages of changed symbols across the repo.
   Breaking changes without versioning/migration are findings. **Evidence**:
