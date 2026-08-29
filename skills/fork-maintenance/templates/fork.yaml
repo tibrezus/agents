@@ -98,3 +98,32 @@ validation:
     image: codeberg.org/forgejo/forgejo:15-rootless
     module: path/to/test/module
     env: {KEY: value}
+
+# ── Sync model: SUBTREE (schema v2) — vendored upstream trees ─────────────
+# Vendored code inside a monorepo (a pinned upstream tree), NOT a fork repo.
+# The sync unit is (target repo, vendored path, pin file). The engine detects
+# upstream tags vs the pin, applies the policy matrix, delegates propagation
+# to the target repo's own sync_command, then byte-verifies the result against
+# the upstream archive (pristine gate) before PRing. Releases ride the target
+# repo's tag cycle — the engine never tags for a subtree.
+#
+# mode: subtree
+# upstream:
+#   url: https://code.forgejo.org/forgejo/runner
+#   selector: '^v[0-9]+\.[0-9]+\.[0-9]+$'      # tag regex — subtrees pin releases
+# subtree:
+#   url: https://github.com/your-org/monorepo    # repo carrying the vendored tree
+#   branch: rezus/monorepo-1                     # PR target (the release branch)
+#   platform: github                             # github | forgejo | local
+#   token_env: GITHUB_TOKEN
+#   path: runner/                                # vendored location
+#   pin_file: runners/RUNNER_UPSTREAM            # single source of truth
+#   sync_command: hack/sync-runner.sh            # delegate; called with <tag>
+#   archive: 'https://code.forgejo.org/forgejo/runner/archive/{tag}.tar.gz'  # pristine probe
+#   patches_dir: ''                              # optional; signature accounting TBD
+# policy:                                        # RED = automation should have fixed it
+#   patch: { propagate: auto, merge: auto }      # auto-merge only after PR CI is green
+#   minor: { propagate: auto, merge: manual }
+#   major: { propagate: never }                  # upstream majors = evaluation, always
+# lockstep:                                      # alert-level expectations (data)
+#   - "fleet OCI image tag == pin_file"

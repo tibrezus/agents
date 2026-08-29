@@ -36,14 +36,14 @@ _git_host_ry() { yq -r "$1" "${DEF_FILE:?DEF_FILE must be set by caller}" 2>/dev
 
 host_platform() {
   local p
-  p=$(_git_host_ry '.fork.platform // "github"')
+  p=$(_git_host_ry '.fork.platform // .subtree.platform // "github"')
   case "$p" in github|forgejo|local) echo "$p" ;; *) echo "github" ;; esac
 }
 
 # Env var holding the PAT for this fork's host (defaults per platform).
 host_token_env() {
   local env_name platform
-  env_name=$(_git_host_ry '.fork.token_env // ""')
+  env_name=$(_git_host_ry '.fork.token_env // .subtree.token_env // ""')
   if [ -z "$env_name" ]; then
     platform=$(host_platform)
     case "$platform" in
@@ -56,12 +56,12 @@ host_token_env() {
 
 # owner/repo parsed from fork.url (host-agnostic: works for github + codeberg).
 host_owner_repo() {
-  _git_host_ry '.fork.url' | sed -E 's#https?://[^/]+/([^/]+)/([^/]+)(\.git)?/?.*#\1/\2#'
+  _git_host_ry '.fork.url // .subtree.url' | sed -E 's#https?://[^/]+/([^/]+)/([^/]+)(\.git)?/?.*#\1/\2#'
 }
 
 # Bare hostname of the fork repo (for the git credential helper).
 host_git_host() {
-  _git_host_ry '.fork.url' | sed -E 's#(https?://[^/]+)/.*#\1#' | sed -E 's#https?://##'
+  _git_host_ry '.fork.url // .subtree.url' | sed -E 's#(https?://[^/]+)/.*#\1#' | sed -E 's#https?://##'
 }
 
 # ---- one-time setup (call after cloning the fork) ---------------------------
@@ -222,4 +222,36 @@ host_pr_merge() {
   # Echo the new release-branch HEAD (caller re-syncs + tags from this).
   git fetch --quiet origin "$FORK_DEFAULT_BRANCH" 2>/dev/null || true
   git rev-parse "origin/$FORK_DEFAULT_BRANCH" 2>/dev/null || git rev-parse HEAD
+}
+
+# ---- PR CI watch (subtree auto-merge guard — never merge red) ----------------
+
+host_pr_watch() {
+  # $1 = branch whose PR checks must be green. Blocks until terminal state
+  # (60 min cap), returns non-zero if any check failed or the deadline passed.
+  local branch="$1"
+  case "$(host_platform)" in
+    github)
+      gh pr checks "$branch" --repo "$(host_owner_repo)" --watch --interval 20 >/dev/null 2>&1 || return 1
+      gh pr checks "$branch" --repo "$(host_owner_repo)" --json state \
+        -q 'length == 0 or all(.[]; .state == "SUCCESS")' 2>/dev/null | grep -q true
+      ;;
+    forgejo)
+      # Poll the head commit's combined status until terminal.
+      local deadline=$(( $(date +%s) + 3600 )) st sha
+      sha=$(git rev-parse HEAD 2>/dev/null) || return 1
+      while [ "$(date +%s)" -lt "$deadline" ]; do
+        st=$(curl -sf -H "Authorization: token ${FORK_TOKEN}" \
+              "${FORGEJO_API}/repos/$(host_owner_repo)/commits/${sha}/status" \
+              | jq -r '.status // empty' 2>/dev/null) || { sleep 30; continue; }
+        case "$st" in
+          success) return 0 ;;
+          failure|error) return 1 ;;
+        esac
+        sleep 30
+      done
+      return 1
+      ;;
+    local) return 0 ;;   # file:// repos have no CI surface
+  esac
 }

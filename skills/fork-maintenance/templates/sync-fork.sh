@@ -70,6 +70,16 @@ if [ "$(read_yaml '.mappings | length' 2>/dev/null || echo 0)" != "0" ]; then
   exit 0
 fi
 
+# Mode dispatch (schema v2): merge (default, whole-repo forks) vs subtree
+# (vendored upstream trees). The subtree machinery lives at the END of this
+# script — dispatching there and exiting; every merge-mode path below is
+# unreachable for subtree defs, which keeps the merge engine byte-untouched.
+MODE="$(read_yaml '.mode // "merge"' 2>/dev/null || echo merge)"
+case "$MODE" in
+  merge|subtree) ;;
+  *) echo "ERROR: unknown mode '$MODE' for fork '$FORK_NAME'" >&2; exit 1 ;;
+esac
+
 UPSTREAM_URL=$(read_yaml '.upstream.url')
 UPSTREAM_BRANCH=$(read_yaml '.upstream.branch')
 FORK_URL=$(read_yaml '.fork.url')
@@ -611,6 +621,17 @@ EOF
 }
 
 # ── Dispatch ─────────────────────────────────────────────────────────────────
+if [ "$MODE" = "subtree" ]; then
+  # Vendored-tree mode: everything lives in scripts/subtree-mode.sh (sourced
+  # here so the phases see this script's helpers: read_yaml, result_json,
+  # push_sync_branch). Merge-mode code below is never reached for subtree defs.
+  # shellcheck source=scripts/subtree-mode.sh
+  # shellcheck disable=SC1091
+  source "$SCRIPT_DIR/subtree-mode.sh"
+  subtree_dispatch
+  exit 0
+fi
+
 case "$PHASE" in
   merge)    phase_merge ;;
   hook)     phase_hook ;;
