@@ -293,7 +293,7 @@ dw_watch_ci() {
       [ -z "$pr" ] && pr="$ref"
       gh pr checks "$pr" --repo "$owner_repo" --watch --interval 15 >/dev/null 2>&1
       # --watch exits non-zero if any check fails; double-check final state
-      gh pr checks "$pr" --repo "$owner_repo" --json state -q 'all(.[]?.state=="SUCCESS") or (length==0)' 2>/dev/null | grep -q true ;;
+      gh pr checks "$pr" --repo "$owner_repo" --json state -q 'length == 0 or all(.[]; .state == "SUCCESS")' 2>/dev/null | grep -q true ;;
     *)
       local host token sha status conclusion
       host=$(dw_host); token=$(dw_token)
