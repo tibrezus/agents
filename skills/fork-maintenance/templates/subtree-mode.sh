@@ -117,6 +117,13 @@ sub_lane_latest() {  # $1 = newline-separated tags, $2 = pin → newest tag in t
   echo "$1" | grep -E "^${lane}\." | sort -V | tail -1
 }
 
+sub_major_latest() {  # $1 = newline-separated tags, $2 = pin → newest tag in the pin's MAJOR (minor candidate)
+  local major
+  major="$(echo "$2" | sed -E 's/^(v[0-9]+)\..*/\1/')"
+  major="${major//./\\.}"
+  echo "$1" | grep -E "^${major}\." | sort -V | tail -1
+}
+
 sub_advisories() {  # human summary of upstream classes ahead beyond the propagated lane
   local cls pol
   cls=$(sub_class "$LATEST" "$PIN")
@@ -173,9 +180,10 @@ phase_subtree_merge() {
   echo "=== detect: pin=$PIN  upstream latest=$LATEST ==="
 
   # Decide from the pin's LANE first: a patch-class bump in the pin's own
-  # major.minor line is the auto-propagatable unit — a newer minor/major
-  # upstream is an advisory, never the bump. Only when the lane is current do
-  # the overall-latest classes (minor/major) drive the verdict.
+  # major.minor line is the auto-propagatable unit (auto-merge after CI watch).
+  # Next, the newest MINOR in the pin's major propagates as a prepared PR with
+  # manual merge (policy minor.propagate=auto) — humans review and run smoke.
+  # A newer MAJOR is an advisory, never the bump.
   LANE_TAG=$(sub_lane_latest "$UPSTREAM_TAGS" "$PIN")
   LANE_CLASS=$(sub_class "${LANE_TAG:-$PIN}" "$PIN")
   CLASS=$(sub_class "$LATEST" "$PIN")   # overall-latest class (for verdicts/advisories)
@@ -193,19 +201,35 @@ phase_subtree_merge() {
     fi
     CLASS=patch   # what we are propagating — downstream phases (pr/tag) key off this
   else
-    # lane current — nothing auto-propagatable; the latest's class is the verdict
+    # lane current — minor-of-major or verdict
     if [ "$CLASS" = "same" ]; then
       echo "=== Up to date: pin $PIN is the newest upstream tag ==="
       [ "$PHASED" = "1" ] && result_json false "fork-sync-$FORK_NAME" merge "up to date — pin $PIN"
       exit 0
     fi
-    POLICY_PROP=$(read_yaml ".policy.$CLASS.propagate // \"auto\"")
     ADVISORIES=$(sub_advisories)
-    echo "=== Pin's lane is current; $CLASS-class $LATEST — policy: propagate=$POLICY_PROP, verdict only ==="
-    [ -n "$ADVISORIES" ] && echo "$ADVISORIES"
-    sub_lockstep_note
-    [ "$PHASED" = "1" ] && result_json false "fork-sync-$FORK_NAME" merge "$CLASS-class $LATEST — propagate=$POLICY_PROP"
-    exit 0
+    # Minor candidate: newest tag sharing the pin's MAJOR (pin v12.7.3 → newest
+    # v12.*). A newer overall major upstream does NOT suppress it — the bump
+    # matrix treats minors as review-gated bumps, majors as evaluations.
+    local minor_tag minor_policy
+    minor_tag=$(sub_major_latest "$UPSTREAM_TAGS" "$PIN")
+    minor_policy=$(read_yaml '.policy.minor.propagate // "auto"')
+    if [ -n "$minor_tag" ] && [ "$minor_tag" != "$PIN" ] && [ "$minor_policy" = "auto" ]; then
+      # The engine PREPARES the PR (delegate does the vendoring); merge is
+      # manual by hard policy — only the patch class may auto-merge. Humans
+      # review the changelog/CVEs and run the validation contract (smoke).
+      echo "=== minor-class $minor_tag — policy: propagate=auto, PR waits for manual merge (+ validation contract) ==="
+      [ -n "$ADVISORIES" ] && echo "$ADVISORIES"
+      LANE_TAG="$minor_tag"   # what we propagate is the newest minor
+      CLASS=minor              # ...and the propagation class IS minor
+    else
+      POLICY_PROP=$(read_yaml ".policy.$CLASS.propagate // \"auto\"")
+      echo "=== Pin's lane is current; $CLASS-class $LATEST — policy: propagate=$POLICY_PROP, verdict only ==="
+      [ -n "$ADVISORIES" ] && echo "$ADVISORIES"
+      sub_lockstep_note
+      [ "$PHASED" = "1" ] && result_json false "fork-sync-$FORK_NAME" merge "$CLASS-class $LATEST — propagate=$POLICY_PROP"
+      exit 0
+    fi
   fi
 
   SYNC_BRANCH="rezus/sync-subtree-${FORK_NAME}-${LANE_TAG#v}"
@@ -281,7 +305,7 @@ phase_subtree_pr() {
     echo "=== DRY RUN — PR plan (nothing pushed) ==="
     echo "  push:   $SYNC_BRANCH → origin"
     echo "  PR:     $SYNC_BRANCH → $SUB_BRANCH"
-    echo "  merge:  policy.patch.merge=$merge_policy (auto merges only after host_pr_watch sees the PR CI green)"
+    echo "  merge:  policy.$CLASS.merge=$merge_policy (auto merges only after host_pr_watch sees the PR CI green)"
     [ "$PHASED" = "1" ] && result_json false "fork-sync-$FORK_NAME" pr "dry-run: PR planned"
     exit 0
   fi
@@ -297,6 +321,17 @@ phase_subtree_pr() {
   pr_body+="**Pin**: ${PIN} → **${LANE_TAG}** (${CLASS}-class; policy merge=${merge_policy})"$'\n'
   pr_body+="**Upstream newest**: ${LATEST}"$'\n\n'
   if [ -n "${ADVISORIES:-}" ]; then pr_body+="${ADVISORIES}"$'\n\n'; fi
+  local validate_list
+  validate_list=$(read_yaml '.validate // []' | sed 's/^- //')
+  if [ -n "$validate_list" ]; then
+    pr_body+="### Validation contract"$'\n'
+    while IFS= read -r v; do
+      [ -n "$v" ] && pr_body+="- [ ] ${v}"$'\n'
+    done <<EOF
+$validate_list
+EOF
+    pr_body+=$'\n'
+  fi
   pr_body+="### Pristine gate"$'\n'"Byte-diff of \`${SUB_PATH}/\` against the upstream archive at ${LANE_TAG} — green in the run logs."$'\n\n'
   pr_body+="### Release"$'\n'"Rides the target repo's tag cycle (\`v*-rezus.*\`) — this PR does not release."$'\n\n'
   pr_body+="---"$'\n\n_Automated by the fork-maintenance engine (subtree mode) — k8s-config GitOps._'$'\n'
