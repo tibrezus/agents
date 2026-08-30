@@ -248,7 +248,7 @@ dw_request_review() {
         -X POST "https://$host/api/v1/repos/$owner_repo/issues/$pr/labels" \
         -d "$(jq -n --arg l "$label" '{labels:[$l]}')" >/dev/null ;;
   esac
-  echo "dev-workflow: added '$label' label to PR #$pr — the reviewer polls the label (every ~10 min); verdict typically lands within 15 min" >&2
+  echo "dev-workflow: added '$label' label to PR #$pr — the Review-Ready Gate wakes on the label event (webhook): dispatch is immediate when CI is green at head, else it proceeds on the armed poll (≤5 min) once CI turns green" >&2
 }
 
 # dw_wait_review "<pr#>" → polls PR comments for the verdict trailer
