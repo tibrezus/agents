@@ -120,7 +120,12 @@ validation:
 #   pin_file: runners/RUNNER_UPSTREAM            # single source of truth
 #   sync_command: hack/sync-runner.sh            # delegate; called with <tag>
 #   archive: 'https://code.forgejo.org/forgejo/runner/archive/{tag}.tar.gz'  # pristine probe
-#   patches_dir: ''                              # optional; signature accounting TBD
+#   patches_file: ''                             # patch-carrying sources: repo-root contract
+#                                              # (preserve: + patches: with signatures) —
+#                                              # engine gate + CI guard read the SAME file;
+#                                              # omit it for pristine trees (byte gate).
+# OCI upstreams: upstream.url oci://host/ns/repo (v2 tag list; no archive needed —
+# helm pull probes the tree; selectors use bare semver, no v prefix).
 # policy:                                        # RED = automation should have fixed it
 #   patch: { propagate: auto, merge: auto }      # auto-merge only after PR CI is green
 #   minor: { propagate: auto, merge: manual }

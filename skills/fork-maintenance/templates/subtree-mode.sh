@@ -83,21 +83,73 @@ sub_parse_cfg() {
   SUB_PATH=$(read_yaml '.subtree.path' | sed 's:/*$::')
   SUB_PIN_FILE=$(read_yaml '.subtree.pin_file')
   SUB_SYNC_CMD=$(read_yaml '.subtree.sync_command')
-  SUB_ARCHIVE=$(read_yaml '.subtree.archive')
-  SUB_PATCHES_DIR=$(read_yaml '.subtree.patches_dir // ""' 2>/dev/null || echo "")
+  SUB_ARCHIVE=$(read_yaml '.subtree.archive // ""' 2>/dev/null || echo "")
+  SUB_PATCHES_FILE=$(read_yaml '.subtree.patches_file // ""' 2>/dev/null || echo "")
   SELECTOR=$(read_yaml '.upstream.selector')
   local v
-  for v in "$SUB_URL" "$SUB_BRANCH" "$SUB_PATH" "$SUB_PIN_FILE" "$SUB_SYNC_CMD" "$SUB_ARCHIVE" "$SELECTOR"; do
+  for v in "$SUB_URL" "$SUB_BRANCH" "$SUB_PATH" "$SUB_PIN_FILE" "$SUB_SYNC_CMD" "$SELECTOR"; do
     if [ -z "$v" ] || [ "$v" = "null" ]; then
-      echo "ERROR: subtree def missing required field (url='$SUB_URL' branch='$SUB_BRANCH' path='$SUB_PATH' pin_file='$SUB_PIN_FILE' sync_command='$SUB_SYNC_CMD' archive='$SUB_ARCHIVE' selector='$SELECTOR')" >&2
+      echo "ERROR: subtree def missing required field (url='$SUB_URL' branch='$SUB_BRANCH' path='$SUB_PATH' pin_file='$SUB_PIN_FILE' sync_command='$SUB_SYNC_CMD' selector='$SELECTOR')" >&2
       exit 1
     fi
   done
-  case "$SUB_ARCHIVE" in *'{tag}'*) ;; *) echo "ERROR: subtree.archive must contain {tag}" >&2; exit 1;; esac
+  # archive tarball is the git-upstream probe; OCI upstreams probe via helm pull
+  case "$UPSTREAM_URL" in
+    oci://*) ;;
+    *) case "$SUB_ARCHIVE" in
+         *'{tag}'*) ;;
+         *) echo "ERROR: subtree.archive must contain {tag} for git upstreams" >&2; exit 1;;
+       esac ;;
+  esac
 }
 
 sub_read_pin() {  # $1 = clone dir → stdout: pin tag (last non-comment line)
   awk 'NF && $0 !~ /^[[:space:]]*#/ {v=$0} END {print v}' "$1/$SUB_PIN_FILE" 2>/dev/null | tr -d '[:space:]'
+}
+
+oci_tags() {  # $1 = oci://host/ns/repo → newline-separated tags (v2 API, anonymous token dance)
+  local host path reg hdr realm service tok json
+  path="${1#oci://}"; host="${path%%/*}"; path="${path#*/}"
+  reg="https://$host"
+  # flip to plain-http only on connect/TLS failure — an HTTP 401 on /v2/
+  # (anonymous) still proves the HTTPS registry is there
+  curl -s -o /dev/null --max-time 10 "$reg/v2/" || reg="http://$host"
+  hdr=$(curl -s "$reg/v2/" -o /dev/null -D - | tr -d '\r' | awk 'tolower($1)=="www-authenticate:"{print $0}')
+  tok=""
+  if [ -n "$hdr" ]; then
+    realm=$(echo "$hdr" | sed -nE 's/.*realm="([^"]+)".*/\1/p')
+    service=$(echo "$hdr" | sed -nE 's/.*service="([^"]+)".*/\1/p')
+    if [ -n "$realm" ]; then
+      tok=$(curl -s "$realm?service=${service}&scope=repository:${path}:pull" | jq -r '.token // .access_token // empty')
+    fi
+  fi
+  if [ -n "$tok" ]; then
+    json=$(curl -s -H "Authorization: Bearer $tok" "$reg/v2/$path/tags/list")
+  else
+    json=$(curl -s "$reg/v2/$path/tags/list")   # registry without auth (drills)
+  fi
+  echo "$json" | jq -r '.tags[]?'
+}
+
+sub_fetch_upstream_tree() {  # $1 = tag → stdout: upstream tree dir (under $TMP)
+  local tag="$1"
+  case "$UPSTREAM_URL" in
+    oci://*)
+      mkdir -p "$TMP/up"
+      helm pull "$UPSTREAM_URL" --version "$tag" --untar --untardir "$TMP/up" >/dev/null 2>&1 \
+        || helm pull "$UPSTREAM_URL" --version "$tag" --untar --untardir "$TMP/up" --plain-http >/dev/null 2>&1 \
+        || { echo "ERROR: helm pull $UPSTREAM_URL:$tag failed" >&2; return 1; }
+      find "$TMP/up" -mindepth 1 -maxdepth 1 -type d | head -1
+      ;;
+    *)
+      local archive_url="${SUB_ARCHIVE/\{tag\}/$tag}"
+      mkdir -p "$TMP/src"
+      curl -fsSL "$archive_url" -o "$TMP/src.tar.gz" \
+        || { echo "ERROR: archive fetch failed: $archive_url" >&2; return 1; }
+      tar -xzf "$TMP/src.tar.gz" -C "$TMP/src"
+      find "$TMP/src" -mindepth 1 -maxdepth 1 -type d | head -1
+      ;;
+  esac
 }
 
 sub_class() {  # $1=candidate $2=pin → major|minor|patch|same
@@ -112,16 +164,16 @@ sub_class() {  # $1=candidate $2=pin → major|minor|patch|same
 
 sub_lane_latest() {  # $1 = newline-separated tags, $2 = pin → newest tag in the pin's major.minor line
   local lane
-  lane="$(echo "$2" | sed -E 's/^(v[0-9]+\.[0-9]+)\..*/\1/')"
+  lane="$(echo "$2" | sed -E 's/^v?([0-9]+\.[0-9]+)\..*/\1/')"   # v-optional (OCI chart tags carry none)
   lane="${lane//./\\.}"
-  echo "$1" | grep -E "^${lane}\." | sort -V | tail -1
+  echo "$1" | grep -E "^v?${lane}\." | sort -V | tail -1
 }
 
 sub_major_latest() {  # $1 = newline-separated tags, $2 = pin → newest tag in the pin's MAJOR (minor candidate)
   local major
-  major="$(echo "$2" | sed -E 's/^(v[0-9]+)\..*/\1/')"
+  major="$(echo "$2" | sed -E 's/^v?([0-9]+)\..*/\1/')"
   major="${major//./\\.}"
-  echo "$1" | grep -E "^${major}\." | sort -V | tail -1
+  echo "$1" | grep -E "^v?${major}\." | sort -V | tail -1
 }
 
 sub_advisories() {  # human summary of upstream classes ahead beyond the propagated lane
@@ -129,11 +181,18 @@ sub_advisories() {  # human summary of upstream classes ahead beyond the propaga
   cls=$(sub_class "$LATEST" "$PIN")
   [ "$cls" = "same" ] && return 0
   pol=$(read_yaml ".policy.$cls.propagate // \"auto\"")
-  if [ "$pol" = "never" ]; then
-    echo "ADVISORY: upstream $cls release $LATEST ahead of pin $PIN — policy: $cls bump = evaluation required"
-  else
-    echo "ADVISORY: upstream $cls release $LATEST ahead of pin $PIN — policy: $cls bump = manual review"
-  fi
+  case "$cls" in
+    patch)
+      # a patch gap is the auto lane's own work — no review ask, just pending
+      echo "ADVISORY: patch $LATEST ahead of pin $PIN — auto-propagates on the next live run"
+      ;;
+    major)
+      echo "ADVISORY: upstream major release $LATEST ahead of pin $PIN — policy: major bump = evaluation required"
+      ;;
+    *)
+      echo "ADVISORY: upstream $cls release $LATEST ahead of pin $PIN — policy: $cls bump = manual merge + validation contract"
+      ;;
+  esac
 }
 
 sub_lockstep_note() {
@@ -171,8 +230,15 @@ phase_subtree_merge() {
   fi
   echo "$PIN" | grep -qE "$SELECTOR" || { echo "ERROR: pin '$PIN' does not match selector '$SELECTOR'" >&2; exit 1; }
 
-  UPSTREAM_TAGS=$(git ls-remote --tags "$UPSTREAM_URL" 2>/dev/null | sed 's#.*refs/tags/##' \
-                  | grep -E "$SELECTOR" | grep -v '\^{}$' | sort -V)
+  case "$UPSTREAM_URL" in
+    oci://*)
+      UPSTREAM_TAGS=$(oci_tags "$UPSTREAM_URL" | grep -E "$SELECTOR" | sort -V)
+      ;;
+    *)
+      UPSTREAM_TAGS=$(git ls-remote --tags "$UPSTREAM_URL" 2>/dev/null | sed 's#.*refs/tags/##' \
+                      | grep -E "$SELECTOR" | grep -v '\^{}$' | sort -V)
+      ;;
+  esac
   LATEST=$(echo "$UPSTREAM_TAGS" | tail -1)
   if [ -z "$LATEST" ]; then
     echo "ERROR: no upstream tags match selector '$SELECTOR' at $UPSTREAM_URL" >&2; exit 1
@@ -250,7 +316,7 @@ phase_subtree_merge() {
   git checkout -b "$SYNC_BRANCH"
 
   echo "=== Propagating via delegate: $SUB_SYNC_CMD $LANE_TAG ==="
-  bash "$SUB_SYNC_CMD" "$LANE_TAG"
+  UPSTREAM_OCI="$UPSTREAM_URL" bash "$SUB_SYNC_CMD" "$LANE_TAG"   # the engine knows the upstream; the delegate honors it
 
   git add -A
   if [ -z "$(git status --porcelain)" ]; then
@@ -272,25 +338,75 @@ phase_subtree_gates() {
   sub_parse_cfg
   TMP=$(mktemp -d)
   trap 'rm -rf "$TMP"' EXIT
-  local archive_url="${SUB_ARCHIVE/\{tag\}/$LANE_TAG}"
-  echo ""
-  echo "=== Pristine gate: vendored tree vs upstream archive at $LANE_TAG ==="
-  curl -fsSL "$archive_url" -o "$TMP/src.tar.gz"
-  tar -xzf "$TMP/src.tar.gz" -C "$TMP"
   local src_dir
-  src_dir="$(find "$TMP" -mindepth 1 -maxdepth 1 -type d | head -1)"
-  # --strip-trailing-cr: the target repo's EOL normalization policy is not drift.
-  if diff -r --strip-trailing-cr "$src_dir" "$SUB_PATH"; then
-    echo "  pristine: OK — byte-identical to upstream $LANE_TAG (modulo EOL policy)"
+  src_dir="$(sub_fetch_upstream_tree "$LANE_TAG")" || exit 1
+  echo ""
+
+  if [ -z "$SUB_PATCHES_FILE" ] || [ ! -f "$SUB_PATCHES_FILE" ]; then
+    # ── pristine gate (no patch contract) ──
+    echo "=== Pristine gate: vendored tree vs upstream at $LANE_TAG ==="
+    # --strip-trailing-cr: the target repo's EOL normalization policy is not drift.
+    if diff -r --strip-trailing-cr "$src_dir" "$SUB_PATH" >/dev/null; then
+      echo "  pristine: OK — byte-identical to upstream $LANE_TAG (modulo EOL policy)"
+    else
+      echo "  pristine: DRIFT — the delegate left unaccounted edits in $SUB_PATH" >&2
+      diff -rq --strip-trailing-cr "$src_dir" "$SUB_PATH" | head -20 >&2
+      exit 1
+    fi
   else
-    echo "  pristine: DRIFT — the delegate left unaccounted edits in $SUB_PATH" >&2
-    exit 1
-  fi
-  if [ -n "$SUB_PATCHES_DIR" ] && [ -d "$SUB_PATCHES_DIR" ]; then
-    echo "  WARN: patches_dir '$SUB_PATCHES_DIR' set — signature accounting for subtree patches is not enforced yet (documented limitation)"
+    # ── patch-accounting gate: the diff must be exactly the declared contract ──
+    echo "=== Patch-accounting gate: $SUB_PATH vs upstream $LANE_TAG (contract: $SUB_PATCHES_FILE) ==="
+    local red=0
+    local d line rel
+    while IFS= read -r d; do
+      case "$d" in
+        "Files $src_dir"*)
+          rel=$(echo "$d" | sed -E "s#^Files $src_dir/(.*) and .*#\1#")
+          local sig
+          sig=$(yq -r ".patches[] | select(.path == \"$rel\") | .signature" "$SUB_PATCHES_FILE" 2>/dev/null)
+          if [ -z "$sig" ] || [ "$sig" = "null" ]; then
+            echo "  RED: $rel differs from upstream and is not in the patch contract" >&2; red=1
+          elif ! grep -qF -- "$sig" "$SUB_PATH/$rel" 2>/dev/null; then
+            echo "  RED: $rel differs but signature '$sig' not found — patch unaccounted or rebased away" >&2; red=1
+          else
+            echo "  patch: OK — $rel (signature '$sig' present)"
+          fi
+          ;;
+        "Only in $SUB_PATH"*)
+          rel=$(echo "$d" | sed -E "s#^Only in $SUB_PATH/?(.*): (.*)#\1/\2#" | sed 's#^/##')
+          if yq -r ".preserve[]" "$SUB_PATCHES_FILE" 2>/dev/null | grep -qxF "$(echo "$rel" | sed -E 's#^([^/]+/).*#\1#')" \
+             || yq -r ".preserve[]" "$SUB_PATCHES_FILE" 2>/dev/null | grep -qxF "$rel"; then
+            echo "  preserve: OK — $rel (locally-added, declared)"
+          else
+            echo "  RED: $rel exists only locally and is not in the preserve list" >&2; red=1
+          fi
+          ;;
+        "Only in $src_dir"*)
+          rel=$(echo "$d" | sed -E "s#^Only in $src_dir/?(.*): (.*)#\1/\2#" | sed 's#^/##')
+          echo "  RED: $rel exists upstream but is missing from $SUB_PATH — deletions are not modeled" >&2; red=1
+          ;;
+      esac
+    done < <(diff -rq --strip-trailing-cr "$src_dir" "$SUB_PATH" 2>/dev/null)
+    # preserve entries are promises of PRESENCE (a vanished preserved file is
+    # invisible to the diff — nothing catches it otherwise)
+    while IFS= read -r p; do
+      [ -z "$p" ] && continue
+      [ -e "$SUB_PATH/$p" ] || { echo "  RED: preserve entry $p missing from $SUB_PATH" >&2; red=1; }
+    done < <(yq -r '.preserve[]' "$SUB_PATCHES_FILE" 2>/dev/null)
+    # stale patches: declared but no longer differing
+    while IFS= read -r p; do
+      [ -z "$p" ] && continue
+      if [ ! -e "$SUB_PATH/$p" ]; then
+        echo "  RED: patch entry $p missing from $SUB_PATH" >&2; red=1
+      elif diff -q --strip-trailing-cr "$src_dir/$p" "$SUB_PATH/$p" >/dev/null 2>&1; then
+        echo "  WARN: patch entry $p is byte-identical to upstream — stale contract entry"
+      fi
+    done < <(yq -r '.patches[].path' "$SUB_PATCHES_FILE" 2>/dev/null)
+    [ "$red" = "1" ] && { echo "  patch-accounting: RED — unaccounted differences in $SUB_PATH" >&2; exit 1; }
+    echo "  patch-accounting: OK — every difference is declared and signed"
   fi
   sub_lockstep_note
-  [ "$PHASED" = "1" ] && result_json true "fork-sync-$FORK_NAME" gates "pristine vs $LANE_TAG"
+  [ "$PHASED" = "1" ] && result_json true "fork-sync-$FORK_NAME" gates "${SUB_PATCHES_FILE:+patches accounted vs }$LANE_TAG"
   return 0
 }
 
