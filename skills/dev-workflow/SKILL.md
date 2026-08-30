@@ -168,6 +168,39 @@ reasoning). Load [`references/mcdc.md`](references/mcdc.md) when
 `SAFETY_LEVEL: mcdc` is set or when a change touches complex boolean
 decisions.
 
+**CI checks are never removed — they shift, they don't vanish.** When
+reshaping pipelines to satisfy the conformance invariants below (splitting a
+compound job, renaming to gate tokens, moving a check between tiers), every
+check that existed must still exist somewhere in the repo's workflows —
+different job, different file, different tier, but present. The validator
+enforces this deterministically against a base ref (`dw_ci_conformance
+"origin/main"`); a removal finding is either fixed by re-homing the check or
+justified to the reviewer as genuinely obsolete. Deleting coverage to make a
+naming or structure rule pass is a violation, not a refactor.
+
+**CI conformance — the five invariants.** Independent of platform and of
+pipeline shape, a repo's native CI files (`.github/workflows/`,
+`.forgejo/workflows/`, `.gitea/workflows/`, `.gitlab-ci.yml`) must hold:
+
+- **I1 Check equivalence** — a logical check runs the same normalized commands
+  on every backend that claims to run it.
+- **I2 Matrix coherence** — every leg of a matrix axis runs the same check set.
+- **I3 Justified non-suitability** — a leg that skips a check declares why,
+  with a `not-suitable: runner=<token> — <capability reason>` marker adjacent
+  to the condition; the reason names a capability, not a preference.
+- **I4 No silent divergence** — any difference not covered by I3 is a failure.
+- **I5 Naming consistency** — one concept, one token: job ids are kebab,
+  matrix values are runner tokens, status contexts decompose to tokens, and
+  free-text expansions (`inputs.*`, `github.event.*`) never reach a context.
+
+The framework is conceptual, not a schema: pipelines stay free-form; only
+these properties are enforced. Validation is deterministic
+(`dw_ci_conformance`, backed by `scripts/ci-conformance.py` — static
+analysis + `--base` preservation diff + `--fleet` vocabulary report). Run it
+after any commit that touches workflow files. Repos opt into failing CI over
+findings with a `.ci-conformance` file containing `strict`; until then
+findings are advisory. Depth: [`references/ci-concepts.md`](references/ci-concepts.md) §5.
+
 **Coupling is intentional or documented.** Avoid coupling between components
 unless it is part of the intended architecture (build-time, runtime, data,
 temporal — heuristics in `ci-concepts.md`); a clean change keeps components
@@ -232,6 +265,24 @@ those rules. The verdict lands as a comment ending in the trailer
 `<!-- pr-review: <DECISION> @ <sha> -->` — `dw_wait_review` polls for it,
 `dw_merge_readiness` binds it to the head SHA.
 
+### `ci-conformance` — validate CI against the five invariants
+
+```bash
+dw_ci_conformance                 # advisory scan of this repo's CI files
+dw_ci_conformance "origin/main"   # + checks-preservation diff vs base
+dw_ci_conformance --fleet /path/a /path/b   # cross-repo vocabulary report
+```
+
+Deterministic static validation of native CI files (GitHub/Forgejo/Gitea
+Actions + GitLab) against the conceptual framework: **I1** check equivalence,
+**I2** matrix coherence, **I3** justified non-suitability (`not-suitable:`
+markers), **I4** no silent divergence, **I5** naming consistency — plus the
+checks-preservation policy (checks are shifted, never removed). Advisory by
+default; strict when the repo carries a `.ci-conformance` file with `strict`.
+Gate rule: run after any commit touching workflow files — the same rule as
+markdownlint for docs. Backed by `scripts/ci-conformance.py`; depth in
+[`references/ci-concepts.md`](references/ci-concepts.md) §5.
+
 ### Make a change (the per-change procedure)
 
 From the project repo:
@@ -285,6 +336,11 @@ source "$(dirname "$(readlink -f "$0")")/scripts/host.sh"   # or source the abso
    locally):
    ```bash
    dw_watch_ci "$BRANCH" || { echo "fast CI red — fix on the branch and re-push"; exit 1; }
+   ```
+   If the change touched workflow files, CI conformance must hold:
+   ```bash
+   dw_ci_conformance "origin/$(dw_default_branch)" \
+     || { echo "CI conformance red — satisfy I1–I5 (shift checks, never delete)"; exit 1; }
    ```
 9. **Declare ready — full pipeline, review, merge:**
    ```bash

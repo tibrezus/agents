@@ -45,6 +45,17 @@ gates hold for every change:
   part of the intended architecture. If coupling is unavoidable and not part
   of the documented design, record it in the wiki (`/skill:llm-wiki`) **before**
   the PR merges, per `COUPLING_POLICY` below.
+- **CI checks are never removed — they shift.** When restructuring pipelines
+  (splitting compound jobs, renaming to gate tokens, moving checks between
+  tiers), every existing check must still exist somewhere in the repo's
+  workflows. `dw_ci_conformance "origin/$(dw_default_branch)"` enforces this
+  deterministically; genuine obsolescence is justified to the reviewer.
+- **CI conformance (five invariants).** Platform-agnostic and shape-agnostic:
+  I1 check equivalence · I2 matrix coherence · I3 justified non-suitability
+  (`not-suitable:` markers) · I4 no silent divergence · I5 naming consistency
+  (kebab tokens, contexts decompose to tokens, no free-text expansions).
+  Run `dw_ci_conformance` after any commit touching workflow files.
+  Depth: the skill's `ci-concepts.md` §5.
 - **Measurements live in CI, not on laptops.** A benchmark, A/B comparison, or
   quality eval relevant over time is wired into the slow tier as a **reusable**
   job (`workflow_dispatch`), not an ad-hoc script. One harness, many
@@ -75,6 +86,9 @@ skill's `references/ci-concepts.md`.
 - **Full pipeline:** `{{FULL_PIPELINE}}` — slow-tier workflow(s) dispatched
   at ready declaration. `none` = the fast tier is the whole pipeline. On
   Forgejo set the workflow *name* if it differs from the filename.
+- **CI conformance:** `{{CI_CONFORMANCE}}` — one of `advisory` (default) /
+  `strict` (`.ci-conformance` file contains `strict`: violations fail the
+  gate). See the skill's `ci-concepts.md` §5.
 
 ### Before every change
 

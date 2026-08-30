@@ -107,6 +107,7 @@ render() {
     -e "s|{{SAFETY_LEVEL}}|none|g" \
     -e "s|{{MERGE_METHOD}}|squash|g" \
     -e "s|{{FULL_PIPELINE}}|$FULL_PIPELINE|g" \
+    -e "s|{{CI_CONFORMANCE}}|$( [ -f .ci-conformance ] && echo strict || echo advisory )|g" \
     "$TEMPLATE"
 }
 

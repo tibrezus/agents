@@ -282,6 +282,37 @@ dw_wait_review() {
 
 # ── CI ──────────────────────────────────────────────────────────────────────
 
+# dw_ci_conformance "[base-ref]"  → validate this repo's native CI files
+#   against the five invariants (see scripts/ci-conformance.py):
+#     I1 check equivalence · I2 matrix coherence · I3 justified non-suitability
+#     I4 no silent divergence · I5 naming consistency (+ checks preservation
+#     when a base ref is given — CI checks are never removed, only shifted).
+#   Strict when the repo opts in (.ci-conformance containing "strict"), else
+#   advisory. Gate rule: run this after ANY commit that touches workflow files.
+dw_ci_conformance() {
+  local base="$1"
+  local root script
+  root=$(git rev-parse --show-toplevel 2>/dev/null) || root="."
+  script="$HOME/.agents/skills/dev-workflow/scripts/ci-conformance.py"
+  [ -f "$script" ] || dw_die "ci-conformance.py not found at $script — sync the dev-workflow skill"
+  local -a argv=(--repo "$root")
+  [ -n "$base" ] && argv+=(--base "$base")
+  python3 "$script" "${argv[@]}"
+}
+
+# dw_context_gate "<status-context>"  → echo the gate token it decomposes to
+#   (I5e); fail with an I5 violation if it doesn't. The LAST token wins:
+#   'ci / test-arm64' → 'test-arm64'.
+dw_context_gate() {
+  local ctx="$1" tail
+  tail=$(printf '%s' "$ctx" | tr ' /·()' '    ' | tr -s ' ' | awk '{print $NF}')
+  if printf '%s' "$tail" | grep -Eq '^[a-z0-9]+(-[a-z0-9]+)*$'; then
+    printf '%s\n' "$tail"; return 0
+  fi
+  echo "I5 violation: status context '$ctx' does not decompose into kebab tokens" >&2
+  return 1
+}
+
 # dw_watch_ci "<pr# or branch>"  → blocks until CI finishes; exits 0 if green, 1 if any failed
 dw_watch_ci() {
   local ref="$1" platform owner_repo pr
@@ -301,11 +332,26 @@ dw_watch_ci() {
       echo "dev-workflow: polling CI on $owner_repo @ ${sha:0:8} (forgejo has no --watch)…" >&2
       for _ in $(seq 1 120); do
         # Forgejo actions status for the commit
-        conclusion=$(curl -fsSL -H "Authorization: token $token" \
-          "https://$host/api/v1/repos/$owner_repo/commits/$sha/status" 2>/dev/null \
-          | jq -r '.state // empty')
+        local statuses
+        statuses=$(curl -fsSL -H "Authorization: token $token" \
+          "https://$host/api/v1/repos/$owner_repo/commits/$sha/status" 2>/dev/null)
+        conclusion=$(printf '%s' "$statuses" | jq -r '.state // empty')
         case "$conclusion" in
-          success) return 0 ;;
+          success)
+            # I5e — strict repos: every status context must decompose to a token
+            local toplevel
+            toplevel=$(git rev-parse --show-toplevel 2>/dev/null)
+            if [ -n "$toplevel" ] && [ -f "$toplevel/.ci-conformance" ]; then
+              local bad
+              bad=$(printf '%s' "$statuses" | jq -r '.statuses[]?.context // empty' \
+                | while IFS= read -r ctx; do [ -n "$ctx" ] && ! dw_context_gate "$ctx" >/dev/null 2>&1 && echo "$ctx"; done)
+              if [ -n "$bad" ]; then
+                echo "dev-workflow: I5 violation — unparseable status contexts (fix the workflow, not the helper):" >&2
+                printf '%s\n' "$bad" | sed 's/^/  ✗ /' >&2
+                return 1
+              fi
+            fi
+            return 0 ;;
           failure|error) return 1 ;;
           pending|"") sleep 15 ;;
           *) sleep 15 ;;
