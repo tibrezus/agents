@@ -293,7 +293,7 @@ dw_watch_ci() {
       [ -z "$pr" ] && pr="$ref"
       gh pr checks "$pr" --repo "$owner_repo" --watch --interval 15 >/dev/null 2>&1
       # --watch exits non-zero if any check fails; double-check final state
-      gh pr checks "$pr" --repo "$owner_repo" --json state -q 'all(.[]?.state=="SUCCESS") or (length==0)' 2>/dev/null | grep -q true ;;
+      gh pr checks "$pr" --repo "$owner_repo" --json state -q 'all(.state=="SUCCESS") or (length==0)' 2>/dev/null | grep -q true ;;
     *)
       local host token sha status conclusion
       host=$(dw_host); token=$(dw_token)
@@ -444,7 +444,7 @@ dw_full_green() {
     case "$platform" in
       github)
         gh pr checks "$(dw_pr_number_from_branch "$(git branch --show-current)")" \
-          --repo "$owner_repo" --json state -q 'length>0 and all(.[]?.state=="SUCCESS")' 2>/dev/null | grep -q true ;;
+          --repo "$owner_repo" --json state -q 'length>0 and all(.state=="SUCCESS")' 2>/dev/null | grep -q true ;;
       *) local host token; host=$(dw_host); token=$(dw_token)
          [ "$(curl -fsSL -H "Authorization: token $token" \
              "https://$host/api/v1/repos/$owner_repo/commits/$sha/status" 2>/dev/null \
