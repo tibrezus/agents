@@ -50,6 +50,18 @@ org/<fork>/                # the fork repo (github OR codeberg)
 
 Scripts and definitions are delivered as **ConfigMaps** (via kustomize `configMapGenerator`). Reconciling the GitOps repo updates the ConfigMaps; the CronJob picks up the latest at runtime — no image rebuild, no git clone of the GitOps repo needed inside the job.
 
+## The four shapes of "keep ours current with theirs"
+
+| Shape | Example | What the engine merges | Gate | Release |
+|-------|---------|----------------------|------|---------|
+| **merge fork** (fork repo, whole-tree) | dapr, signoz, llama-cpp | upstream branch → our release branch (immutable patches as commits) | centralized checks + patch signatures | engine tags `v*-rezus.*` (opt-in auto) |
+| **subtree** (pristine vendored tree) | `runner/` in the forgejo monorepo | delegate re-vendors at the new pin | pristine: byte-diff vs upstream archive | target repo's tag cycle (engine reports unreleased-pending) |
+| **subtree + patches** (patch-carrying vendored tree) | `charts/forgejo/` in the forgejo monorepo | delegate re-vendors + re-applies the declared patch contract | patch-accounting: diff must be exactly `preserve:` + signed `patches:` (contract lives in the target repo, read by engine AND its CI guard) | target repo's tag cycle |
+| **merge into monorepo** (mapping table, self-hosted transport) | forgejo itself (codeberg `v16.0/forgejo` → `rezus/forgejo-16`) | upstream release branch → monorepo release branch; regen + repo-local validation before push | repo-local `sync-validate.sh` (regen output committed) | deliberate tags only — a sync never mints a version |
+
+One engine, one severity model across all shapes: RED = automation should
+already have fixed it; WARN = policy-gated human action.
+
 ## The sync chain (sequence)
 
 ```text
