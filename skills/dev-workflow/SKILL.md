@@ -99,7 +99,11 @@ independently falsifiable.
     SHA; watch it green. **The rebase is enforced at the trigger** — the
     helper refuses any head that is not a descendant of the current default
     head, on the first trigger and on every re-trigger alike (a human
-    ticking the label in the UI carries the same obligation). Any later
+    ticking the label in the UI carries the same obligation). The refusal
+    is a resource rule: the full pipeline is the expensive tier
+    (benchmarks, GPU/infra matrices, long evaluations) — triggering it on a
+    head behind default buys a green status on a SHA that the mandatory
+    rebase invalidates anyway; rebase is free, a full run is not. Any later
     push or default-branch move invalidates the run — re-rebase, then
     re-trigger (the helper toggles the label). Skipped when no full
     workflow is configured (the fast tier *is* the pipeline).

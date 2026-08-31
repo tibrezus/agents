@@ -89,6 +89,11 @@ on that SHA (the `full-pipeline` label — the trigger helper refuses heads
 not rebased onto the current default, first run and re-triggers alike),
 then the adversarial review on the same SHA. Red full pipeline → back to developing, never into review —
 reviewing red CI is pointless; the review exists for what CI cannot see.
+The rebase-before-trigger order is the same resource logic: a full-pipeline
+run on a head behind default is wasted by construction — the mandatory
+rebase moves the head, and statuses bound to the old SHA are void, so the
+run must be repeated regardless of its result. Rebased first, one green run
+is merge-eligible.
 
 **SHA binding + invalidation** — statuses attach to SHAs. Merge-ready =
 fast green + full green + review APPROVE at the *same* SHA that is the
