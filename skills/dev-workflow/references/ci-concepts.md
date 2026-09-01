@@ -113,7 +113,10 @@ docs-only push after declaration re-opens the path. Fold such edits in
 **Platform mechanics** (dispatch commands, quirks, merge-queue guidance):
 [`platform-commands.md`](platform-commands.md) — heavy workflows go on
 `workflow_dispatch` + a required status check (GitHub: pending = the gate;
-Forgejo: no merge queue exists; GitLab: blocking `when: manual` jobs).
+Forgejo: no merge queue exists — the merge-queue-equivalent invariant is
+assembled from required checks + behind-base rejection + squash + SHA-bound
+statuses, see the replication recipe there; GitLab: blocking `when: manual`
+jobs).
 
 **Boundary rule:** a job belongs in the slow tier only if it takes long enough
 that running it on every push harms the feedback loop (rule of thumb: > 30s

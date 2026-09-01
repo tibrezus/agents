@@ -52,6 +52,49 @@ Platform notes:
 - **GitLab** — heavy jobs `when: manual` (blocking by default) +
   "Pipelines must succeed"; merge trains (Premium) are the queued variant.
 
+### The merge-queue-equivalent invariant (Forgejo/Gitea replication recipe)
+
+Forgejo has no merge queue/merge train (GitHub merge queue, GitLab merge
+trains — both test a temporary head+base ref before landing). The same
+*correctness property* — **the CI-green tree is byte-identical to the
+tree that lands** — is assembled from four generic ingredients:
+
+1. **Required status checks** in branch protection, named for the slow-tier
+   workflow's contexts — no failed-check waivers, ever (the Forgejo API has
+   none; do not look for one).
+2. **Behind-base rejection** — Forgejo protection answers
+   `405 "The head branch is behind the base branch"` when the head is not a
+   descendant of the default branch. This forces the rebase that makes the
+   next ingredient true (client-side, the trigger helper refuses unrebased
+   heads before the slow tier is even dispatched).
+3. **Squash merge** — the squash of a rebased branch onto the default
+   produces *exactly* the head tree. Combined with 1+2: the validated SHA's
+   tree is the landing tree, so the merge race a queue exists to close is
+   closed by construction — at merge time instead of pre-validated in a
+   train.
+4. **SHA-bound statuses** — required checks resolve against the head SHA;
+   any push (source or docs) after declaration re-opens the path and
+   re-quires the slow tier (see ci-concepts.md §1.3 two-phase readiness).
+
+Operational corollaries on a shared runner (learned the hard way):
+
+- **Concurrency groups are run management, not a queue.**
+  `concurrency: group: <ref+cause>, cancel-in-progress: true` cancels every
+  earlier pending/running member of the group when a new dispatch lands —
+  for a PR, `github.ref` is `refs/pull/<n>/merge` (head-independent), so
+  every re-dispatch of the same PR is in one group and the newest wins.
+  A queued run is cancellable at any moment.
+- **Dispatch last.** Under concurrent label-toggling bursts (multiple PRs
+  racing one bare-metal runner), only the newest dispatch per group
+  survives; the reliable pattern is to wait until the frontier has no
+  non-terminal runs from any head, then dispatch. A solo run also avoids
+  the co-tenancy false-failure class on perf gates (measured −8…−9% on
+  shared-DDR AMD runners when decodes overlap).
+- **Never re-toggle to fix a cancelled run** — the re-toggle is itself the
+  newer dispatch and sends the PR to the back of the queue. First check
+  whether a newer run for the same head is already waiting; if so, watch
+  it.
+
 ## Tokens
 
 `dw_token()` picks the right env var per platform:
