@@ -244,7 +244,8 @@ kubectl get attempt <name> -n harmostes \
 ```
 
 Phase vocabulary: attempt `reconciling` (in progress) → `validated` (a
-deterministic claim confirmed the targeted state) / `failed`; runs are
+deterministic claim confirmed the targeted state) / `failed` /
+`superseded` (a newer targeted state replaced this one); runs are
 `running` → `succeeded`/`failed`. Envelope status: `ok`/`failed`/`skipped`.
 
 **Ephemeral layer — Jobs/pods, keyed by the attempt label:**
