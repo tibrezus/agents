@@ -109,7 +109,9 @@ independently falsifiable.
     workflow is configured (the fast tier *is* the pipeline).
 12. **Adversarial review APPROVE on the head SHA** — `dw_request_review`
     (guarded ingress: refuses heads without a green pipeline) triggers the
-    `pr-review` skill; APPROVE must land at the same head SHA.
+    `pr-review` skill; APPROVE must land at the same head SHA. On repos
+    whose review runs as a harmostes workflow, monitor/trigger attempts
+    via the **`harmostes`** skill.
 13. **Merge-ready, then merged** — `dw_merge_readiness` verifies fast +
     full + review + rebase at one frozen head SHA; only then `dw_merge_pr`.
     Branch deleted; the merged PR (`Closes #n`) closes the issue and is the
@@ -391,6 +393,10 @@ adjacent depth, and cross-references instead of duplicating it:
 - **`pr-review`** — **gate 12**, the reviewer counterpart: adversarial
   review APPROVE on the head SHA is required for merge-ready. It is
   SHA-guarded at ingress, so it only ever evaluates pipeline-green code.
+- **`harmostes`** — when the task touches harmostes workflows (triggering,
+  monitoring attempts/jobs, debugging pr-review or fork-maintenance runs),
+  load it: it owns the platform's single supported path and the efficient
+  attempt/job query commands. This skill does not duplicate any of it.
 
 For forked repos `dev-workflow` and `fork-maintenance` both apply: this skill
 governs your own feature branches; fork-maintenance governs the upstream-sync
