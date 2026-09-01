@@ -511,7 +511,7 @@ dw_full_green() {
     case "$platform" in
       github)
         gh pr checks "$(dw_pr_number_from_branch "$(git branch --show-current)")" \
-          --repo "$owner_repo" --json state -q 'length>0 and all(.[]?.state=="SUCCESS")' 2>/dev/null | grep -q true ;;
+          --repo "$owner_repo" --json state -q 'length>0 and all(.[]; .state == "SUCCESS")' 2>/dev/null | grep -q true ;;
       *) local host token; host=$(dw_host); token=$(dw_token)
          [ "$(curl -fsSL -H "Authorization: token $token" \
              "https://$host/api/v1/repos/$owner_repo/commits/$sha/status" 2>/dev/null \
