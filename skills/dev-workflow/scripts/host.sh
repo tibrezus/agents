@@ -324,7 +324,13 @@ dw_watch_ci() {
       [ -z "$pr" ] && pr="$ref"
       gh pr checks "$pr" --repo "$owner_repo" --watch --interval 15 >/dev/null 2>&1
       # --watch exits non-zero if any check fails; double-check final state
-      gh pr checks "$pr" --repo "$owner_repo" --json state -q 'length == 0 or all(.[]; .state == "SUCCESS")' 2>/dev/null | grep -q true ;;
+      # Green = SUCCESS, or SKIPPED/SKIPPING: a job disabled by its `if:`
+      # condition is vacuously green, not failed (e.g. preview-ready.yml's
+      # mark/clear, which only run on their workflow_run trigger). gh's own
+      # --watch already exits 0 for skipped checks; the double-check must agree.
+      # Both spellings accepted: gh's table renders "skipping", the JSON says
+      # "SKIPPED", and versions have varied.
+      gh pr checks "$pr" --repo "$owner_repo" --json state -q 'length == 0 or all(.[]; .state == "SUCCESS" or .state == "SKIPPED" or .state == "SKIPPING")' 2>/dev/null | grep -q true ;;
     *)
       local host token sha status conclusion
       host=$(dw_host); token=$(dw_token)
