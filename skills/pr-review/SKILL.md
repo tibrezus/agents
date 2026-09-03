@@ -1,11 +1,11 @@
 ---
 name: pr-review
-description: "Review a pull request using a pillar-driven adversarial methodology. Two adversaries cover eight CI quality pillars: the Architect (structural fit: coupling & architecture decay, design intent & DRY, interface stability) and the Adversary (behavioral soundness: correctness, security, performance, observability, test quality). A Judge adjudicates. The reviewer scans the diff to determine which pillars apply, investigates those selectively, and marks the rest N/A — making coverage visible without bloating every review. Leverages deterministic proof (lint/tests/CI via bash), the architecture graph (RIG + C4), and selective web search. Two ingress points: manual (dev-workflow review subcommand) or automated (harmostes pr-review workflow)."
+description: "Review a pull request using a pillar-driven adversarial methodology. Two adversaries cover nine CI quality pillars: the Architect (structural fit: coupling & architecture decay, design intent & DRY, interface stability, CI economy) and the Adversary (behavioral soundness: correctness, security, performance, observability, test quality). A Judge adjudicates. The reviewer scans the diff to determine which pillars apply, investigates those selectively, and marks the rest N/A — making coverage visible without bloating every review. Leverages deterministic proof (lint/tests/CI via bash), the architecture graph (RIG + C4), and selective web search. Two ingress points: manual (dev-workflow review subcommand) or automated (harmostes pr-review workflow)."
 ---
 
 # PR Review — Pillar-Driven Adversarial Toolkit
 
-This skill reviews a PR from **two adversarial stances** across **eight CI
+This skill reviews a PR from **two adversarial stances** across **nine CI
 quality pillars**, then adjudicates. Unlike a fixed checklist, the reviewer
 scans the diff to determine which pillars apply, investigates those
 **selectively**, and acknowledges the rest — making coverage **visible**
@@ -72,13 +72,14 @@ are sufficient.
 The review vocabulary. Scan the diff against the **Trigger** column to decide
 which pillars are relevant. Investigate those; mark the rest N/A.
 
-### Architect — structural fit (3 pillars)
+### Architect — structural fit (4 pillars)
 
 | Pillar | Question | Proof | Trigger (investigate when…) |
 |--------|----------|-------|-----------------------------|
 | **Coupling** | Does it respect component boundaries in the RIG — and keep the graph's shape scalable (no cycles, hubs, god-components)? | RIG edge check + `rig overview` shape | the diff adds imports/calls across components, or grows a component's footprint |
 | **Design Intent** | Aligned with documented decisions / ADRs? **Does the diff duplicate existing functionality?** | `rig search` (whole graph) + wiki pages + model.c4 `// Exports:` | the change touches documented architecture, **or adds new functions/types** |
 | **Interface Stability** | Breaking changes to exported symbols / API contracts? | grep exports + diff | the change modifies public/exported API |
+| **CI Economy** | Is CI treated as the expensive asset it is — is each new check **necessary** (no existing check already achieves the same purpose in a different way), and is it **efficient and in the right place** (tier, trigger, single home)? | Read the full CI surface (all workflow files + Makefile/`scripts/test` runners) and purpose-map it against the diff | the diff touches workflow/CI files or test runners, adds/moves checks between tiers, or adds tests that run in CI |
 
 ### Adversary — behavioral soundness (5 pillars)
 
@@ -144,6 +145,35 @@ Investigate the relevant structural pillars:
   contracts, or schema? `grep` for usages of changed symbols across the repo.
   Breaking changes without versioning/migration are findings. **Evidence**:
   cite the symbol and its usages.
+- **CI Economy**: CI is fundamental — every merge passes through it — and it
+  is the most expensive asset in the repository: every check is paid again on
+  every future push, forever. When the diff adds or moves CI work, re-run the
+  author's purpose audit independently: enumerate the **entire** CI surface
+  (all workflow files **plus** what CI invokes — Makefile targets,
+  `scripts/test`, composite/reusable actions), reduce each existing check to
+  its **purpose** (the defect it exists to catch, not its literal command — a
+  `tidy` Makefile target *is* a dependency-drift check once CI calls it), and
+  compare the diff's additions against that map. Findings:
+  - a new check whose purpose an existing check already achieves — in any
+    file, any form — **MAJOR**: the logic must move (extend or re-home the
+    existing check), never clone. Tests count: Test Quality hunts *missing*
+    coverage; CI Economy hunts *redundant* coverage — together they bound the
+    test delta from both sides.
+  - an existing check re-homed by copy-paste instead of moved (the purpose
+    now has two homes) → **MAJOR**.
+  - a genuinely new purpose placed wrongly — slow-tier runtime in the fast
+    tier, always-on where a merge-time dispatch belongs, or a manual-only
+    check guarding a merge-relevant invariant — **MAJOR** if the waste or
+    gap recurs on every push, **MINOR** otherwise.
+  - inefficiency inside a legitimate check (no caching where the platform
+    offers it, unbounded matrix legs, missing `concurrency` cancellation,
+    repeated work that a composite/reusable action should share) →
+    **MINOR**.
+  Also verify the converse held: existing checks were **moved, not removed**
+  — run `dw_ci_conformance "origin/<default>"` when workflow files changed;
+  its findings are findings here too. **Evidence**: cite the colliding
+  existing check (file:line), the duplicated purpose, or the tier/trigger
+  mismatch.
 
 ### Phase 2: Adversary — behavioral soundness
 
@@ -181,8 +211,11 @@ there is no risk.
 3. Weigh severity:
    - **CRITICAL** — security hole, data loss, broken architecture, build failure
    - **MAJOR** — logic error, missing tests for new behavior, undocumented
-     coupling, breaking interface change, resource leak
-   - **MINOR** — style issue, missing docstring, minor improvement
+     coupling, breaking interface change, resource leak, duplicated CI
+     purpose (a check CI already achieves elsewhere) or a check in the
+     wrong tier/trigger
+   - **MINOR** — style issue, missing docstring, minor improvement, CI
+     efficiency polish
    - **NIT** — cosmetic, opinion, no evidence
 4. Decide:
 
@@ -210,7 +243,8 @@ review = {
         "### Architectural Fit\n"
         "- **Coupling:** (finding, or N/A + reason)\n"
         "- **Design Intent:** (finding, or N/A)\n"
-        "- **Interface Stability:** (finding, or N/A)\n\n"
+        "- **Interface Stability:** (finding, or N/A)\n"
+        "- **CI Economy:** (finding, or N/A)\n\n"
         "### Adversary Findings\n"
         "- **Correctness:** (finding, or N/A)\n"
         "- **Security:** (finding, or N/A)\n"
@@ -256,7 +290,10 @@ This makes coverage auditable — a reader sees what was checked at a glance.
 
 - **`dev-workflow`** — defines the gate chain; this skill **is gate 12**
   (adversarial review APPROVE on the merge SHA). The Architect pillars map
-  to dev-workflow gates: Coupling → Gate 7, Design Intent → Gate 1. The
-  verdict trailer is what `dw_merge_readiness` consumes as merge currency.
+  to dev-workflow gates: Coupling → Gate 7, Design Intent → Gate 1, CI
+  Economy → the CI-discipline purpose audit (`ci-concepts.md` §3 — CI as a
+  fundamental yet expensive asset: necessary checks only, no duplicated
+  purposes, efficient and correctly placed). The verdict trailer is what
+  `dw_merge_readiness` consumes as merge currency.
 - **`llm-wiki`** — the wiki consulted for Design Intent. The RIG and C4 model
   are the deterministic architecture graph; the wiki pages are the reasoning.
