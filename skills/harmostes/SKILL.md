@@ -146,7 +146,7 @@ A change that passes tests but leaves any check red is **not done**.
 | Event-Driven Worker Pool | [wiki/Event-Driven-Worker-Pool](https://github.com/tibrezus/harmostes/wiki/Event-Driven-Worker-Pool) | Execution/pod debugging |
 | Webhook Triggers | [wiki/Webhook-Triggers](https://github.com/tibrezus/harmostes/wiki/Webhook-Triggers) | Instant triggers |
 | CONTEXT.md (glossary) | [repo/CONTEXT.md](https://github.com/tibrezus/harmostes/blob/main/CONTEXT.md) | Domain language |
-| ADRs (0001–0005) | [wiki Home → ADRs](https://github.com/tibrezus/harmostes/wiki/Home#adrs-architecture-decisions) | Design decisions |
+| ADRs (0001–0008) | [wiki Home → ADRs](https://github.com/tibrezus/harmostes/wiki/Home#adrs-architecture-decisions) | Design decisions — 0008 = attempt-scoped resumption + runs-don't-die-by-default |
 
 ## The gate-centric model
 
@@ -209,6 +209,12 @@ kubectl annotate workflow.harmostes.dev <name> -n harmostes \
 kubectl get workflow.harmostes.dev <name> -n harmostes
 kubectl logs -n harmostes deploy/harmostes-worker-pool -c worker --tail=50
 kubectl logs -n harmostes deploy/harmostes-controller -c controller --tail=50
+
+# Review stuck / standing down? Check the dead-dispatch breaker ledger:
+kubectl get attempts.harmostes.dev -n harmostes \
+  -o custom-columns=NAME:.metadata.name,DEAD:.status.review.deadDispatches
+# dead: 3 = breaker tripped for that head (standdown, claim released);
+# reset = push a new head or re-add the needs-review label
 ```
 The UI (`harmostes.rezus.cloud`) is **observe-only**; nav is three pages:
 **Live** (`/` — the wall: what is running right now), **Runs** (attempt
@@ -281,14 +287,55 @@ Controller detects workflow is due
   → publishes TriggerEvent to Dapr pub/sub (harmostes-triggers)
     → worker pool consumer receives event
       → fetches Workflow CR + resolves templateRef (ApplyTemplateDefaults)
-      → execs one-shot worker
-        → prepare → agent (LLM) → gate → deploy
+      → creates the Attempt CR (the durable spine) and dispatches node
+        executions as one-shot K8s Jobs (ADR-0007: one node execution =
+        one Job = one pod; agent nodes carry the LLM loop)
+      → node results land in the Attempt's ledger + envelopes
       → ACK on success / NACK on failure (at-least-once via Redis Streams)
 ```
 
-Key properties: single-flight per pod, at-least-once delivery, no batchv1
-Jobs, `detect: changed` skips no-op runs, Node Result Envelopes + Attempt CRs
-record history (ADR-0005).
+Key properties: single-flight per pod, at-least-once delivery, Node Result
+Envelopes + Attempt CRs record history (ADR-0005), **runs don't die by
+default** (ADR-0008 — see below).
+
+## Run lifecycle: runs don't die by default (ADR-0008)
+
+A started run **completes or fails on its own** — the kernel never kills a
+run for taking long. Killing is opt-in, and continuation is the default
+response to interruption:
+
+- **`spec.runBound`** (Workflow + Attempt): empty = the **2h wedged-run
+  reaper** (`v1alpha1.DefaultRunBound` — a real review finishes in minutes;
+  a 2h-old run is hung and would hold its claim slot forever); `"0"` =
+  truly unlimited; a finite duration is honored verbatim. The same bound
+  drives the in-pod graph context — **one bound, two enforcements**. Never
+  reintroduce a second timeout (the old in-pod 30m cap was the wall-death
+  bug this replaced). `OneShotRunBound` survives only as the dispatch
+  backstop floor.
+- **Resumption** (`nodes[].resume: "green"`, opt-in per node, **never on
+  gate nodes** — validator verdicts are only trustworthy fresh): a new run
+  of the same attempt reuses the latest green ledger result instead of
+  re-executing. Reuse is recorded under the new run (stamped
+  `resumed`/`resumedFrom` outputs) — never invisible. The envelope's
+  `Outputs` (string→string, bounded 4 KiB/value, ≤32 values) is the durable
+  data bus between runs.
+- **Handoff** (`NodeEnv.Handoff`): a killed/interrupted run's successor gets
+  a CONTINUE brief (transcript tail + completed nodes as work-in-progress);
+  deliberate stops and fresh premises get SUMMARY (background only).
+  Deterministic `classifyHandoff`; the brief is redacted and always carries
+  the run clock — first runs included.
+- **Session persistence is per turn** — a SIGKILL loses at most the
+  in-flight turn, so post-mortems and handoffs always have transcripts.
+- **Dead-dispatch breaker** (deployed 1.2.0-120): a head that produces 3
+  dead dispatches stands down (`ErrDeadDispatchBreaker`, claim released
+  idempotently via `ReleaseClaimDead`); the count resets on head push or
+  label wake. Escape hatch: pull the `needs-review` label. **Dispatch
+  timeouts are fact-checked** (1.2.0-121): a timeout counts as death only
+  when the Job is observably gone — an alive Job holds the slot.
+- **Toolchain cache** (`AttemptSpec.Cache`): PVC mounted at
+  `/toolchain-cache` with `GOCACHE`/`GOMODCACHE`/`npm_config_cache` set;
+  SubPath per namespace/workflow (GOMODCACHE extraction does not tolerate
+  cross-pod writers).
 
 ## Relationship to other skills
 
