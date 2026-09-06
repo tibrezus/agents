@@ -3,7 +3,7 @@
 # subtree-mode.sh — vendored upstream trees, as data (fork.yaml schema v2)
 # =============================================================================
 # Sourced by sync-fork.sh when a fork def declares `mode: subtree`. The sync
-# unit is (target repo, vendored path, pin file) — not a fork repo. The engine
+# unit is (target repo, vendored path, pin file) — not a fork repo. The plugin
 # NEVER edits vendored content: detection compares upstream tags
 # (upstream.selector) against the pin, the policy matrix decides, and
 # propagation is DELEGATED to the target repo's own sync_command; the pristine
@@ -20,7 +20,7 @@
 # phase only reports unreleased-pending; auto.release is not consulted.
 #
 # DRY_RUN=1 stops after planning (no branch content pushed, no PR) — the
-# onboarding tool for new subtree sources and this engine's acceptance harness.
+# onboarding tool for new subtree sources and this script's acceptance harness.
 #
 # CR shape (schema v2 — merge-mode defs are unchanged and never reach here):
 #   mode: subtree
@@ -281,7 +281,7 @@ phase_subtree_merge() {
     minor_tag=$(sub_major_latest "$UPSTREAM_TAGS" "$PIN")
     minor_policy=$(read_yaml '.policy.minor.propagate // "auto"')
     if [ -n "$minor_tag" ] && [ "$minor_tag" != "$PIN" ] && [ "$minor_policy" = "auto" ]; then
-      # The engine PREPARES the PR (delegate does the vendoring); merge is
+      # The plugin PREPARES the PR (delegate does the vendoring); merge is
       # manual by hard policy — only the patch class may auto-merge. Humans
       # review the changelog/CVEs and run the validation contract (smoke).
       echo "=== minor-class $minor_tag — policy: propagate=auto, PR waits for manual merge (+ validation contract) ==="
@@ -316,7 +316,7 @@ phase_subtree_merge() {
   git checkout -b "$SYNC_BRANCH"
 
   echo "=== Propagating via delegate: $SUB_SYNC_CMD $LANE_TAG ==="
-  UPSTREAM_OCI="$UPSTREAM_URL" bash "$SUB_SYNC_CMD" "$LANE_TAG"   # the engine knows the upstream; the delegate honors it
+  UPSTREAM_OCI="$UPSTREAM_URL" bash "$SUB_SYNC_CMD" "$LANE_TAG"   # the plugin knows the upstream; the delegate honors it
 
   git add -A
   if [ -z "$(git status --porcelain)" ]; then
@@ -450,7 +450,7 @@ EOF
   fi
   pr_body+="### Pristine gate"$'\n'"Byte-diff of \`${SUB_PATH}/\` against the upstream archive at ${LANE_TAG} — green in the run logs."$'\n\n'
   pr_body+="### Release"$'\n'"Rides the target repo's tag cycle (\`v*-rezus.*\`) — this PR does not release."$'\n\n'
-  pr_body+="---"$'\n\n_Automated by the fork-maintenance engine (subtree mode) — k8s-config GitOps._'$'\n'
+  pr_body+="---"$'\n\n_Automated by the fork-maintenance workflow (subtree mode) — k8s-config GitOps._'$'\n'
 
   local label="needs-review"
   [ "$merge_policy" = "auto" ] && label="auto-merge"

@@ -1,6 +1,6 @@
 # Conflict Resolution — Mechanical and Agentic
 
-The sync engine uses the **merge model**: it runs `git merge upstream/<release-branch>` into the fork's release branch (off a `rezus/sync-<date>` branch). So every conflict is a **localized 3-way region** — `base` (merge-base), `ours` (our immutable patched version), `theirs` (upstream's new version) — where upstream *and* our patch both changed since the merge-base. This is the ideal input for an LLM resolver: a small, concrete, bounded region per file, with the patch's declared intent (the fork's wiki chapter) as the missing context. A resolution is a single edit to the sync branch that earns trust only by passing the gates; a wrong one is one `git revert -m 1`.
+The sync uses the **merge model**: it runs `git merge upstream/<release-branch>` into the fork's release branch (off a `rezus/sync-<date>` branch). So every conflict is a **localized 3-way region** — `base` (merge-base), `ours` (our immutable patched version), `theirs` (upstream's new version) — where upstream *and* our patch both changed since the merge-base. This is the ideal input for an LLM resolver: a small, concrete, bounded region per file, with the patch's declared intent (the fork's wiki chapter) as the missing context. A resolution is a single edit to the sync branch that earns trust only by passing the gates; a wrong one is one `git revert -m 1`.
 
 Upstream merges produce two kinds of conflict. They need different resolution strategies. Both resolve **on the sync branch** (never the release branch) and both must pass the full [safeguard gate chain](safeguards.md) before merge.
 
@@ -38,7 +38,7 @@ git checkout --ours -- <file>        # keep our version of the hunk
 git grep -E '^(<<<<<<<|>>>>>>>|=======) ' -- <file>   # must be empty
 ```
 
-Then: rebuild, run `validate-fork.sh`. If green, push — the engine's gate-1 marker scan and gate-5 build will confirm.
+Then: rebuild, run `validate-fork.sh`. If green, push — the plugin's gate-1 marker scan and gate-5 build will confirm.
 
 **Never** blindly `git checkout --ours` on a file with a *semantic* conflict — that silently drops upstream's fix. Gate 4 (signature) + a build must confirm our intent still holds.
 
@@ -100,7 +100,7 @@ The escalation is a **label and a stop**, not a silent merge. The release branch
 
 ## Agentic integration shape
 
-For full automation, the sync engine emits a `needs-fix` payload the agent consumes:
+For full automation, the sync emits a `needs-fix` payload the agent consumes:
 
 ```json
 {

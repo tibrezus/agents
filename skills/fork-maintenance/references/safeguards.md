@@ -17,7 +17,7 @@ MARKER_FILES=$(git grep -l -E '^(<<<<<<<|>>>>>>>|=======) ' -- . 2>/dev/null || 
 
 **Prevents**: a sync PR that doesn't compile because of leftover `<<<<<<< HEAD` / `>>>>>>> upstream/main` blocks. (This shipped `pkg/authz/openfgaauthz/provider.go` broken in a real signoz sync — upstream changed a function signature, the merge conflicted, `git add -A` hid it.)
 
-**Merge-model note**: because the engine merges (not replays), a conflict is always a genuine 3-way region on the sync branch — there is no separate "cherry-pick accumulation" failure mode where a customization is re-applied or duplicated across syncs. Git's commit reachability tracks "is this custom already merged?" structurally, so that entire class of bug cannot occur.
+**Merge-model note**: because the plugin merges (not replays), a conflict is always a genuine 3-way region on the sync branch — there is no separate "cherry-pick accumulation" failure mode where a customization is re-applied or duplicated across syncs. Git's commit reachability tracks "is this custom already merged?" structurally, so that entire class of bug cannot occur.
 
 ### Gate 2 — Permanent divergences re-applied
 
@@ -41,7 +41,7 @@ patches:
     signature: "case promql.String:"
 ```
 
-The engine counts occurrences after merge. Zero occurrences → the patch was lost (upstream refactored the function) → PR labelled `needs-review`, not auto-merged.
+The plugin counts occurrences after merge. Zero occurrences → the patch was lost (upstream refactored the function) → PR labelled `needs-review`, not auto-merged.
 
 **Prevents**: a silent regression where upstream's refactor removes our fix and nobody notices because the build still passes (our code path just isn't called anymore). The signature is evidence the patch is *live*, not just present.
 
@@ -112,6 +112,6 @@ If a semantic conflict was resolved by the LLM resolver (see [conflict-resolutio
 
 ## The cardinal rule, enforced by construction
 
-> The release branch is modified **only** by a merged PR. The sync engine never pushes to it directly — it pushes to `rezus/sync-<date>` and opens a PR. Therefore a broken sync (one that fails any gate) can never reach the release branch. The worst case is a stale sync PR, never a broken deployment.
+> The release branch is modified **only** by a merged PR. The sync never pushes to it directly — it pushes to `rezus/sync-<date>` and opens a PR. Therefore a broken sync (one that fails any gate) can never reach the release branch. The worst case is a stale sync PR, never a broken deployment.
 
 This is why the invariant holds even when automation fails: the failure is contained to the PR.
