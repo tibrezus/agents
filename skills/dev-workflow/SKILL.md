@@ -289,6 +289,16 @@ those rules. The verdict lands as a comment ending in the trailer
 `<!-- pr-review: <DECISION> @ <sha> -->` — `dw_wait_review` polls for it,
 `dw_merge_readiness` binds it to the head SHA.
 
+**Checking review progress — two surfaces:** (1) **the PR itself** —
+verdicts land as comments on the repo's PR/issue, identified by the trailer
+`<!-- pr-review: <DECISION> @ <sha> -->` (format owned by `pr-review`):
+read the latest verdict at a SHA, or a PR's review history; (2) **the
+harmostes runtime** — whether the pr-review workflow is armed, queued,
+running, or failed, and at which stage. To read the runtime, load the
+**`harmostes`** skill: it owns the pr-review workflow end to end
+(Review-Ready Gate, attempts, event history) and provides the exact
+progress/query commands — never reconstruct them by hand.
+
 ### `ci-conformance` — validate CI against the five invariants
 
 ```bash
@@ -414,9 +424,13 @@ adjacent depth, and cross-references instead of duplicating it:
   review APPROVE on the head SHA is required for merge-ready. It is
   SHA-guarded at ingress, so it only ever evaluates pipeline-green code.
 - **`harmostes`** — when the task touches harmostes workflows (triggering,
-  monitoring attempts/jobs, debugging pr-review or fork-maintenance runs),
-  load it: it owns the platform's single supported path and the efficient
-  attempt/job query commands. This skill does not duplicate any of it.
+  monitoring attempts/jobs, debugging pr-review or fork-maintenance runs)
+  **or when checking adversarial-review progress**: query the PR's verdict
+  comments (trailer `<!-- pr-review: DECISION @ sha -->`), then the
+  harmostes runtime for the pr-review workflow's progress
+  (armed/queued/running/failed). Load it for the runtime: it owns the
+  platform's single supported path, the event history, and the efficient
+  query commands. This skill does not duplicate any of it.
 
 For forked repos `dev-workflow` and `fork-maintenance` both apply: this skill
 governs your own feature branches; fork-maintenance governs the upstream-sync
