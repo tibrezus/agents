@@ -146,7 +146,7 @@ A change that passes tests but leaves any check red is **not done**.
 | Event-Driven Worker Pool | [wiki/Event-Driven-Worker-Pool](https://github.com/tibrezus/harmostes/wiki/Event-Driven-Worker-Pool) | Execution/pod debugging |
 | Webhook Triggers | [wiki/Webhook-Triggers](https://github.com/tibrezus/harmostes/wiki/Webhook-Triggers) | Instant triggers |
 | CONTEXT.md (glossary) | [repo/CONTEXT.md](https://github.com/tibrezus/harmostes/blob/main/CONTEXT.md) | Domain language |
-| ADRs (0001–0005) | [wiki Home → ADRs](https://github.com/tibrezus/harmostes/wiki/Home#adrs-architecture-decisions) | Design decisions |
+| ADRs (0001–0010) | [wiki Home → ADRs](https://github.com/tibrezus/harmostes/wiki/Home#adrs-architecture-decisions) | Design decisions — incl. 0006 event-armed gates, 0007 Job-per-attempt, 0008 attempt-scoped resumption, 0009 graph-first navigation, **0010 PR-scoped agent session lineages** |
 
 ## The gate-centric model
 
@@ -286,9 +286,16 @@ Controller detects workflow is due
       → ACK on success / NACK on failure (at-least-once via Redis Streams)
 ```
 
-Key properties: single-flight per pod, at-least-once delivery, no batchv1
-Jobs, `detect: changed` skips no-op runs, Node Result Envelopes + Attempt CRs
-record history (ADR-0005).
+Key properties: single-flight per pod, at-least-once delivery, `detect:
+changed` skips no-op runs, Node Result Envelopes + Attempt CRs record
+history (ADR-0005). Reviews run attempt-scoped Jobs (ADR-0007) with a
+**dead-dispatch breaker** (N dispatches dying verdictless ⇒ re-arm
+refused; override by re-applying the `needs-review` label) and
+**PR-scoped pi session lineages** (ADR-0010, #367): the session store is
+keyed `pi-lineage/<repo>~<pr>` in Dapr state — fetch/materialize at run
+start, stable `harmostes-<pr>` session id, publish back post-run; resumed
+runs get a delta prompt, and the identical prefix gives provider KV-cache
+hits across review rounds.
 
 ## Relationship to other skills
 
