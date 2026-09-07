@@ -19,6 +19,31 @@ context: the diff, the architecture graph (RIG + C4), and selective tools.
 
 Keep the context small. Do not read the whole repo. Route to the minimal source.
 
+## The 15-minute contract
+
+A review that has not posted its verdict within the run bound is a FAILED
+review, no matter how good it would have been — the platform kills the run
+and the next one starts over. Observed live (#357 r14): a focused 5-file
+PR spent run 1 dying at the 30-minute bound mid-trace and run 2 re-deriving
+it, 65 minutes wall for a diff whose verdict took 5 minutes to earn. The
+failure was not hard thinking — it was unbounded verification theater:
+watching CI the ingress contract already guarantees, a cold full-battery
+test run, per-finding mutation probes each rebuilding from scratch, and a
+verdict written as an essay. Budget the whole review at **15 minutes** and
+spend it where findings come from:
+
+| Phase | Cap | Rule |
+|---|---|---|
+| Orient (context + diff + RIG component of touched nodes) | 3 min | The diff is the artifact under review — read IT, not the codebase around it. Follow a symbol out of the diff only when the finding hinges on it. |
+| Investigate (the pillars the diff's triggers select) | 7 min | Targeted source reads. A trace across packages earns its keep only when a finding names the seam. |
+| Deterministic proof | 3 min | ONE warm build (`go build ./...` or equivalent) + tests for the TOUCHED packages only (`go test ./internal/worker/ ./api/...`) — never the full battery; pipeline CI owns that and it is green by ingress. Mutation probes: batch ALL candidate edits into ONE edit→test→revert cycle. Probes are for load-bearing pin claims, not decoration — a probe that cannot change a verdict is skipped. |
+| Judge + write | 2 min | The verdict is the payload. Write it, post it, done. |
+
+If the budget runs out mid-investigation, post what the evidence already
+supports at the highest remaining severity — an honest APPROVE-with-note
+or REQUEST_CHANGES on partial coverage beats a perfect review that dies
+unposted. Never spend budget re-deriving what the diff itself shows.
+
 ## Ingress contract — validated SHAs only
 
 **This skill owns the review contract**: the two-stance methodology below,
@@ -103,13 +128,18 @@ investigation to the risk of the change, not to the number of pillars.
 2. Read the diff (`/workspace/pr-diff.patch`).
 3. If `rig_path` is set, read the RIG components touched by the diff. If
    `c4_path` is set, read the relevant C4 view.
-4. Run deterministic proof via `bash` — detect the build system from the repo
-   (Makefile `make test`, `scripts/test`, `go.mod`→`go`, `build.zig`→`zig`,
-   `package.json`→`npm`, `Cargo.toml`→`cargo`):
-   - Build: `cd /workspace/repo && <build cmd>`
-   - Lint: `<lint cmd>` (if configured)
-   - Tests: `<test cmd>`
+4. Run deterministic proof via `bash`, CHEAPLY (see the 15-minute contract):
+   detect the build system from the repo (Makefile `make test`,
+   `scripts/test`, `go.mod`→`go`, `build.zig`→`zig`, `package.json`→`npm`,
+   `Cargo.toml`→`cargo`):
+   - Build: `cd /workspace/repo && <build cmd>` — once; this warms every
+     later test invocation.
+   - Tests: **touched packages only** (`go test ./pkg/under/test/...`), not
+     the repo battery — pipeline CI ran the battery on this exact SHA and
+     it is green by the ingress contract.
    - A failing build or test is an automatic REQUEST_CHANGES — no debate.
+   - CI status is a FIELD in `pr-context.json`. Read it; never poll, never
+     watch a pipeline — that is the dispatcher's spent budget, not yours.
 5. **Scan the diff against the pillar triggers.** Note which pillars are
    relevant before investigating.
 
@@ -227,6 +257,13 @@ review = {
 json.dump(review, open("/workspace/review.json", "w"), indent=2)
 ```
 
+**Length contract** (the verdict is read by a human and a merge gate — both
+want the finding, not the essay): focused scope ≤ **500 words** total, with
+PASSING pillars as a single line each (`**Coupling:** PASS — edges match the
+RIG graph`). Reserve full prose for `huge` scope, and even there findings
+lead; narration of what the diff obviously says is banned — the author wrote
+it, the reader can read it. Cite, don't summarize.
+
 - `decision` — `APPROVE`, `REQUEST_CHANGES`, or `COMMENT`.
 - `reviewed_sha` — the head SHA of `/workspace/repo`. The body must **end**
   with the trailer `<!-- pr-review: <DECISION> @ <reviewed_sha> -->` (exact
@@ -260,3 +297,14 @@ This makes coverage auditable — a reader sees what was checked at a glance.
   verdict trailer is what `dw_merge_readiness` consumes as merge currency.
 - **`llm-wiki`** — the wiki consulted for Design Intent. The RIG and C4 model
   are the deterministic architecture graph; the wiki pages are the reasoning.
+
+## Divergence ledger — carried across rounds (never re-litigate, never forget)
+
+Empirical source: rounds r18–r20 of the model-role flip + #367's blocker. Multi-round loops were never *disagreements about the implementation* — they were **unverified claims about the implementation**. Each round must check the *class*, not just the finding:
+
+1. **Tests pin mechanism, not intent.** Mutation-probe the load-bearing test: swap the guarded value for nonsense (`BOGUS/primary`), run the suite — red required. A test that survives nonsense is decoration. (r18: 19/19 passed with a BOGUS default.)
+2. **One fact, one home.** When a fix updates a stated fact (constant, chain, clamp, limit), grep for EVERY home of that fact (docblocks, canonical comments, ADRs) — fix the class, not the instance. (r19: third stale vintage in `applyChains` docblock.)
+3. **Deployment claims are manifest-grounded.** Any claim about durability, env, volumes, or topology must be falsified against `job.go`, the chart, and the ops repo — never accepted from an ADR's prose. (r20: "the directory IS the association" died on `/tmp` being per-pod ephemeral.)
+4. **Self-authored spec = suspect premise.** When the PR's author also authored the ADR/spec it implements, the load-bearing assumption gets an adversarial pass *first*.
+
+**Session continuity:** a PR's review rounds are ONE lineage. If a prior verdict exists at an earlier head, resume its context (ADR-0010): previously-verified findings stay verified, previously-addressed fixes are acknowledged as addressed, and the review examines the delta between heads. The findings ledger above is the compaction seed — what survives between rounds.

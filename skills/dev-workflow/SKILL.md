@@ -72,7 +72,11 @@ independently falsifiable.
    on the PR if reuse is impossible.
 
 6. **Change covered by tests** — unit tests for every behavior added or
-   altered (fast tier); extend the integration suite where one exists. Every
+   altered (fast tier); extend the integration suite where one exists. Every new or
+   altered test is **mutation-probed before push**: deliberately break the
+   behavior it guards, confirm the test goes red, restore. Green tests that
+   survive nonsense are not coverage (r18 lesson: a BOGUS constant passed
+   19/19). Every
    test and tool is **wired into CI** — never a throwaway script (see [CI
    discipline](#continuous-integration-discipline)). For
    `SAFETY_LEVEL: mcdc` projects, also achieve MC/DC
