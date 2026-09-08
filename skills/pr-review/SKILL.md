@@ -225,6 +225,34 @@ there is no risk.
 "Deterministic proof" here is the reviewer's independent local run of the
 checked-out delta — pipeline CI is green by ingress contract.
 
+## The inline review protocol — threads are the merge currency
+
+A bullet list is not a review. **Every finding goes in as a real inline
+review comment anchored to the code**, posted by you with the
+already-authenticated forge CLI:
+
+- **GitHub (`gh`)**: `gh api repos/{o}/{r}/pulls/$N/comments -f commit_id=$SHA -f path=F -F line=N -f body="…"`.
+  Reply: `…/comments/$ID/replies`. Resolve via GraphQL `resolveReviewThread`
+  (map the comment's databaseId → thread id with a `reviewThreads` query).
+- **Forgejo / Codeberg (`fj`)**: the PR/issue comment surface, anchored with a
+  `path:line` lead line. A **reply on the thread is the resolution** (the
+  review-event endpoint rejects the author identity, #29). Missing fj verbs
+  are contract gaps — name them in the review body.
+- **GitLab (`glab`)**: positioned discussions —
+  `glab api projects/:id/merge_requests/$N/discussions -X POST …`;
+  reply via `…/discussions/$ID/notes`; resolve via `PUT … {"resolved":true}`.
+
+One thread per finding; the verdict body only **summarizes** (with thread
+ids). On a later round: verify each fix in the diff, **reply on the thread
+with the fixing SHA**, then **resolve it**.
+
+**Author side (dev agent) — mandatory before the pipeline resumes:** reply
+to every open review thread with the fix SHA + one-line rationale, resolve
+it (native where the host has it, a closing reply on Forgejo), and only
+then re-arm. post-review mechanically **downgrades an APPROVE issued over
+open prior-round threads** — unresolved threads block the full pipeline
+and the merge, no matter what the verdict text says.
+
 ## Output contract
 
 Write the review to `/workspace/review.json` using Python (NOT a bash heredoc —

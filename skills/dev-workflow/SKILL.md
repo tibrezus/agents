@@ -131,6 +131,13 @@ means back to developing, never into review. Depth:
 
 ## Hard rules
 
+0. **Review threads are the merge currency.** When an adversarial review
+   leaves inline comments (gh / fj / glab threads), the dev agent replies
+   on EVERY open thread — the fix SHA plus a one-line rationale — and
+   resolves it (native resolve on GitHub/GitLab; a closing reply on
+   Forgejo). The full pipeline resumes and a re-review can APPROVE only
+   when zero threads are unresolved; post-review downgrades APPROVEs
+   issued over open threads.
 1. A direct commit/push to the default branch is forbidden unless the user
    gave an explicit instruction that is recorded on the issue. When in doubt,
    branch.
