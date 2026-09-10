@@ -234,10 +234,18 @@ already-authenticated forge CLI:
 - **GitHub (`gh`)**: `gh api repos/{o}/{r}/pulls/$N/comments -f commit_id=$SHA -f path=F -F line=N -f body="…"`.
   Reply: `…/comments/$ID/replies`. Resolve via GraphQL `resolveReviewThread`
   (map the comment's databaseId → thread id with a `reviewThreads` query).
-- **Forgejo / Codeberg (`fj`)**: the PR/issue comment surface, anchored with a
-  `path:line` lead line. A **reply on the thread is the resolution** (the
-  review-event endpoint rejects the author identity, #29). Missing fj verbs
-  are contract gaps — name them in the review body.
+- **Forgejo / Codeberg (`fj`, native since v16.0.3-rezus.1)**: findings post
+  as a real anchored review — the review-event endpoint rejects only
+  REQUEST_CHANGES from the PR author (#29); COMMENT carries the full payload:
+  `fj api repo create-pull-review --owner O --repo R --index N --body
+  '{"body":"…","event":"COMMENT","commit_id":"<reviewed sha>","comments":
+  [{"path":"F","new_position":N,"body":"finding"}]}'`. THE LINE FIELD IS
+  `new_position` (`new_line` 500s server-side). One create-pull-review per
+  round carrying ALL findings. Reply/resolve: the REST shape has no
+  in_reply_to yet (fork gap, rezuscloud/forgejo#… follow-up) — until it
+  ships, a thread is addressed by a follow-up create-pull-review whose
+  comment body leads with `path:line` + the resolution and the original
+  comment id; native reply/resolve lands with the fork API extension.
 - **GitLab (`glab`)**: positioned discussions —
   `glab api projects/:id/merge_requests/$N/discussions -X POST …`;
   reply via `…/discussions/$ID/notes`; resolve via `PUT … {"resolved":true}`.
