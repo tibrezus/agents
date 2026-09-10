@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# sync-fork.sh — Universal fork sync engine (MERGE model, phase-addressable)
+# sync-fork.sh — Universal fork sync script (MERGE model, phase-addressable)
 # =============================================================================
 # Merges the upstream release branch INTO the fork's release branch (off a sync
 # branch → PR), runs post-merge hooks, verifies patches + divergence integrity,
@@ -47,7 +47,7 @@ case "$PHASE" in
 esac
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# MAINT_DIR is the parent of scripts/ — either platform/fork-maintenance/ in the
+# MAINT_DIR is the parent of scripts/ — either platform/harmostes/fork-maintenance/ in the
 # repo, or /workspace/ in the worker (ConfigMap mount).
 MAINT_DIR="$(dirname "$SCRIPT_DIR")"
 DEF_FILE="$MAINT_DIR/forks/${FORK_NAME}.yaml"
@@ -62,23 +62,25 @@ echo "=== [$PHASE] fork: $FORK_NAME ==="
 # Parse YAML definition into shell variables
 read_yaml() { yq -r "$1" "$DEF_FILE"; }
 
+# Mode dispatch (schema v2): merge (default, whole-repo forks) vs subtree
+# (vendored upstream trees) vs mapping (the forgejo self-sync — sync.yml's
+# mapping-table walk in the plugin). The subtree/mapping machinery lives at
+# the END of this script — dispatching there and exiting; every merge-mode
+# path below is unreachable for those defs, keeping the merge-mode code
+# byte-untouched.
+MODE="$(read_yaml '.mode // "merge"' 2>/dev/null || echo merge)"
+case "$MODE" in
+  merge|subtree|mapping) ;;
+  *) echo "ERROR: unknown mode '$MODE' for fork '$FORK_NAME'" >&2; exit 1 ;;
+esac
+
 # Mapping-table defs are SELF-HOSTED (sync.yml in the fork repo walks the
-# rows). The engine serves engine-transport forks only.
-if [ "$(read_yaml '.mappings | length' 2>/dev/null || echo 0)" != "0" ]; then
+# rows) unless they opt into the plugin transport (mode: mapping — #97).
+if [ "$(read_yaml '.mappings | length' 2>/dev/null || echo 0)" != "0" ] && [ "$MODE" != "mapping" ]; then
   echo "fork ${FORK_NAME} is self-hosted (mapping table; transport declared per row)"
   echo "sync runs in the fork repo: .github/workflows/sync.yml — nothing to do here"
   exit 0
 fi
-
-# Mode dispatch (schema v2): merge (default, whole-repo forks) vs subtree
-# (vendored upstream trees). The subtree machinery lives at the END of this
-# script — dispatching there and exiting; every merge-mode path below is
-# unreachable for subtree defs, which keeps the merge engine byte-untouched.
-MODE="$(read_yaml '.mode // "merge"' 2>/dev/null || echo merge)"
-case "$MODE" in
-  merge|subtree) ;;
-  *) echo "ERROR: unknown mode '$MODE' for fork '$FORK_NAME'" >&2; exit 1 ;;
-esac
 
 UPSTREAM_URL=$(read_yaml '.upstream.url')
 UPSTREAM_BRANCH=$(read_yaml '.upstream.branch')
@@ -162,7 +164,7 @@ state_load() {
 # push_sync_branch pushes the disposable sync branch: force-with-lease when a
 # remote-tracking ref is known (protects foreign updates), plain --force when the
 # shallow clone lacks the tracking ref (same-day re-runs legitimately recreate
-# the branch; it is derived state owned by this engine).
+# the branch; it is derived state owned by this script).
 push_sync_branch() {
   if git rev-parse -q --verify "origin/$SYNC_BRANCH" >/dev/null 2>&1; then
     git push --force-with-lease --quiet origin "$SYNC_BRANCH"
@@ -616,11 +618,20 @@ $(if $DIVERGENCE_FAILED; then echo "❌ A fork feature was LOST in this sync (se
 
 ---
 
-_Automated by platform/fork-maintenance (k8s-config GitOps)._
+_Automated by platform/harmostes/fork-maintenance (k8s-config GitOps)._
 EOF
 }
 
 # ── Dispatch ─────────────────────────────────────────────────────────────────
+if [ "$MODE" = "mapping" ]; then
+  # Mapping-table transport (the forgejo self-sync, sync.yml's walk in the
+  # plugin). See docs/forgejo-cutover.md for the equivalence contract.
+  # shellcheck disable=SC1091
+  source "$SCRIPT_DIR/mapping-mode.sh"
+  mapping_dispatch
+  exit 0
+fi
+
 if [ "$MODE" = "subtree" ]; then
   # Vendored-tree mode: everything lives in scripts/subtree-mode.sh (sourced
   # here so the phases see this script's helpers: read_yaml, result_json,
@@ -642,7 +653,7 @@ case "$PHASE" in
   all)
     # Legacy single-shot flow for forks not yet graph-native. Exit codes:
     # 0 = up to date or PR opened (auto-merged if auto.merge); 2 = conflict;
-    # 3 = push failure. Identical semantics to the pre-phase-mode engine.
+    # 3 = push failure. Identical semantics to the pre-phase-mode single-shot flow.
     phase_merge          # exits 0 (up-to-date) or 2 (conflict) or 3 on its own
     phase_hook
     phase_validate

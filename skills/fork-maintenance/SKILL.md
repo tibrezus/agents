@@ -12,11 +12,11 @@ This skill maintains **forks that add features on top of an upstream project** a
 The process is **universal** along two axes:
 
 - **Multi-platform** — the fork repo can live on GitHub, Forgejo, Gitea, or Codeberg. Git push, labels, PR creation, **and PR merge** dispatch to the right host API (`gh` CLI vs Forgejo REST — no `tea` dep).
-- **Multi-project** — one shared sync engine + validator serves every fork. Per-fork differences are *data* (a declarative fork definition), not code. New language? new host? new build system? — add a check type or a host routine, never fork the engine.
+- **Multi-project** — one shared sync implementation + validator serves every fork. Per-fork differences are *data* (a declarative fork definition), not code. New language? new host? new build system? — add a check type or a host routine, never fork the plugin.
 
-Sync uses the **merge model** — the engine merges the upstream release branch into the fork's release branch (see [Sync model](#sync-model-merge--an-llm-maintainer) below). Conflicts are therefore **localized 3-way regions** (base / ours / theirs), resolved **automatically** when mechanical and via an **LLM-driven agentic protocol** when semantic (upstream changed an API our patch depends on). Either way the resolution lands in the PR for review — never directly on the release branch.
+Sync uses the **merge model** — the plugin merges the upstream release branch into the fork's release branch (see [Sync model](#sync-model-merge--an-llm-maintainer) below). Conflicts are therefore **localized 3-way regions** (base / ours / theirs), resolved **automatically** when mechanical and via an **LLM-driven agentic protocol** when semantic (upstream changed an API our patch depends on). Either way the resolution lands in the PR for review — never directly on the release branch.
 
-**The canonical source of truth for this skill is co-located with the reference implementation** at `platform/fork-maintenance/skill/` in the GitOps repo that owns the maintenance system. The live scripts live one directory up (`scripts/`, `checks/`, `flux/`). `skill/scripts/check-drift.sh` verifies the skill's engine templates stay byte-identical to the live scripts, so what an agent reads always matches what the CronJob runs. The copy in `~/.agents/skills/fork-maintenance/` is a synced derivative for agents to load; change the canonical one and re-sync.
+**The canonical source of truth for this skill is co-located with the reference implementation** at `platform/harmostes/fork-maintenance/skill/` in the GitOps repo that owns the maintenance system. The live scripts live one directory up (`scripts/`, `checks/`, `flux/`). `skill/scripts/check-drift.sh` verifies the skill's script templates stay byte-identical to the live scripts, so what an agent reads always matches what the CronJob runs. The copy in `~/.agents/skills/fork-maintenance/` is a synced derivative for agents to load; change the canonical one and re-sync.
 
 ## The two-branch topology (load this into your head first)
 
@@ -44,14 +44,14 @@ of the old ours + green proof), edit, delete. The registry defs in
 - **forgejo**: self-hosted — `.github/workflows/sync.yml` in the fork
   repo walks the table daily; dev-build + Flux ImagePolicy roll prod.
   Engine politely declines mapping defs (`sync-fork.sh forgejo` → exit 0).
-- **dapr / signoz / llama-cpp**: engine transport (phase mode below).
+- **dapr / signoz / llama-cpp**: plugin transport (phase mode below).
 
 ## Version identity (upstream-identity versioning)
 
 **The fork mints no version of its own. Identity is the upstream version; everything else is provenance.**
 
 - **The binary reports the upstream version** it is based on (`16.0.2`), never a fork-branded one. There are no hand-edited version files, no hand-bumped build counters, no `16.0.2-rezuscloud.3`.
-- **`v*-rezus.N` tags are release TRIGGERS, not identities.** The sync engine's auto-release cuts them machine-computed (`<upstream-ver>-rezus.<N+1>` from `git describe`). The release workflow derives everything from the tag: identity `16.0.2`, provenance `+rezus.N` (semver *build metadata* — ignored for precedence and identity), docker-hyphen-encoded `16.0.2-rezus.N` (docker forbids `+`), plus a fingerprint tag `16.0.2-rezus.N-<shortsha>`.
+- **`v*-rezus.N` tags are release TRIGGERS, not identities.** The sync's auto-release cuts them machine-computed (`<upstream-ver>-rezus.<N+1>` from `git describe`). The release workflow derives everything from the tag: identity `16.0.2`, provenance `+rezus.N` (semver *build metadata* — ignored for precedence and identity), docker-hyphen-encoded `16.0.2-rezus.N` (docker forbids `+`), plus a fingerprint tag `16.0.2-rezus.N-<shortsha>`.
 - **"What's different vs upstream?" is answered by provenance, not version**: `git log v16.0.2..rezus/forgejo-16 --grep '^RZ/'` (see the commit convention below) plus the structural tools (additive paths, patch signatures).
 
 ## Commit convention (RZ/)
@@ -60,7 +60,7 @@ Every commit the maintenance system (or its agents) creates on a release branch 
 
 | Prefix | Who | Meaning |
 |--------|-----|---------|
-| `RZ/sync:` | sync engine | an upstream merge appended to the release line |
+| `RZ/sync:` | sync plugin | an upstream merge appended to the release line |
 | `RZ/bp:` | `backport.sh` / agent | an upstream commit cherry-picked ahead of the next upstream release — carries `(cherry picked from commit …)` |
 | `RZ/resolve:` | conflict-resolver agent | conflict resolution on a sync/backport branch |
 | `RZ/feat:` / `RZ/fix:` | humans | new fork customizations |
@@ -69,7 +69,7 @@ The convention applies to NEW commits (existing history is immutable — merge m
 
 ## Sync model: merge + an LLM maintainer
 
-The engine **merges** the upstream release branch into the fork's release branch — it does **not** cherry-pick / replay customizations onto a fresh upstream. This is the correct substrate for an LLM doing the maintenance:
+The plugin **merges** the upstream release branch into the fork's release branch — it does **not** cherry-pick / replay customizations onto a fresh upstream. This is the correct substrate for an LLM doing the maintenance:
 
 ```bash
 git checkout -b rezus/sync-<date> rezus/<default>   # branch off the release line
@@ -92,8 +92,8 @@ git merge --no-ff upstream/<branch>                  # append upstream's delta
 
 Some upstreams aren't forked — they're **vendored** inside a monorepo at a
 pinned version (`runner/`, `charts/forgejo/` in the forgejo monorepo). Same
-engine, `mode: subtree` in the fork def; the sync unit is
-*(target repo, vendored path, pin file)* and the engine never edits vendored
+plugin, `mode: subtree` in the fork def; the sync unit is
+*(target repo, vendored path, pin file)* and the plugin never edits vendored
 content itself.
 
 **Decision model** (priority order — only the patch class auto-merges, ever):
@@ -113,7 +113,7 @@ by the target repo's CI guard: one source of truth. OCI upstreams
 (`oci://…`) list tags via the v2 registry API and probe with `helm pull`.
 
 **Releases are structural**: a subtree bump rides the target repo's own
-release cycle (`v*-rezus.*`); the engine never tags — its tag phase reports
+release cycle (`v*-rezus.*`); the plugin never tags — its tag phase reports
 `unreleased-pending` until the release ships. `DRY_RUN=1` runs the full
 decision path with zero writes — the onboarding rehearsal.
 
@@ -121,9 +121,9 @@ decision path with zero writes — the onboarding rehearsal.
 
 | Operation | How |
 |-----------|-----|
-| bump (patch) | nothing — the engine auto-PRs and auto-merges on CI green |
-| bump (minor) | nothing — the engine prepares the PR; review + validation contract, merge manually |
-| bump (major) | deliberate: change the pin lane by hand (edit the pin file), then the engine resumes patch mechanics |
+| bump (patch) | nothing — the plugin auto-PRs and auto-merges on CI green |
+| bump (minor) | nothing — the plugin prepares the PR; review + validation contract, merge manually |
+| bump (major) | deliberate: change the pin lane by hand (edit the pin file), then the plugin resumes patch mechanics |
 | add a patch | edit the target repo's contract (`PATCHES.yaml`): add `patches:` entry with signature; apply in the sync delegate |
 | change policy | edit the `policy:` matrix (propagate/merge per class) |
 | drift triage | CI guard RED → re-vendor via the delegate (mechanical); WARN stale entry → drop or justify the contract entry |
@@ -157,24 +157,24 @@ A sync PR may merge only after **all** gates pass, in order. Each gate is a sepa
 4. **Patch signatures intact** — every feature patch's grep-verifiable proof string is still present (a merge didn't silently drop it).
 5. **Validation passed** — the checks *this fork* declares (go_build / clean_tree / integration), built with the **fork's declared toolchain**, all green, run in a real toolchain.
 6. **(Agentic) conflict resolved & re-validated** — if a semantic conflict required agent resolution, the resolution itself was validated before the PR is marked auto-mergeable.
-7. **(Opt-in) Auto-merge + auto-release** — if all above pass *and* `auto.merge: true`, the engine merges the PR immediately; if `auto.release: true` it also cuts the next machine tag `<upstream-ver>-rezus.<N+1>` so the fork's tag-triggered workflow builds an image that Flux image automation deploys (identity = upstream version; see [Version identity](#version-identity-upstream-identity-versioning)).
+7. **(Opt-in) Auto-merge + auto-release** — if all above pass *and* `auto.merge: true`, the plugin merges the PR immediately; if `auto.release: true` it also cuts the next machine tag `<upstream-ver>-rezus.<N+1>` so the fork's tag-triggered workflow builds an image that Flux image automation deploys (identity = upstream version; see [Version identity](#version-identity-upstream-identity-versioning)).
 
 **The single most important gotcha** (it has shipped broken branches in production): after a conflicted merge, the divergence-cleanup step does `git add -A`, which **clears git's unmerged-path state** (`git diff --diff-filter=U` finds nothing) but **leaves `<<<<<<<` / `=======` / `>>>>>>>` markers in the file content**. The index-based conflict check passes and a non-building branch gets pushed. `sync-fork.sh` therefore *also* `git grep`s for textual markers regardless of index state. This is gate 1.
 
 ## Operating commands
 
-These assume the reference implementation in `platform/fork-maintenance/` of the GitOps repo that owns the maintenance system. The skill's [`templates/`](templates/) are portable starting points; the live engine is `scripts/` + `checks/` + `flux/` (one directory up from this skill).
+These assume the reference implementation in `platform/fork-maintenance/` of the GitOps repo that owns the maintenance system. The skill's [`templates/`](templates/) are portable starting points; the live plugin is `scripts/` + `checks/` + `flux/` (one directory up from this skill).
 
 ### Sync one fork now (manual)
 
 ```bash
-# Run the sync engine for one fork, locally or via a one-off Job
+# Run the sync plugin for one fork, locally or via a one-off Job
 FORK_NAME=<fork> bash scripts/sync-fork.sh <fork>          # all phases (legacy single-shot)
 FORK_NAME=<fork> bash scripts/sync-fork.sh <fork> <phase> # one phase (see below)
 # all-mode exit codes: 0 = up to date or PR opened (auto-merged if auto.merge); 2 = conflict; 3 = push failure
 ```
 
-**Phase mode (graph-native workflows).** The engine is phase-addressable —
+**Phase mode (graph-native workflows).** The plugin is phase-addressable —
 `merge | hook | gates | validate | pr | tag` — and graph-native fork-maintenance
 workflows run each phase as its own harmostes node (`plugin fork-sync <fork>
 <phase>`). Phases share the clone via `HARMOSTES_WORKDIR/fork-<name>` and pass
@@ -195,7 +195,7 @@ upstream host — the mirror action + webhook are the only upstream conduit.
 To trigger in-cluster, annotate the Workflow (`harmostes.dev/trigger-revision`)
 or push to the fork's mirror branch; watch nodes in the UI (Map/Attempts).
 
-### Validate a fork locally (the same engine the CronJob uses)
+### Validate a fork locally (the same plugin the CronJob uses)
 
 ```bash
 bash checks/validate-fork.sh <fork> <path-to-fork-checkout>
@@ -213,7 +213,7 @@ bash scripts/verify-patches.sh forks/<fork>.yaml <path-to-fork-checkout>
 
 ### Resolve a conflict automatically (agent — `resolve-conflict.sh`)
 
-When a sync hits a conflict, the engine now emits a `fork.conflict.needs-resolution`
+When a sync hits a conflict, the plugin now emits a `fork.conflict.needs-resolution`
 event with a structured `needs-fix` payload (conflicting files, patches at risk,
 upstream range). The resolver — `resolve-conflict.sh <fork>` — is the agentic
 consumer of that event, and is also runnable standalone (locally or as a
@@ -240,7 +240,7 @@ so the whole loop is testable without a git host.
 ### Backport an upstream fix now (agent — `backport.sh`)
 
 Backporting critical upstream fixes (security/integrity) ahead of the next
-upstream release is a deterministic engine pass:
+upstream release is a deterministic plugin pass:
 
 ```bash
 FORK_NAME=<fork> bash scripts/backport.sh <fork> <upstream-sha> [<upstream-sha> …]
@@ -305,7 +305,7 @@ its gate before the next):
 
 ### Add a new fork
 
-Edit only data + one hook. No engine changes. See [references/architecture.md](references/architecture.md#adding-a-new-fork) and [`templates/fork.yaml`](templates/fork.yaml):
+Edit only data + one hook. No plugin changes. See [references/architecture.md](references/architecture.md#adding-a-new-fork) and [`templates/fork.yaml`](templates/fork.yaml):
 
 1. `forks/<name>.yaml` — declarative definition (upstream, fork, host, patches, additive paths, deletions, validation, release, optional `auto:`).
 2. `post-merge-hooks/<name>.sh` — per-fork logic (or a no-op).
@@ -329,7 +329,7 @@ auto:
 ### Keep the skill in sync with the implementation
 
 ```bash
-bash skill/scripts/check-drift.sh          # verify engine templates match live scripts (CI-gatable)
+bash skill/scripts/check-drift.sh          # verify script templates match live scripts (CI-gatable)
 bash skill/scripts/check-drift.sh --sync   # regenerate verbatim templates after changing the impl
 ```
 
@@ -364,17 +364,17 @@ validation:                               # ← multi-project: declare YOUR chec
   integration: { kind: forgejo-live, image, module, env }
 ```
 
-## How the engine stays universal
+## How the plugin stays universal
 
 - **Host abstraction** (`scripts/git-host.sh` → [`templates/git-host.sh`](templates/git-host.sh)): each fork declares `platform`; `sync-fork.sh` sources it. Git push = credential helper (both hosts). Labels + PRs + **PR merge** = `gh` CLI (github) or REST API via `curl` (forgejo). Adding a host = one `case` arm in `host_setup`/`host_label_create`/`host_pr_create`/`host_pr_merge`.
 - **Universal validator** (`checks/validate-fork.sh` → [`templates/validate-fork.sh`](templates/validate-fork.sh)): a generic dispatcher over the `validation:` block, with **per-fork toolchain** pinning. Adding a language = adding a check type (`go_build`, `cargo_build`, `cmake_build`, …). Never hardcode one fork's structure into the validator — that was the bug that made every non-reference fork's PR show the reference fork's errors (results leaked via a shared temp file).
 - **Per-fork result files**: validation output goes to `/tmp/fork-validation-<name>.md`, never a shared path. One CronJob pod runs many forks — they must not read each other's results.
 - **Patch verifier** (`scripts/verify-patches.sh` → [`templates/verify-patches.sh`](templates/verify-patches.sh)): standalone signature grep, usable outside a full sync.
-- **Agentic escalation**: when a merge conflicts, the engine emits a structured `fork.conflict.needs-resolution` event (Dapr pub/sub when a sidecar is present, else a `manifests/<fork>-needs-fix.json` file). `resolve-conflict.sh` consumes it: it recreates the conflict, invokes pi with this skill + the payload, and re-validates before deploying. See [references/conflict-resolution.md](references/conflict-resolution.md).
+- **Agentic escalation**: when a merge conflicts, the plugin emits a structured `fork.conflict.needs-resolution` event (Dapr pub/sub when a sidecar is present, else a `manifests/<fork>-needs-fix.json` file). `resolve-conflict.sh` consumes it: it recreates the conflict, invokes pi with this skill + the payload, and re-validates before deploying. See [references/conflict-resolution.md](references/conflict-resolution.md).
 
 ## Automation model
 
-Sync is **automatic and regular**: a Flux `GitRepository` polls each upstream (event-driven artifact update); a `*/30 * * * *` CronJob is the execution engine; an `Alert` can trigger an immediate sync on upstream change. Scripts + definitions are delivered as **ConfigMaps** (`configMapGenerator` in `kustomization.yaml`) — Flux reconciles them on push, no image rebuild or git clone of the GitOps repo inside the job. The GitHub PAT comes from Bitwarden via `ExternalSecrets`.
+Sync is **automatic and regular**: a Flux `GitRepository` polls each upstream (event-driven artifact update); a `*/30 * * * *` CronJob is the executor; an `Alert` can trigger an immediate sync on upstream change. Scripts + definitions are delivered as **ConfigMaps** (`configMapGenerator` in `kustomization.yaml`) — Flux reconciles them on push, no image rebuild or git clone of the GitOps repo inside the job. The GitHub PAT comes from Bitwarden via `ExternalSecrets`.
 
 Depending on the fork's `auto:` settings, a green sync PR either:
 
@@ -393,7 +393,7 @@ The release branch is touched *only* by a merged PR, so a broken sync can never 
 
 Engine (verbatim copies of the live scripts — drift-guarded by `skill/scripts/check-drift.sh`):
 
-- [`templates/sync-fork.sh`](templates/sync-fork.sh) — universal sync engine (merge → hook → validate → verify patches → PR → auto-merge/release)
+- [`templates/sync-fork.sh`](templates/sync-fork.sh) — universal sync plugin (merge → hook → validate → verify patches → PR → auto-merge/release)
 - [`templates/git-host.sh`](templates/git-host.sh) — github | forgejo host abstraction incl. `host_pr_merge`
 - [`templates/validate-fork.sh`](templates/validate-fork.sh) — universal validation dispatcher + per-fork toolchain
 - [`templates/verify-patches.sh`](templates/verify-patches.sh) — standalone patch-signature verifier
@@ -417,7 +417,7 @@ Generic (hand-maintained examples, not verbatim copies):
 - [ ] `validate-fork.sh` green for *this* fork, in a real toolchain, with the declared toolchain (gate 5)
 - [ ] Engine commits carry their `RZ/` prefix (`RZ/sync:` / `RZ/bp:` / `RZ/resolve:`)
 - [ ] PR label is `auto-merge` (or `needs-fix`/`needs-conflict-resolution` with a clear reason if not)
-- [ ] If `auto.merge: true`: PR merged by the engine; release branch still functional
+- [ ] If `auto.merge: true`: PR merged by the plugin; release branch still functional
 - [ ] If `auto.release: true`: next machine tag `<upstream-ver>-rezus.<N+1>` pushed; release derives pure-upstream VERSION from it; image build triggered
 - [ ] Release branch untouched by the sync run (only the PR — or the auto-merge — can change it)
 - [ ] If agentic resolution was used: the resolution was re-validated, not trusted (gate 6)

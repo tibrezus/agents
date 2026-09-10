@@ -286,6 +286,68 @@ change that is not part of the project's test infrastructure, stop: extend
 the existing suite with your test, or wire your tool into CI. A script that
 runs once and is deleted is the anti-pattern this gate exists to kill.
 
+### CI code is expensive — run the purpose audit first
+
+CI is the most expensive code a repository carries, and unlike application
+code the bill recurs forever: every line of pipeline runs again on every
+future push and PR, whether or not anyone remembers why it was written. The
+costs compound:
+
+- **Runner minutes** — each check is paid on every push, PR, and re-run,
+  indefinitely. A duplicated check doubles the bill without doubling
+  coverage.
+- **Maintenance** — two checks with one purpose drift apart; both must be
+  kept green, updated, and migrated forever.
+- **Signal dilution** — when a purpose has two homes, neither is the
+  contract. A flaky copy cries wolf until the real failure is dismissed; a
+  red duplicate turns "which check is authoritative?" into a discussion
+  instead of a fact.
+- **Feedback loop** — the fast tier is the inner development loop. Dead
+  weight in it taxes every single change.
+
+So before adding **any** CI logic — a test, a job, a step, a tool — run the
+**purpose audit**. It is mandatory *before writing the first line of CI
+code*, not a cleanup afterwards:
+
+1. **Enumerate the entire CI surface.** Every native CI file
+   (`.github/workflows/`, `.forgejo/workflows/`, `.gitea/workflows/`,
+   `.gitlab-ci.yml`, …) **plus** everything CI invokes: Makefile targets,
+   `scripts/test`, composite actions, reusable workflows, the test command
+   CI runs. A purpose often lives outside the YAML — a `tidy` Makefile
+   target *is* a dependency-drift check once CI calls it.
+2. **Reduce every existing check to its purpose** — the defect class it
+   exists to catch ("dependency drift", "unformatted sources", "CRD schema
+   pruning") — not the command that happens to implement it today.
+3. **State the purpose of the check you are about to add** and compare it
+   against that map:
+
+| Audit result | Action |
+|---|---|
+| Purpose already achieved — but in the wrong form (manual, local-only, wrong tier, wrong trigger) | **Move** the logic: change where/how it runs so the existing purpose becomes always-on or correctly tiered. One home, new shape. |
+| Purpose already achieved, form is right | **Stop.** Add nothing. |
+| Purpose partially covered | **Extend** the existing check — widen it; never open a parallel one. |
+| Genuinely new purpose | Add it — once, in the tier its runtime belongs in. |
+
+The canonical *move*: a check that today runs only when someone remembers
+(`make tidy`, a lint script on a laptop) is re-homed into CI so it runs
+always — that relocates a purpose, it does not duplicate one. The
+anti-pattern is writing a *second* copy into CI while the first survives
+somewhere else: the purpose now has two homes, and every cost above starts
+accruing.
+
+**The conservation law** (pairs with the checks-preservation policy in §5):
+**a purpose has exactly one home in CI. Checks move between homes; they are
+never cloned and never orphaned.** §5 forbids the removal half — a check may
+not vanish in a refactor; this audit forbids the addition half — a purpose
+may not be re-homed by copy-paste. Restructuring *relocates* coverage; it
+never duplicates it and never drops it.
+
+`dw_ci_conformance` validates the structural invariants (I1–I5) and
+`--fleet` exposes cross-repo vocabulary drift; whether a *new* check's
+purpose collides with an existing one remains a judgment call. State the
+audit result on the PR — which existing checks were considered and why the
+new one is not a duplicate — so the reviewer can falsify it.
+
 ### How the test command is resolved
 
 The command is **project-owned**, not skill-owned. `dw_run_tests` (and the
@@ -332,6 +394,9 @@ When setting up or updating CI:
    a composite action or reusable workflow already exists — extend it, don't
    duplicate. If none exists, create a reusable component, not a one-off job.
    This keeps CI lean as it grows. (See [§1.4](#14-measurements-as-reproducible-ci-artifacts).)
+7. **Run the purpose audit before adding anything** — enumerate the whole
+   CI surface, map each existing check to its purpose, and prove the
+   proposed check is not a duplicate before writing it (see above).
 
 Per-platform patterns live in [`platform-commands.md`](platform-commands.md)
 for the *watch* side; the *run* side is project-defined via a committed

@@ -7,14 +7,14 @@
 # tag-triggered release workflow. All maintenance logic lives in the GitOps
 # repo that owns the maintenance system.
 #
-# Per-fork differences are DATA here, not code. The sync engine, host
+# Per-fork differences are DATA here, not code. The sync plugin, host
 # abstraction, and validator are generic; this file is what makes them
 # multi-project.
 # =============================================================================
 name: <fork>
 
 # ── Sync model: MERGE (Codeberg-style) ────────────────────────────────
-# The engine merges upstream INTO the fork's release branch; customizations are
+# The plugin merges upstream INTO the fork's release branch; customizations are
 # immutable commits on the release branch (append-only, bisectable, no replay
 # accumulation). Track the upstream RELEASE/maintenance branch (e.g. v16.0/forgejo),
 # NOT dev main — slower churn, smaller deltas, fewer conflicts, LLM resolver
@@ -58,7 +58,7 @@ post_merge_hook: post-merge-hooks/<name>.sh
 
 # ── Automation (opt-in) ────────────────────────────────────────────────────
 # When a sync PR passes EVERY gate (label == auto-merge) AND auto.merge is true,
-# the engine merges it immediately and (if auto.release) cuts the next release
+# the plugin merges it immediately and (if auto.release) cuts the next release
 # tag <upstream-version>-rezus.<N+1>. The fork's tag-triggered release workflow
 # then builds a new image; Flux image automation deploys it.
 # The centralized gates ARE the CI — there is no per-PR GitHub Actions to wait
@@ -79,7 +79,7 @@ release:
 # ── Validation (per-fork, declarative) ─────────────────────────────────────
 # The validator runs ONLY what this fork declares. A fork with no validation:
 # block passes cleanly. Adding a language/build-system = add a check type, never
-# fork the engine.
+# fork the plugin.
 validation:
   # Toolchain (Go): pin the exact Go minor the fork needs. A fork built with the
   # wrong Go silently fails on internal-runtime reach-through (e.g. bytedance/sonic
@@ -101,11 +101,11 @@ validation:
 
 # ── Sync model: SUBTREE (schema v2) — vendored upstream trees ─────────────
 # Vendored code inside a monorepo (a pinned upstream tree), NOT a fork repo.
-# The sync unit is (target repo, vendored path, pin file). The engine detects
+# The sync unit is (target repo, vendored path, pin file). The plugin detects
 # upstream tags vs the pin, applies the policy matrix, delegates propagation
 # to the target repo's own sync_command, then byte-verifies the result against
 # the upstream archive (pristine gate) before PRing. Releases ride the target
-# repo's tag cycle — the engine never tags for a subtree.
+# repo's tag cycle — the plugin never tags for a subtree.
 #
 # mode: subtree
 # upstream:
@@ -122,7 +122,7 @@ validation:
 #   archive: 'https://code.forgejo.org/forgejo/runner/archive/{tag}.tar.gz'  # pristine probe
 #   patches_file: ''                             # patch-carrying sources: repo-root contract
 #                                              # (preserve: + patches: with signatures) —
-#                                              # engine gate + CI guard read the SAME file;
+#                                              # plugin gate + CI guard read the SAME file;
 #                                              # omit it for pristine trees (byte gate).
 # OCI upstreams: upstream.url oci://host/ns/repo (v2 tag list; no archive needed —
 # helm pull probes the tree; selectors use bare semver, no v prefix).

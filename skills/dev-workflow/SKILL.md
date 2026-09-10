@@ -72,13 +72,15 @@ independently falsifiable.
    on the PR if reuse is impossible.
 
 6. **Change covered by tests** — unit tests for every behavior added or
-   altered (fast tier); extend the integration suite where one exists. Every new or
-   altered test is **mutation-probed before push**: deliberately break the
-   behavior it guards, confirm the test goes red, restore. Green tests that
-   survive nonsense are not coverage (r18 lesson: a BOGUS constant passed
-   19/19). Every
-   test and tool is **wired into CI** — never a throwaway script (see [CI
-   discipline](#continuous-integration-discipline)). For
+   altered (fast tier); extend the integration suite where one exists.
+   Every new or altered test is **mutation-probed before push**:
+   deliberately break the behavior it guards, confirm the test goes red,
+   restore. Green tests that survive nonsense are not coverage (r18
+   lesson: a BOGUS constant passed 19/19). Before any new test, job, or
+   step goes into CI, audit the **entire** CI for a check that already
+   achieves the same purpose — reuse, extend, or move it; a purpose is
+   never duplicated (see [CI discipline](#continuous-integration-discipline)).
+   Every test and tool is **wired into CI** — never a throwaway script. For
    `SAFETY_LEVEL: mcdc` projects, also achieve MC/DC
    ([`references/mcdc.md`](references/mcdc.md)).
 7. **No undocumented coupling** — any coupling the change introduces between
@@ -176,6 +178,21 @@ every push); benchmarks and long evaluations go in the slow tier (dispatched
 once at ready declaration — gate 11) as reusable jobs. A throwaway script
 leaves CI frozen while the code moves on — it looks like coverage but
 protects nothing. Depth: [`references/ci-concepts.md`](references/ci-concepts.md) §1.
+
+**CI code is expensive — a check's purpose is never duplicated.** Every line
+of CI is paid for three times, forever: runner minutes on every future push,
+a second place to keep in sync, and a second red light nobody can trust.
+Before adding any CI logic — a test, a job, a step, a tool — audit the
+**entire** CI surface (all workflow files **plus** the repo runners CI
+invokes: `scripts/test`, Makefile targets) and map every existing check to
+its **purpose** — the defect it exists to catch — not its literal commands.
+If the purpose is already achieved anywhere, the logic **moves** into the
+right form and is never added a second time: manual → always-on in CI,
+local-only → wired into CI, fast → slow tier, wrong trigger → right one.
+Extending an existing check beats opening a parallel one; a genuinely new
+purpose is added once, in the tier its runtime belongs in. The audit runs
+before the first line of CI code is written, and its result is stated on
+the PR. Depth: [`references/ci-concepts.md`](references/ci-concepts.md) §3.
 
 **Safety-critical boolean logic requires MC/DC.** When the project declares
 `SAFETY_LEVEL: mcdc`, every boolean decision in changed code must achieve
@@ -282,6 +299,16 @@ those rules. The verdict lands as a comment ending in the trailer
 `<!-- pr-review: <DECISION> @ <sha> -->` — `dw_wait_review` polls for it,
 `dw_merge_readiness` binds it to the head SHA.
 
+**Checking review progress — two surfaces:** (1) **the PR itself** —
+verdicts land as comments on the repo's PR/issue, identified by the trailer
+`<!-- pr-review: <DECISION> @ <sha> -->` (format owned by `pr-review`):
+read the latest verdict at a SHA, or a PR's review history; (2) **the
+harmostes runtime** — whether the pr-review workflow is armed, queued,
+running, or failed, and at which stage. To read the runtime, load the
+**`harmostes`** skill: it owns the pr-review workflow end to end
+(Review-Ready Gate, attempts, event history) and provides the exact
+progress/query commands — never reconstruct them by hand.
+
 ### `ci-conformance` — validate CI against the five invariants
 
 ```bash
@@ -329,8 +356,10 @@ source "$(dirname "$(readlink -f "$0")")/scripts/host.sh"   # or source the abso
    dw_set_milestone "$ISSUE" "${M%%:*}"
    ```
 5. **Make the change** on the branch, **including its tests** — consolidate:
-   extend existing tooling, CI jobs, and wiki pages instead of creating
-   duplicates (see [CI discipline](#continuous-integration-discipline)). If
+   before adding any test, tool, or CI job, audit the entire CI surface for
+   a check that already achieves the purpose — extend or move it, never
+   duplicate it; the same applies to tooling and wiki pages (see
+   [CI discipline](#continuous-integration-discipline)). If
    the change introduces coupling not part of the documented design, document
    it in the wiki now (`/skill:llm-wiki`). Commit with `Refs #$ISSUE`.
 6. **Simplification pass** — re-read the full diff (`git diff` against the
@@ -405,9 +434,13 @@ adjacent depth, and cross-references instead of duplicating it:
   review APPROVE on the head SHA is required for merge-ready. It is
   SHA-guarded at ingress, so it only ever evaluates pipeline-green code.
 - **`harmostes`** — when the task touches harmostes workflows (triggering,
-  monitoring attempts/jobs, debugging pr-review or fork-maintenance runs),
-  load it: it owns the platform's single supported path and the efficient
-  attempt/job query commands. This skill does not duplicate any of it.
+  monitoring attempts/jobs, debugging pr-review or fork-maintenance runs)
+  **or when checking adversarial-review progress**: query the PR's verdict
+  comments (trailer `<!-- pr-review: DECISION @ sha -->`), then the
+  harmostes runtime for the pr-review workflow's progress
+  (armed/queued/running/failed). Load it for the runtime: it owns the
+  platform's single supported path, the event history, and the efficient
+  query commands. This skill does not duplicate any of it.
 
 For forked repos `dev-workflow` and `fork-maintenance` both apply: this skill
 governs your own feature branches; fork-maintenance governs the upstream-sync

@@ -1,6 +1,6 @@
 # Architecture — Centralised GitOps Fork Maintenance
 
-The design goal: maintain N forks of N upstreams, each carrying added features, each continuously synced, each on a different git host, with **one** shared engine and **zero** per-fork duplication of sync logic. The release branch of every fork stays functional at all times.
+The design goal: maintain N forks of N upstreams, each carrying added features, each continuously synced, each on a different git host, with **one** shared plugin and **zero** per-fork duplication of sync logic. The release branch of every fork stays functional at all times.
 
 ## What lives where
 
@@ -19,7 +19,7 @@ org/<fork>/                # the fork repo (github OR codeberg)
 ### GitOps repo — all maintenance logic, version-controlled, GitOps-reconciled
 
 ```text
-<gitops-repo>/platform/fork-maintenance/
+<gitops-repo>/platform/harmostes/fork-maintenance/
 ├── kustomization.yaml          # ConfigMap generators → scripts delivered GitOps-native
 ├── namespace.yaml
 ├── forks/                      # declarative fork definitions (the "what") — one per fork
@@ -39,7 +39,7 @@ org/<fork>/                # the fork repo (github OR codeberg)
 ├── skill/                      # ← CANONICAL skill (source of truth for agents)
 │   ├── SKILL.md                #   synced to ~/.agents/skills/fork-maintenance/
 │   ├── references/             #   architecture / safeguards / conflict-resolution
-│   ├── templates/              #   portable copies of the engine (drift-guarded)
+│   ├── templates/              #   portable copies of the plugin (drift-guarded)
 │   └── scripts/check-drift.sh  #   verifies templates ↔ live scripts match
 └── flux/                       # (or equivalent) upstream monitors + sync trigger
     ├── gitrepository-upstreams.yaml
@@ -52,14 +52,14 @@ Scripts and definitions are delivered as **ConfigMaps** (via kustomize `configMa
 
 ## The four shapes of "keep ours current with theirs"
 
-| Shape | Example | What the engine merges | Gate | Release |
+| Shape | Example | What the plugin merges | Gate | Release |
 |-------|---------|----------------------|------|---------|
-| **merge fork** (fork repo, whole-tree) | dapr, signoz, llama-cpp | upstream branch → our release branch (immutable patches as commits) | centralized checks + patch signatures | engine tags `v*-rezus.*` (opt-in auto) |
-| **subtree** (pristine vendored tree) | `runner/` in the forgejo monorepo | delegate re-vendors at the new pin | pristine: byte-diff vs upstream archive | target repo's tag cycle (engine reports unreleased-pending) |
-| **subtree + patches** (patch-carrying vendored tree) | `charts/forgejo/` in the forgejo monorepo | delegate re-vendors + re-applies the declared patch contract | patch-accounting: diff must be exactly `preserve:` + signed `patches:` (contract lives in the target repo, read by engine AND its CI guard) | target repo's tag cycle |
+| **merge fork** (fork repo, whole-tree) | dapr, signoz, llama-cpp | upstream branch → our release branch (immutable patches as commits) | centralized checks + patch signatures | plugin tags `v*-rezus.*` (opt-in auto) |
+| **subtree** (pristine vendored tree) | `runner/` in the forgejo monorepo | delegate re-vendors at the new pin | pristine: byte-diff vs upstream archive | target repo's tag cycle (plugin reports unreleased-pending) |
+| **subtree + patches** (patch-carrying vendored tree) | `charts/forgejo/` in the forgejo monorepo | delegate re-vendors + re-applies the declared patch contract | patch-accounting: diff must be exactly `preserve:` + signed `patches:` (contract lives in the target repo, read by plugin AND its CI guard) | target repo's tag cycle |
 | **merge into monorepo** (mapping table, self-hosted transport) | forgejo itself (codeberg `v16.0/forgejo` → `rezus/forgejo-16`) | upstream release branch → monorepo release branch; regen + repo-local validation before push | repo-local `sync-validate.sh` (regen output committed) | deliberate tags only — a sync never mints a version |
 
-One engine, one severity model across all shapes: RED = automation should
+One plugin, one severity model across all shapes: RED = automation should
 already have fixed it; WARN = policy-gated human action.
 
 ## The sync chain (sequence)
@@ -97,7 +97,7 @@ sync-fork.sh <fork>
              → fork release.yml builds image → Flux image automation deploys
                 │
                 ▼
-        human reviews (auto.merge:false) / engine merges (auto.merge:true) / agent resolves
+        human reviews (auto.merge:false) / plugin merges (auto.merge:true) / agent resolves
                 │
                 ▼
         PR merges → release branch advances (still functional, by construction)
@@ -118,7 +118,7 @@ Track the upstream **release/maintenance branch** (e.g. `v16.0/forgejo`), not de
 
 ## Sync model: merge, not replay
 
-The engine **merges** the upstream release branch into the fork's release branch (off a `rezus/sync-<date>` branch that PRs back). It does **not** cherry-pick / replay customizations onto a fresh upstream. This is the right substrate for an LLM maintainer:
+The plugin **merges** the upstream release branch into the fork's release branch (off a `rezus/sync-<date>` branch that PRs back). It does **not** cherry-pick / replay customizations onto a fresh upstream. This is the right substrate for an LLM maintainer:
 
 | Property | Merge (this design) | Replay / cherry-pick |
 |---|---|---|
@@ -181,11 +181,11 @@ No change to `sync-fork.sh`, `git-host.sh`, or `validate-fork.sh`. No change to 
 
 ## Automation model
 
-- **Trigger**: Flux `GitRepository` polls upstream (event-driven artifact update); a `*/N m` CronJob is the execution engine; an `Alert` can trigger an immediate sync on upstream change. Either way, sync is automatic and regular.
+- **Trigger**: Flux `GitRepository` polls upstream (event-driven artifact update); a `*/N m` CronJob is the executor; an `Alert` can trigger an immediate sync on upstream change. Either way, sync is automatic and regular.
 - **Human action**: review + merge green PRs — **unless** the fork opts into `auto.merge: true`, in which case a green PR merges itself and (with `auto.release: true`) cuts the next release tag with no human in the loop. The centralized gates are the CI; there is no per-PR GitHub Actions to wait for.
 - **Escalation**: mechanical conflicts auto-resolve; semantic conflicts are labelled `needs-fix` and resolved by a human or an agent (see [conflict-resolution.md](conflict-resolution.md)).
 - **Safety**: the release branch is modified **only** by a merged PR. A broken sync cannot deploy.
 
 ## Reference implementation
 
-`k8s-config/platform/fork-maintenance/` is the production instance (forks: forgejo, signoz, dapr, llama.cpp). It demonstrates all four cases: a Go monorepo with codegen + integration (forgejo), a Go single-module with permanent divergence (signoz — strips `ee/`), a Go single-module (dapr), and a non-Go project with no validation (llama.cpp).
+`k8s-config/platform/harmostes/fork-maintenance/` is the production instance (forks: forgejo, signoz, dapr, llama.cpp). It demonstrates all four cases: a Go monorepo with codegen + integration (forgejo), a Go single-module with permanent divergence (signoz — strips `ee/`), a Go single-module (dapr), and a non-Go project with no validation (llama.cpp).

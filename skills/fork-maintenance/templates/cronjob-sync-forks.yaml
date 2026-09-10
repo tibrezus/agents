@@ -1,5 +1,5 @@
 # =============================================================================
-# Fork Sync CronJob — the sole execution engine
+# Fork Sync CronJob — the executor (legacy pre-harmostes model)
 # =============================================================================
 # Runs every 30 minutes in-cluster. Scripts + definitions are delivered via
 # ConfigMaps (managed by Flux — no image rebuild or git clone of k8s-config).

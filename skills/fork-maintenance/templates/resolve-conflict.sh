@@ -76,7 +76,7 @@ SYNC_DATE=$(date +%Y-%m-%d)
 SYNC_BRANCH="rezus/sync-${SYNC_DATE}"
 
 # Merge model: branch off the RELEASE line and merge upstream into it (not
-# cherry-pick onto fresh upstream). This re-creates the exact conflict the engine
+# cherry-pick onto fresh upstream). This re-creates the exact conflict the plugin
 # hit, so the agent resolves the real 3-way regions.
 git checkout -b "$SYNC_BRANCH" "$FORK_DEFAULT_BRANCH"
 

@@ -41,6 +41,15 @@ gates hold for every change:
   job, a wiki page — quickly check that an equivalent doesn't already exist
   (tooling folders: `scripts/`, `tools/`, `bench/`) and extend it. Extend the
   existing suite; never create a parallel one.
+- **CI code is expensive — a purpose runs once.** Before adding any test,
+  job, or step to CI, audit the **entire** CI surface (all workflow files,
+  plus the repo runners CI invokes: `scripts/test`, Makefile targets) for a
+  check that already achieves the same **purpose** — the defect it exists to
+  catch, not its literal commands. If one exists, the new logic **moves** —
+  manual → always-on in CI, local-only → wired into CI, fast → slow tier —
+  and is never added a second time. A purpose has exactly one home: checks
+  move between homes; they are never cloned, never dropped. State the audit
+  result on the PR.
 - **No undocumented coupling.** Avoid coupling between components unless it is
   part of the intended architecture. If coupling is unavoidable and not part
   of the documented design, record it in the wiki (`/skill:llm-wiki`) **before**
@@ -100,7 +109,9 @@ skill's `references/ci-concepts.md`.
 3. **Find the branch** tied to that issue (by number). If none, create it off
    the default branch and associate the issue with a milestone.
 4. **Make the change** on the branch, **with its tests** (unit mandatory;
-   extend integration tests if a suite exists). Reference the issue in commits
+   extend integration tests if a suite exists; before adding a test or CI
+   job, audit the whole CI for a same-purpose check — extend or move, never
+   duplicate). Reference the issue in commits
    (`Fixes #<n>` / `Refs #<n>`). If the change adds coupling that is not part
    of the design, document it in the wiki first.
 5. **Simplify** — re-read the diff. Can it be simpler? Remove dead code,

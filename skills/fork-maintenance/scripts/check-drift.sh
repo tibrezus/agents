@@ -3,7 +3,7 @@
 # check-drift.sh — verify skill templates match the live implementation
 # =============================================================================
 # The canonical skill lives at platform/fork-maintenance/skill/ (source of
-# truth for what agents load). Its engine templates are VERBATIM copies of the
+# truth for what agents load). Its plugin templates are VERBATIM copies of the
 # live generic scripts. This script checks they have not drifted, so the skill
 # an agent reads always matches what the CronJob actually runs.
 #

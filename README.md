@@ -7,6 +7,7 @@ A collection of AI coding agent skills, distributed via [skills.sh](https://skil
 | Skill | Description |
 |-------|-------------|
 | **diagnose** | Disciplined debugging loop: reproduce → minimise → hypothesise → instrument → fix → regression-test |
+| **diataxis-docs** | Diátaxis documentation: four quadrants (tutorial/how-to/reference/explanation), scaffold, map, audit, lint via `dd` |
 | **find-skills** | Discover and install new agent skills from the community |
 | **grill-me** | Stress-test plans via relentless questioning |
 | **grill-with-docs** | Grill plans against domain model, sharpen terminology, update CONTEXT.md/ADRs inline |
