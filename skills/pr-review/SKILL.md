@@ -265,7 +265,9 @@ review comment anchored to the code**, posted by you with the
 already-authenticated forge CLI:
 
 - **GitHub (`gh`)**: `gh api repos/{o}/{r}/pulls/$N/comments -f commit_id=$SHA -f path=F -F line=N -f body="…"`.
-  Reply: `…/comments/$ID/replies`. Resolve via GraphQL `resolveReviewThread`
+  Reply: `gh api repos/{o}/{r}/pulls/$N/comments -f body="…" -F
+  in_reply_to=$ID` (the `/replies` subpath 404s — verified live; use
+  `in_reply_to`). Resolve via GraphQL `resolveReviewThread`
   (map the comment's databaseId → thread id with a `reviewThreads` query).
 - **Forgejo / Codeberg (`fj`, native since v16.0.3-rezus.1)**: findings post
   as a real anchored review — the review-event endpoint rejects only
