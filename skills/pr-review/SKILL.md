@@ -92,7 +92,7 @@ Read `pr-context.json` first, then route selectively.
 external knowledge adds value. For most changes, the diff + RIG + lint/tests
 are sufficient.
 
-## The eight pillars
+## The 9 pillars
 
 The review vocabulary. Scan the diff against the **Trigger** column to decide
 which pillars are relevant. Investigate those; mark the rest N/A.
