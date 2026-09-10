@@ -73,11 +73,14 @@ independently falsifiable.
 
 6. **Change covered by tests** — unit tests for every behavior added or
    altered (fast tier); extend the integration suite where one exists.
-   Before any new test, job, or step goes into CI, audit the **entire** CI
-   for a check that already achieves the same purpose — reuse, extend, or
-   move it; a purpose is never duplicated (see [CI
-   discipline](#continuous-integration-discipline)). Every test and tool is
-   **wired into CI** — never a throwaway script. For
+   Every new or altered test is **mutation-probed before push**:
+   deliberately break the behavior it guards, confirm the test goes red,
+   restore. Green tests that survive nonsense are not coverage (r18
+   lesson: a BOGUS constant passed 19/19). Before any new test, job, or
+   step goes into CI, audit the **entire** CI for a check that already
+   achieves the same purpose — reuse, extend, or move it; a purpose is
+   never duplicated (see [CI discipline](#continuous-integration-discipline)).
+   Every test and tool is **wired into CI** — never a throwaway script. For
    `SAFETY_LEVEL: mcdc` projects, also achieve MC/DC
    ([`references/mcdc.md`](references/mcdc.md)).
 7. **No undocumented coupling** — any coupling the change introduces between
@@ -130,6 +133,13 @@ means back to developing, never into review. Depth:
 
 ## Hard rules
 
+0. **Review threads are the merge currency.** When an adversarial review
+   leaves inline comments (gh / fj / glab threads), the dev agent replies
+   on EVERY open thread — the fix SHA plus a one-line rationale — and
+   resolves it (native resolve on GitHub/GitLab; a closing reply on
+   Forgejo). The full pipeline resumes and a re-review can APPROVE only
+   when zero threads are unresolved; post-review downgrades APPROVEs
+   issued over open threads.
 1. A direct commit/push to the default branch is forbidden unless the user
    gave an explicit instruction that is recorded on the issue. When in doubt,
    branch.
