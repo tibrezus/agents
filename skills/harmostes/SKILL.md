@@ -103,11 +103,15 @@ from any component other than the UI.
 ### k8s-config MRs
 
 - `platform/harmostes/workflows/` must **not exist** (and must not be
-  re-created; the kustomization carries the warning comment).
-- Templates in `workflow-templates.yaml` must carry **full executable
-  defaults** — model, taskTemplate with `configMap` + `key`, plugin
-  configMaps — **and a `spec.scope` declaration** for every instance-config
-  key their prepare plugin consumes (the UI form is useless without it).
+  re-created). Instance YAMLs live as `workflow-instances-*.yaml` files in
+  `platform/harmostes/`, carry `harmostes.dev/owner` explicitly, and are
+  sanctioned until harmostes#418 retires them.
+- Templates do NOT live in k8s-config — they are **chart values** in the
+  harmostes repo (`chart/values.yaml`, ADR-0011). Each template must carry
+  **full executable defaults** — model, taskTemplate with `configMap` +
+  `key`, plugin configMaps — **and a `spec.scope` declaration** for every
+  instance-config key its prepare plugin consumes (the UI form is useless
+  without it).
 - CRDs: k8s-config holds **zero CRD bytes** — the `harmostes-crds`
   GitRepository + Kustomization source `chart/crds/` from the kernel repo
   (`prune: false`; fresh clusters: apply
@@ -179,12 +183,12 @@ A workflow's **gate** determines its structure — templates encode this:
 
 | Artifact | Location | Git remote |
 |----------|----------|------------|
-| **Workflow instances** | created in the harmostes UI (`/workflows/new`) — no YAML path exists | in-cluster only |
-| **WorkflowTemplates** (pipeline shapes) | `k8s-config/platform/harmostes/workflow-templates.yaml` | `gitlab.com:rezusnet/operations/k8s-config` |
+| **Workflow instances** | harmostes UI (`/workflows/new`, inert by default) or `k8s-config/platform/harmostes/workflow-instances-*.yaml` | both: `github.com:tibrezus/harmostes` + `gitlab.com:rezusnet/operations/k8s-config` |
+| **WorkflowTemplates** (pipeline shapes) | `harmostes/chart/values.yaml` (chart values, ADR-0011) | `github.com:tibrezus/harmostes` |
 | **Harmostes platform** (controller, worker, UI) | `harmostes/` | `github.com:tibrezus/harmostes` |
 | **Chart** (Helm) | `harmostes/chart/` | `github.com:tibrezus/harmostes` |
 | **Documentation** | `harmostes.wiki/` | `github.com:tibrezus/harmostes.wiki` |
-| **Credentials** | `k8s-config/platform/harmostes/externalsecret-*.yaml` | BSM → ExternalSecrets |
+| **Credentials** | `harmostes/chart/values.yaml` `credentials:` block (chart-rendered ExternalSecrets, ADR-0011) | BSM → ExternalSecrets |
 
 ## Cluster details
 
