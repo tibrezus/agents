@@ -271,7 +271,7 @@ already-authenticated forge CLI:
 - **Forgejo / Codeberg (`fj`, native since v16.0.3-rezus.1)**: findings post
   as a real anchored review — the review-event endpoint rejects only
   REQUEST_CHANGES from the PR author (#29); COMMENT carries the full payload:
-  `fj api repo create-pull-review --owner O --repo R --index N --body
+  `fj --host <host> api repo create-pull-review --owner O --repo R --index N --body
   '{"body":"…","event":"COMMENT","commit_id":"<reviewed sha>","comments":
   [{"path":"F","new_position":N,"body":"finding"}]}'`. THE LINE FIELD IS
   `new_position` (`new_line` 500s server-side). One create-pull-review per
