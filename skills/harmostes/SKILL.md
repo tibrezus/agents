@@ -18,58 +18,58 @@ pub/sub and the worker pool executes as typed graphs
 
 ## THE single supported way (memorize this)
 
-> **⚠️ STATUS (2026-09-11, post-harmostes#291) — TARGET-STATE MARKER.** The UI
-> currently has **no write surfaces at all** (observe-only): `/workflows/new`
-> does not exist and the UI stamps nothing. Today the only sanctioned creation
-> path for an instance is a **k8s-config MR** adding a thin Workflow CR, and
-> templates live in the **chart values** (ADR-0011), not
-> `workflow-templates.yaml`. Everything below describes the **ADR-0012
-> target** (milestone ui-v3): the write path returns (harmostes#414+) and
-> creation becomes UI-composed MRs (harmostes#420). Do **not** follow the
-> instructions below until harmostes#414 ships; the full rewrite of this
-> section lands in that PR (harmostes#413).
-
 There is exactly **one** implementation path for workflows. Every layer has
-one job and lives in one place:
+one job and lives in one place (ADR-0012, shipped harmostes#414):
 
 ```
-TEMPLATE (pipeline shape)     INSTANCE (scope)           SURFACE (creation)
-k8s-config MR → Flux    →     UI form → thin CR     →     harmostes UI only
-workflow-templates.yaml       {templateRef, source,       /workflows/new
-                               config}
+TEMPLATE (pipeline shape)      INSTANCE (scope)              SURFACE (creation)
+chart values (harmostes PR     UI form → thin CR             harmostes UI
+→ chart release → Flux)        {templateRef, config}         /workflows/new
+                               or k8s-config MR (GitOps)
 ```
 
 1. **Templates** (`WorkflowTemplate` CRs) hold the reusable pipeline shape:
-   gate, prepare/agent/deploy plugins, skill, task template, model.
-   Changed **only** via k8s-config MR (Flux-managed). One place per shape.
-2. **Instances** are created **only** in the harmostes UI
-   (`/workflows/new`): pick a template, supply name + schedule + the
-   template's **declared scope fields**. The form renders from the
-   template's `spec.scope` schema (name/kind string|list/label/description/
-   default); only declared keys are stored in `spec.config`. The CR is
-   thin — it duplicates nothing.
+   gate, prepare/agent/deploy plugins, skill, task template, model. They
+   are **chart values** (ADR-0011) — changed only via a harmostes PR to
+   `chart/values.yaml`, never mutated in-cluster by anything.
+2. **Instances** are created in the harmostes UI (`/workflows/new`): pick
+   a template, supply a name + the template's **declared scope fields**
+   (the form renders from `spec.scope`; only declared keys are stored in
+   `spec.config`, per-key overlaying the template's `prepare.config`). The
+   CR is thin — it duplicates nothing. **Creation is inert**: instances are
+   born `spec.disabled: true` — a form submit never arms an unattended
+   agent loop. Arming is a separate deliberate act (#418 ships the run
+   controls; until then an operator flips `spec.disabled` deliberately).
+   GitOps instances in k8s-config remain sanctioned (owner label carried
+   explicitly); #418 retires them when UI lifecycle ships.
 3. The UI stamps `harmostes.dev/owner` from the authenticated session
-   (`StampOwnerLabel`). All UI reads are owner-scoped, so **a workflow
-   created in the UI is visible to its creator by construction**.
+   (`v1alpha1.StampOwnerLabel` — server-set, never client input). Writes
+   require an Authentik-authoritative identity; dev identities
+   (`X-Harmostes-Dev-User`) write only on servers started with
+   `ui.devWrite` (dev/fixture) and stamp into the reserved `dev-<user>`
+   owner namespace — they can never occupy a real user's label. All reads
+   are owner-scoped: **a workflow created in the UI is visible to its
+   creator by construction**.
 4. Resolution happens at every point of use: the worker merges
-   `templateRef` at run start (`ApplyTemplateDefaults` — instance-set fields
-   win, `spec.config` overlays `prepare.config`); the UI resolves for
-   rendering (list grouping, detail pipeline, graph API).
+   `templateRef` at run start (`ApplyTemplateDefaults` — instance-set
+   fields win, `spec.config` overlays `prepare.config` per key); the UI
+   resolves for rendering (list grouping, detail pipeline, graph API).
+   `GET /api/schema` serves the CRDs' OpenAPI schema live — the CRD is the
+   only hand-maintained schema in the stack.
 
 ### The invariant
 
-> **Everything visible in the UI, everything in the UI visible.**
-> If a workflow cannot be seen (and triggered/toggled/deleted) in the harmostes
-> UI under the owning identity, it must not exist. **Superseded by ADR-0012:**
-> the "dismantle every non-UI mechanism" clause is retired — thin GitOps
-> instances (MR-composed, reviewed) are sanctioned again. The lasting
-> invariant is **owner attribution everywhere** (`harmostes.dev/owner`):
-> ADR-0012 restores it as a UI stamp, GitOps carries it explicitly today.
+> **Everything visible in the UI, everything in the UI visible — and owner
+> attribution everywhere.**
+> Every workflow carries `harmostes.dev/owner`: the UI stamps it from the
+> session, GitOps carries it explicitly. A workflow invisible to its owner
+> under the owning identity must not exist. Ad-hoc `kubectl apply` of an
+> owner-less Workflow CR is drift — it bypasses review, the origin check,
+> scope filtering, and inert-by-default creation.
 
-This is not a preference — the GitOps/YAML creation path was dismantled after
-it produced a workflow invisible in the UI. `kubectl apply` of a Workflow CR,
-a `workflows/` directory in GitOps, example Workflow CRs in docs: all
-forbidden, all drift.
+History: the original GitOps creation path was dismantled (#291) after it
+produced a workflow invisible in the UI; ADR-0012 rebuilt the write path
+with owner stamping as the load-bearing invariant (harmostes#414).
 
 ---
 
@@ -103,11 +103,15 @@ from any component other than the UI.
 ### k8s-config MRs
 
 - `platform/harmostes/workflows/` must **not exist** (and must not be
-  re-created; the kustomization carries the warning comment).
-- Templates in `workflow-templates.yaml` must carry **full executable
-  defaults** — model, taskTemplate with `configMap` + `key`, plugin
-  configMaps — **and a `spec.scope` declaration** for every instance-config
-  key their prepare plugin consumes (the UI form is useless without it).
+  re-created). Instance YAMLs live as `workflow-instances-*.yaml` files in
+  `platform/harmostes/`, carry `harmostes.dev/owner` explicitly, and are
+  sanctioned until harmostes#418 retires them.
+- Templates do NOT live in k8s-config — they are **chart values** in the
+  harmostes repo (`chart/values.yaml`, ADR-0011). Each template must carry
+  **full executable defaults** — model, taskTemplate with `configMap` +
+  `key`, plugin configMaps — **and a `spec.scope` declaration** for every
+  instance-config key its prepare plugin consumes (the UI form is useless
+  without it).
 - CRDs: k8s-config holds **zero CRD bytes** — the `harmostes-crds`
   GitRepository + Kustomization source `chart/crds/` from the kernel repo
   (`prune: false`; fresh clusters: apply
@@ -179,12 +183,12 @@ A workflow's **gate** determines its structure — templates encode this:
 
 | Artifact | Location | Git remote |
 |----------|----------|------------|
-| **Workflow instances** | created in the harmostes UI (`/workflows/new`) — no YAML path exists | in-cluster only |
-| **WorkflowTemplates** (pipeline shapes) | `k8s-config/platform/harmostes/workflow-templates.yaml` | `gitlab.com:rezusnet/operations/k8s-config` |
+| **Workflow instances** | harmostes UI (`/workflows/new`, inert by default) or `k8s-config/platform/harmostes/workflow-instances-*.yaml` | both: `github.com:tibrezus/harmostes` + `gitlab.com:rezusnet/operations/k8s-config` |
+| **WorkflowTemplates** (pipeline shapes) | `harmostes/chart/values.yaml` (chart values, ADR-0011) | `github.com:tibrezus/harmostes` |
 | **Harmostes platform** (controller, worker, UI) | `harmostes/` | `github.com:tibrezus/harmostes` |
 | **Chart** (Helm) | `harmostes/chart/` | `github.com:tibrezus/harmostes` |
 | **Documentation** | `harmostes.wiki/` | `github.com:tibrezus/harmostes.wiki` |
-| **Credentials** | `k8s-config/platform/harmostes/externalsecret-*.yaml` | BSM → ExternalSecrets |
+| **Credentials** | `harmostes/chart/values.yaml` `credentials:` block (chart-rendered ExternalSecrets, ADR-0011) | BSM → ExternalSecrets |
 
 ## Cluster details
 
