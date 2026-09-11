@@ -18,6 +18,17 @@ pub/sub and the worker pool executes as typed graphs
 
 ## THE single supported way (memorize this)
 
+> **⚠️ STATUS (2026-09-11, post-harmostes#291) — TARGET-STATE MARKER.** The UI
+> currently has **no write surfaces at all** (observe-only): `/workflows/new`
+> does not exist and the UI stamps nothing. Today the only sanctioned creation
+> path for an instance is a **k8s-config MR** adding a thin Workflow CR, and
+> templates live in the **chart values** (ADR-0011), not
+> `workflow-templates.yaml`. Everything below describes the **ADR-0012
+> target** (milestone ui-v3): the write path returns (harmostes#414+) and
+> creation becomes UI-composed MRs (harmostes#420). Do **not** follow the
+> instructions below until harmostes#414 ships; the full rewrite of this
+> section lands in that PR (harmostes#413).
+
 There is exactly **one** implementation path for workflows. Every layer has
 one job and lives in one place:
 
@@ -49,8 +60,11 @@ workflow-templates.yaml       {templateRef, source,       /workflows/new
 
 > **Everything visible in the UI, everything in the UI visible.**
 > If a workflow cannot be seen (and triggered/toggled/deleted) in the harmostes
-> UI under the owning identity, it must not exist. Any mechanism that can
-> create workflows outside the UI must be dismantled, not documented.
+> UI under the owning identity, it must not exist. **Superseded by ADR-0012:**
+> the "dismantle every non-UI mechanism" clause is retired — thin GitOps
+> instances (MR-composed, reviewed) are sanctioned again. The lasting
+> invariant is **owner attribution everywhere** (`harmostes.dev/owner`):
+> ADR-0012 restores it as a UI stamp, GitOps carries it explicitly today.
 
 This is not a preference — the GitOps/YAML creation path was dismantled after
 it produced a workflow invisible in the UI. `kubectl apply` of a Workflow CR,
