@@ -251,9 +251,8 @@ there is no risk.
 
 | Condition | Decision |
 |-----------|----------|
-| Any CRITICAL or verified MAJOR finding | REQUEST_CHANGES |
-| Only MINOR/NIT | COMMENT |
-| All investigated pillars pass + CI green + deterministic proof passes | APPROVE |
+| Any CRITICAL or verified MAJOR finding | REQUEST_CHANGES (each becomes a thread) |
+| Only MINOR/NIT, or all clean + CI green + deterministic proof passes | APPROVE (MINOR/NIT are dropped, not posted) |
 
 "Deterministic proof" here is the reviewer's independent local run of the
 checked-out delta — pipeline CI is green by ingress contract.
@@ -296,59 +295,52 @@ then re-arm. post-review mechanically **downgrades an APPROVE issued over
 open prior-round threads** — unresolved threads block the full pipeline
 and the merge, no matter what the verdict text says.
 
-## Output contract
+## Output contract — threads are the review; the comment is one line
 
-Write the review to `/workspace/review.json` using Python (NOT a bash heredoc —
-heredocs break on Markdown backticks and special chars):
+The posted output is SMALL by design. The pillar analysis (Phases 0-3)
+happens in your head and in your tool calls — it is never posted as prose.
+Exactly two things leave this review:
+
+1. **Blocking findings** — each CRITICAL or verified MAJOR finding becomes
+   ONE entry in `comments[]`. The deploy step posts them as native inline
+   review threads anchored to the code; each must be closed before the PR
+   can merge. MINOR and NIT findings are NOT posted — they do not block
+   merges and a review is not the place for style notes.
+2. **A one-line verdict** — written by the deploy step, not by you. It
+   states the decision, the SHA, and the blocking-finding count. Nothing
+   else. There is no pillar-structured body, no summary section, no
+   coverage essay.
+
+Write the review to `/workspace/review.json` using Python (NOT a bash
+heredoc — heredocs break on Markdown backticks and special chars):
 
 ```python
 import json
 review = {
-    "decision": "APPROVE",
+    "decision": "REQUEST_CHANGES",
     "reviewed_sha": "<head SHA of /workspace/repo>",
-    "body": (
-        "## Adversarial Review\n\n"
-        "### Architectural Fit\n"
-        "- **Coupling:** (finding, or N/A + reason)\n"
-        "- **Design Intent:** (finding, or N/A)\n"
-        "- **Interface Stability:** (finding, or N/A)\n"
-        "- **CI Economy:** (finding, or N/A)\n\n"
-        "### Adversary Findings\n"
-        "- **Correctness:** (finding, or N/A)\n"
-        "- **Security:** (finding, or N/A)\n"
-        "- **Performance:** (finding, or N/A)\n"
-        "- **Observability:** (finding, or N/A)\n"
-        "- **Test Quality:** (finding, or N/A)\n\n"
-        "### Verdict\n(decision + weighted reasoning)\n\n"
-        "<!-- pr-review: APPROVE @ <reviewed_sha> -->"
-    ),
     "comments": [
-        {"path": "src/foo.zig", "line": 42, "body": "Consider ..."}
+        {"path": "src/foo.zig", "line": 42,
+         "body": "Blocking: <what is wrong> <evidence> <what to do>. "}
     ]
 }
 json.dump(review, open("/workspace/review.json", "w"), indent=2)
 ```
 
-**Length contract** (the verdict is read by a human and a merge gate — both
-want the finding, not the essay): focused scope ≤ **500 words** total, with
-PASSING pillars as a single line each (`**Coupling:** PASS — edges match the
-RIG graph`). Reserve full prose for `huge` scope, and even there findings
-lead; narration of what the diff obviously says is banned — the author wrote
-it, the reader can read it. Cite, don't summarize.
+- `decision` — `APPROVE` (no blocking findings) or `REQUEST_CHANGES`
+  (≥1 blocking finding). There is no COMMENT middle ground: MINOR/NIT
+  findings are dropped, not posted.
+- `reviewed_sha` — the head SHA of `/workspace/repo` (full 40 hex). The
+  deploy step embeds it in the verdict line and anchors every thread to it.
+- `comments` — ONLY blocking findings (empty `[]` when approving). Each
+  is one self-contained thread: what is wrong, the evidence, what to do.
+  The deploy step deduplicates and publishes them; do not post them
+  yourself.
 
-- `decision` — `APPROVE`, `REQUEST_CHANGES`, or `COMMENT`.
-- `reviewed_sha` — the head SHA of `/workspace/repo`. The body must **end**
-  with the trailer `<!-- pr-review: <DECISION> @ <reviewed_sha> -->` (exact
-  decision keyword, full SHA) — `dw_wait_review` polls for it,
-  `dw_merge_readiness` binds it to the merge SHA.
-- `body` — Markdown, structured by pillar (see above).
-- `comments` — inline review comments (optional, `[]` if none). Each has
-  `path`, `line`, `body`.
-
-**Coverage rule**: every pillar appears in the body — either a finding or
-"N/A — (brief reason)". Pillars can be grouped if multiple are N/A:
-"N/A: Security (no auth/crypto surface), Observability (no prod paths)".
-This makes coverage auditable — a reader sees what was checked at a glance.
+**Coverage** stays your discipline: every pillar investigated per the
+phases above. But coverage is reported by the deploy step's one-line
+verdict ("pillars clean" vs "N blocking"), not by an N/A essay — a pillar
+with no blocking finding simply produces nothing.
 
 ## Do NOT
 
