@@ -85,6 +85,7 @@ extension in this skill's `extensions/rig-query.ts`, installed at
     rig component <name>          # deps + files + doc comments
     rig search 'symbol*'          # FTS5 symbol search → file:line
     rig deps <name> --reverse     # who depends on it
+    rig brief diff=<patch>        # ONE-call review orientation: provenance, risk, orphans, clones
     rig dead [component]          # zero-caller exports (two-tier; needs call data)
     rig clones [symbol]           # near-clone pairs (MinHash+LSH, similar table)
     rig impact diff=<patch>       # diff → touched symbols, blast radius, risk
@@ -155,6 +156,7 @@ not by reading the whole repo. Route by need:
 | You need to… | Read this | Why it's the minimal source |
 |---|---|---|
 | Catch a project's **structure** fast | pi `rig` tool, else `rig-query.py raw/arch/<project>/rig.db overview` (+ `component`/`deps`/`search`) | targeted SQL — ~200 tokens per question |
+| Orient a **review** of a diff | pi `rig` tool `brief diff=<patch>` (or `rig-query.py <db> brief --diff <patch>`) | provenance + risk + orphans + clones in ONE capped call — orientation is one call; drill down only where it flags |
 | Understand the **architecture views** | project's own wiki `Architecture.md` (single merged page: diagrams + LikeC4 model + CI registry) | CI-generated, renders natively; always current |
 | Understand a **decision + its reasoning** | the matching `wiki/` page(s) | the *why*, captured live at decision time |
 | Find **what pages exist** | `index.md` | catalog, not a dir walk |

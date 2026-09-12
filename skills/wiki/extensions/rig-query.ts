@@ -15,6 +15,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { DatabaseSync } from "node:sqlite";
 import { globSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import path from "node:path";
 
 function discover(): string[] {
@@ -44,11 +45,13 @@ const HELP = `rig — query the architecture graph (rig.db). Commands:
   deps <id-or-name> [--reverse]— outgoing (or incoming) dependency edges
   files <glob>                 — files matching a glob (e.g. "src/engine/*")
   search <fts5-query>          — symbol search (e.g. "prefill*", "tok* AND decode")
+  brief (needs diff=<patch>)   — ONE-call review orientation: provenance, risk, orphans, clones
   dead [component]             — zero-caller exports (two-tier: no-callers vs exported-unreferenced)
   clones [symbol]              — near-clone pairs (MinHash+LSH, similar table)
   impact (needs diff=<patch>)  — diff → touched symbols, blast radius, risk
   trace "<a> <b>"              — shortest call paths between two symbols
-Always start with overview (~400 tokens for a whole repo), then drill in.
+Review: start with brief (it is the orientation); drill down only where it flags.
+Explore: start with overview (~400 tokens for a whole repo), then drill in.
 Source files are opened by path:line from query results.`;
 
 const DEAD_NAME_MARKERS = new Set(["main", "__main__"]);
@@ -68,7 +71,104 @@ function callGraph(con: DatabaseSync): { out: Map<string, string[]>; inDeg: Map<
   return { out, inDeg };
 }
 
-function run(dbPath: string, cmd: string, target?: string, reverse?: boolean, diff?: string): string {
+// ── Shared sections (impact + brief compose these — one home) ────────
+
+function parseDiffSpans(diff: string): { file: string; start: number; end: number }[] {
+  const spans: { file: string; start: number; end: number }[] = [];
+  let file: string | null = null;
+  for (const line of diff.split("\n")) {
+    if (line.startsWith("+++ ")) {
+      file = line.slice(4).split("\t")[0].trim();
+      if (file.startsWith("b/")) file = file.slice(2);
+    } else if (line.startsWith("@@") && file) {
+      const m = line.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @/);
+      if (m) {
+        const start = parseInt(m[1], 10);
+        const count = m[2] ? parseInt(m[2], 10) : 1;
+        if (count) spans.push({ file, start, end: start + count - 1 });
+      }
+    }
+  }
+  return spans;
+}
+
+function touchedSymbols(con: DatabaseSync, spans: { file: string; start: number; end: number }[]) {
+  const touched = new Map<string, { file: string; name: string; line: number | null; component_id: string | null }>();
+  const stmt = con.prepare(
+    "SELECT s.file, s.name, s.kind, s.line, f.component_id FROM symbols s " +
+    "LEFT JOIN files f ON f.path = s.file " +
+    "WHERE s.file = ? AND s.line <= ? AND COALESCE(s.line_end, s.line) >= ?");
+  for (const sp of spans) {
+    for (const s of stmt.all(sp.file, sp.end, sp.start) as { file: string; name: string; kind: string; line: number; component_id: string | null }[]) {
+      touched.set(`${s.file}:${s.name}`, s);
+    }
+  }
+  return touched;
+}
+
+function riskRows(con: DatabaseSync, touched: Map<string, { file: string; name: string; line: number | null; component_id: string | null }>) {
+  const { out: outAdj, inDeg } = callGraph(con);
+  const compOf = new Map<string, string>(
+    (con.prepare("SELECT path, component_id FROM files").all() as { path: string; component_id: string }[])
+      .map((r) => [r.path, r.component_id] as [string, string]));
+  const rank: Record<string, number> = { high: 0, medium: 1, low: 2 };
+  const out: { key: string; name: string; file: string; line: number | null; risk: string; fanIn: number; reach: number; cross: number; reasons: string }[] = [];
+  for (const [key, s] of touched) {
+    const seen = new Set([key]);
+    let frontier = [key];
+    let cross = 0;
+    for (let d = 0; d < 3 && frontier.length; d++) {
+      const nxt: string[] = [];
+      for (const n of frontier) {
+        for (const nb of outAdj.get(n) ?? []) {
+          if (seen.has(nb)) continue;
+          seen.add(nb);
+          nxt.push(nb);
+          const nf = nb.split(":")[0];
+          if (compOf.get(nf) && compOf.get(nf) !== s.component_id) cross++;
+        }
+      }
+      frontier = nxt;
+    }
+    const fanIn = inDeg.get(key) ?? 0;
+    const reasons: string[] = [];
+    if (cross) reasons.push(`${cross} cross-component hop(s)`);
+    if (fanIn) reasons.push(`fan-in ${fanIn}`);
+    if (seen.size > 1) reasons.push(`reach ${seen.size - 1}`);
+    const risk = fanIn >= 5 || cross ? "high" : fanIn || seen.size > 1 ? "medium" : "low";
+    if (risk === "low") reasons.push("no callers in graph");
+    out.push({ key, name: s.name, file: s.file, line: s.line, risk, fanIn, reach: seen.size - 1, cross, reasons: reasons.join("; ") });
+  }
+  out.sort((x, y) => (rank[x.risk] - rank[y.risk]) || (y.fanIn - x.fanIn) || x.file.localeCompare(y.file) || (x.line ?? 0) - (y.line ?? 0));
+  return out;
+}
+
+function deadRows(con: DatabaseSync, compId: string | null): { file: string; name: string; line: number; entrypoint: number; component: string }[] {
+  const { inDeg } = callGraph(con);
+  const rows = (compId
+    ? con.prepare(`SELECT s.file, s.name, s.kind, s.line, c.entrypoint, c.name AS component
+        FROM symbols s JOIN files f ON f.path = s.file JOIN components c ON c.id = f.component_id
+        WHERE f.component_id = ? ORDER BY s.file, s.line`).all(compId)
+    : con.prepare(`SELECT s.file, s.name, s.kind, s.line, c.entrypoint, c.name AS component
+        FROM symbols s LEFT JOIN files f ON f.path = s.file LEFT JOIN components c ON c.id = f.component_id
+        ORDER BY s.file, s.line`).all()) as { file: string; name: string; kind: string; line: number; entrypoint: number; component: string }[];
+  return rows.filter((r) =>
+    r.kind !== "test"
+    && !DEAD_NAME_MARKERS.has(r.name)
+    && !DEAD_SUFFIX.test(r.name)
+    && !r.name.toLowerCase().startsWith("test_")
+    && !inDeg.has(`${r.file}:${r.name}`));
+}
+
+function gitHeadSha(): string | null {
+  try {
+    return execFileSync("git", ["rev-parse", "HEAD"], { cwd: process.cwd(), stdio: ["ignore", "pipe", "ignore"] }).toString().trim() || null;
+  } catch {
+    return null; // non-git cwd — freshness stays unverified, brief says so
+  }
+}
+
+function run(dbPath: string, cmd: string, target?: string, reverse?: boolean, diff?: string, expectShaParam?: string): string {
   const con = connect(dbPath);
   try {
     switch (cmd) {
@@ -168,20 +268,7 @@ function run(dbPath: string, cmd: string, target?: string, reverse?: boolean, di
           compId = resolve(con, target);
           if (!compId) return `no component matches '${target}'`;
         }
-        const { inDeg } = callGraph(con);
-        const rows = (compId
-          ? con.prepare(`SELECT s.file, s.name, s.kind, s.line, c.entrypoint, c.name AS component
-              FROM symbols s JOIN files f ON f.path = s.file JOIN components c ON c.id = f.component_id
-              WHERE f.component_id = ? ORDER BY s.file, s.line`).all(compId)
-          : con.prepare(`SELECT s.file, s.name, s.kind, s.line, c.entrypoint, c.name AS component
-              FROM symbols s LEFT JOIN files f ON f.path = s.file LEFT JOIN components c ON c.id = f.component_id
-              ORDER BY s.file, s.line`).all()) as { file: string; name: string; kind: string; line: number; entrypoint: number; component: string }[];
-        const dead = rows.filter((r) =>
-          r.kind !== "test"
-          && !DEAD_NAME_MARKERS.has(r.name)
-          && !DEAD_SUFFIX.test(r.name)
-          && !r.name.toLowerCase().startsWith("test_")
-          && !inDeg.has(`${r.file}:${r.name}`));
+        const dead = deadRows(con, compId);
         return dead.length
           ? dead.map((r) => `${r.file}:${r.line}  ${r.name}  [${r.entrypoint ? "no-callers" : "exported-unreferenced"}] ${r.component ?? "?"}`).join("\n")
           : "(no zero-caller exports)";
@@ -202,67 +289,12 @@ function run(dbPath: string, cmd: string, target?: string, reverse?: boolean, di
       }
       case "impact": {
         if (diff === undefined) return "impact requires diff=<unified diff text>";
-        const spans: { file: string; start: number; end: number }[] = [];
-        let file: string | null = null;
-        for (const line of diff.split("\n")) {
-          if (line.startsWith("+++ ")) {
-            file = line.slice(4).split("\t")[0].trim();
-            if (file.startsWith("b/")) file = file.slice(2);
-          } else if (line.startsWith("@@") && file) {
-            const m = line.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @/);
-            if (m) {
-              const start = parseInt(m[1], 10);
-              const count = m[2] ? parseInt(m[2], 10) : 1;
-              if (count) spans.push({ file, start, end: start + count - 1 });
-            }
-          }
-        }
+        const spans = parseDiffSpans(diff);
         if (!spans.length) return "(no diff hunks)";
-        const touched = new Map<string, { file: string; name: string; line: number | null; component_id: string | null }>();
-        const stmt = con.prepare(
-          "SELECT s.file, s.name, s.kind, s.line, f.component_id FROM symbols s " +
-          "LEFT JOIN files f ON f.path = s.file " +
-          "WHERE s.file = ? AND s.line <= ? AND COALESCE(s.line_end, s.line) >= ?");
-        for (const sp of spans) {
-          for (const s of stmt.all(sp.file, sp.end, sp.start) as { file: string; name: string; kind: string; line: number; component_id: string | null }[]) {
-            touched.set(`${s.file}:${s.name}`, s);
-          }
-        }
+        const touched = touchedSymbols(con, spans);
         if (!touched.size) return "(no symbols touched by the diff)";
         const hasCalls = hasCallData(con);
-        const { out: outAdj, inDeg } = callGraph(con);
-        const compOf = new Map<string, string>(
-          (con.prepare("SELECT path, component_id FROM files").all() as { path: string; component_id: string }[])
-            .map((r) => [r.path, r.component_id] as [string, string]));
-        const rank: Record<string, number> = { high: 0, medium: 1, low: 2 };
-        const out: { name: string; file: string; line: number | null; risk: string; fanIn: number; reach: number; cross: number; reasons: string }[] = [];
-        for (const [key, s] of touched) {
-          const seen = new Set([key]);
-          let frontier = [key];
-          let cross = 0;
-          for (let d = 0; d < 3 && frontier.length; d++) {
-            const nxt: string[] = [];
-            for (const n of frontier) {
-              for (const nb of outAdj.get(n) ?? []) {
-                if (seen.has(nb)) continue;
-                seen.add(nb);
-                nxt.push(nb);
-                const nf = nb.split(":")[0];
-                if (compOf.get(nf) && compOf.get(nf) !== s.component_id) cross++;
-              }
-            }
-            frontier = nxt;
-          }
-          const fanIn = inDeg.get(key) ?? 0;
-          const reasons: string[] = [];
-          if (cross) reasons.push(`${cross} cross-component hop(s)`);
-          if (fanIn) reasons.push(`fan-in ${fanIn}`);
-          if (seen.size > 1) reasons.push(`reach ${seen.size - 1}`);
-          const risk = fanIn >= 5 || cross ? "high" : fanIn || seen.size > 1 ? "medium" : "low";
-          if (risk === "low") reasons.push("no callers in graph");
-          out.push({ name: s.name, file: s.file, line: s.line, risk, fanIn, reach: seen.size - 1, cross, reasons: reasons.join("; ") });
-        }
-        out.sort((x, y) => (rank[x.risk] - rank[y.risk]) || (y.fanIn - x.fanIn) || x.file.localeCompare(y.file) || (x.line ?? 0) - (y.line ?? 0));
+        const out = riskRows(con, touched);
         const head = hasCalls
           ? `touched symbols by risk (top ${Math.min(10, out.length)}):`
           : "note: calls table empty — touched symbols only, no blast radius";
@@ -270,6 +302,77 @@ function run(dbPath: string, cmd: string, target?: string, reverse?: boolean, di
           ...out.slice(0, 10).map((r) =>
             `  ${r.risk.toUpperCase().padEnd(6)} ${r.file}:${r.line}  ${r.name}  fan_in=${r.fanIn} reach=${r.reach} cross=${r.cross}  ${r.reasons}`),
         ].join("\n");
+      }
+      case "brief": {
+        if (diff === undefined) return "brief requires diff=<unified diff text>";
+        const BRIEF_CAP = 3000;
+        const lines: string[] = [];
+        const meta = Object.fromEntries(
+          (con.prepare("SELECT key, value FROM meta").all() as { key: string; value: string }[])
+            .map((r) => [r.key, r.value]));
+        const expectSha = expectShaParam ?? gitHeadSha();
+        const sourceSha = meta.source_sha ?? null;
+        const stale = Boolean(expectSha && sourceSha && sourceSha !== expectSha);
+        const hasCalls = hasCallData(con);
+        const callsSource = hasCalls ? (meta.calls_source ?? "yes") : null;
+        const counts = con.prepare("SELECT (SELECT COUNT(*) FROM components) AS comps, (SELECT COUNT(*) FROM symbols) AS syms").get() as { comps: number; syms: number };
+        lines.push(`# brief: ${meta.repo_name ?? "?"} — ${counts.comps} comps, ${counts.syms} syms, ${callsSource ? `calls: ${callsSource}` : "calls: empty"}`);
+        if (stale) {
+          lines.push(`# provenance: STALE — graph @ ${sourceSha}, expected ${expectSha} → re-emit before reviewing`);
+        } else if (!sourceSha) {
+          lines.push("# provenance: unknown (emit predates source_sha) — verify the wiki checkout freshness yourself");
+        } else {
+          lines.push(`# provenance: graph @ ${sourceSha} — fresh`);
+        }
+        const spans = parseDiffSpans(diff);
+        const diffFiles = [...new Set(spans.map((s) => s.file))].sort();
+        const compOf = new Map<string, string>(
+          (con.prepare("SELECT path, component_id FROM files").all() as { path: string; component_id: string }[])
+            .map((r) => [r.path, r.component_id] as [string, string]));
+        const compName = new Map<string, string>(
+          (con.prepare("SELECT id, name FROM components").all() as { id: string; name: string }[])
+            .map((r) => [r.id, r.name] as [string, string]));
+        const touchedComps = [...new Set(diffFiles.map((f) => compOf.get(f)).filter((c): c is string => Boolean(c)))].map((c) => compName.get(c) ?? c).sort();
+        const outside = diffFiles.filter((f) => !compOf.has(f));
+        lines.push(`touched: ${diffFiles.length} files → ${touchedComps.length} components${touchedComps.length ? `: ${touchedComps.join(", ")}` : ""}`);
+        for (const f of outside) lines.push(`  WARN outside any component: ${f}`);
+        const touched = touchedSymbols(con, spans);
+        const risks = riskRows(con, touched);
+        if (risks.length) {
+          lines.push(`risk (${risks.length}):`);
+          for (const r of risks.slice(0, 10)) {
+            lines.push(`  ${r.risk.toUpperCase().padEnd(5)} ${r.file}:${r.name}  fan_in=${r.fanIn} reach=${r.reach} hops=${r.cross}`);
+          }
+        } else if (diffFiles.length) {
+          lines.push("risk: no symbols matched the diff hunks");
+        }
+        if (!hasCalls) {
+          lines.push("orphaned: call graph empty — dead detection unavailable");
+        } else {
+          const touchedKeys = new Set(touched.keys());
+          const orphans = deadRows(con, null).filter((d) => touchedKeys.has(`${d.file}:${d.name}`));
+          lines.push(orphans.length
+            ? `orphaned new exports (${orphans.length}):\n${orphans.map((d) => `  ${d.file}:${d.name}  ${d.entrypoint ? "no-callers" : "exported-unreferenced"}`).join("\n")}`
+            : "orphaned: none among touched symbols");
+        }
+        const clones: string[] = [];
+        const seenPairs = new Set<string>();
+        const simStmt = con.prepare("SELECT src, dst, jaccard, scope FROM similar WHERE src = ? OR dst = ? ORDER BY jaccard DESC LIMIT 5");
+        for (const key of [...touched.keys()].sort()) {
+          for (const r of simStmt.all(key, key) as { src: string; dst: string; jaccard: number; scope: string }[]) {
+            const other = r.src === key ? r.dst : r.src;
+            const pair = [key, other].sort().join("\u0000");
+            if (seenPairs.has(pair)) continue;
+            seenPairs.add(pair);
+            clones.push(`  ${key} ~ ${other}  j=${Number(r.jaccard).toFixed(2)} ${r.scope}`);
+          }
+        }
+        if (clones.length) lines.push(`near-clones (${clones.length}):\n${clones.join("\n")}`);
+        lines.push("next: rig impact diff=<patch> · rig trace <a> <b> · rig dead <comp> · rig clones <sym> · rig component <name>");
+        while (lines.reduce((n, l) => n + l.length + 1, 0) > BRIEF_CAP && lines.length > 4) {
+          lines.splice(lines.length - 2, 1); // drop from the tail, keep header + next-menu
+        }
+        return lines.join("\n");
       }
       case "trace": {
         if (!target) return 'trace requires two symbols: "<a> <b>"';
@@ -342,13 +445,15 @@ export default function (pi: ExtensionAPI) {
     label: "RIG query",
     description:
       "Query a project's architecture graph (rig.db — SQLite, FTS5) without loading it into context. " +
-      "Use before reading source files: overview → component → search gives file:line precision for a few hundred tokens. " +
+      "Use before reading source files: overview → component → search gives file:line precision for a few hundred tokens; " +
+      "brief diff=<patch> is the ONE-call review orientation (provenance, risk, orphaned exports, clones). " +
       "Auto-discovers raw/arch/*/rig.db (wiki instances) or rig.db (project checkouts); pass db=<path> to be explicit.",
     parameters: Type.Object({
-      command: Type.String({ description: 'overview | component | deps | files | search | dead | clones | impact | trace | help' }),
+      command: Type.String({ description: 'overview | component | deps | files | search | brief | dead | clones | impact | trace | help' }),
       target: Type.Optional(Type.String({ description: "component id/name, file glob, FTS5 query, symbol, or '<a> <b>' for trace" })),
       reverse: Type.Optional(Type.Boolean({ description: "deps: incoming edges instead of outgoing" })),
-      diff: Type.Optional(Type.String({ description: "impact: unified diff text (e.g. from `git diff origin/main...HEAD`)" })),
+      diff: Type.Optional(Type.String({ description: "impact/brief: unified diff text (e.g. from `git diff origin/main...HEAD`)" })),
+      expectSha: Type.Optional(Type.String({ description: "brief: expected head SHA (defaults to `git rev-parse HEAD` in cwd)" })),
       db: Type.Optional(Type.String({ description: "explicit rig.db path (skips auto-discovery)" })),
     }),
     async execute(_toolCallId, params) {
@@ -372,7 +477,7 @@ export default function (pi: ExtensionAPI) {
       try {
         const text = params.command === "help"
           ? HELP
-          : run(dbPath, params.command, params.target, params.reverse, params.diff);
+          : run(dbPath, params.command, params.target, params.reverse, params.diff, params.expectSha);
         return { content: [{ type: "text", text: `[db: ${dbPath}]\n${text}` }], details: {} };
       } catch (e) {
         return {

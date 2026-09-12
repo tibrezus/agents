@@ -9,6 +9,6 @@
   },
   "scripts": {
     "validate-skills": "node validate-skills.mjs ..",
-    "test": "node --test *.test.mjs"
+    "test": "node --test --experimental-strip-types --import ./typebox-stub.register.mjs *.test.mjs"
   }
 }
