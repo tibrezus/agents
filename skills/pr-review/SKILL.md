@@ -101,7 +101,7 @@ which pillars are relevant. Investigate those; mark the rest N/A.
 
 | Pillar | Question | Proof | Trigger (investigate when…) |
 |--------|----------|-------|-----------------------------|
-| **Coupling** | Does it respect component boundaries in the RIG — and keep the graph's shape scalable (no cycles, hubs, god-components)? | RIG edge check + `rig overview` shape + `rig impact` blast radius | the diff adds imports/calls across components, or grows a component's footprint |
+| **Coupling** | Does it respect component boundaries in the RIG — and keep the graph's shape scalable (no cycles, hubs, god-components)? | RIG edge check + `rig overview` shape + the brief's risk lines (blast radius) | the diff adds imports/calls across components, or grows a component's footprint |
 | **Design Intent** | Aligned with documented decisions / ADRs? **Does the diff duplicate existing functionality?** | `rig search` (whole graph) + `rig clones` near-dup edges + `rig dead` + wiki pages + model.c4 `// Exports:` | the change touches documented architecture, **or adds new functions/types** |
 | **Interface Stability** | Breaking changes to exported symbols / API contracts? | grep exports + diff | the change modifies public/exported API |
 | **CI Economy** | Is CI treated as the expensive asset it is — is each new check **necessary** (no existing check already achieves the same purpose in a different way), and is it **efficient and in the right place** (tier, trigger, single home)? | Read the full CI surface (all workflow files + Makefile/`scripts/test` runners) and purpose-map it against the diff | the diff touches workflow/CI files or test runners, adds/moves checks between tiers, or adds tests that run in CI |
@@ -127,11 +127,17 @@ investigation to the risk of the change, not to the number of pillars.
 
 1. `cat /workspace/pr-context.json` — what project, what CI status, what files?
 2. Read the diff (`/workspace/pr-diff.patch`).
-3. If `rig_path` is set, read the RIG components touched by the diff. If
-   `c4_path` is set, read the relevant C4 view. When the diff touches
-   code, capture the machine evidence once: `rig impact diff=$(git diff
-   origin/<default>...HEAD)` — touched symbols, blast radius, and risk in
-   a single query (feed it the same patch you read in step 2).
+3. **One graph call, the whole orientation:** when `rig_path` is set and the
+   diff touches code, run `rig brief diff=$(git diff
+   origin/<default>...HEAD) expectSha=$HEAD_SHA` — provenance (stale graph
+   → re-emit, never review one), touched files → components, risk-ranked
+   touched symbols with fan-in and cross-component hops, orphaned new
+   exports, near-clone edges, and the drill-down menu. **Orientation is one
+   call; drill down only where the brief flags.** The drill-downs (`rig
+   impact`, `rig dead <component>`, `rig clones <symbol>`, `rig trace <a>
+   <b>`, `rig component`) exist for the follow-up a finding names — not as
+   a second orientation pass. If `c4_path` is set, read the relevant C4
+   view for design intent beyond what the brief flags.
 4. Run deterministic proof via `bash`, CHEAPLY (see the 15-minute contract):
    detect the build system from the repo (Makefile `make test`,
    `scripts/test`, `go.mod`→`go`, `build.zig`→`zig`, `package.json`→`npm`,
@@ -163,7 +169,7 @@ Investigate the relevant structural pillars:
   size growth concentrated in the largest component, new duplicated
   symbols. Findings even when each edge is individually documented —
   scalability is a graph *shape* property, not an edge property. The
-  Phase-0 `rig impact` result is the fine-grained complement: its risk
+  Phase-0 `brief` result is the fine-grained complement: its risk
   lines name the exact touched symbols, their fan-in, and cross-component
   hops — cite a HIGH line rather than re-deriving it.
   **Evidence**: cite the delta (e.g. `fan-in 3→9 on decode`), the RIG edge,
