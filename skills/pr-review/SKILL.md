@@ -305,9 +305,12 @@ already-authenticated forge CLI:
   - **runtime identity ≠ PR author** (git.rezus.cloud: `harmostes-bot`, BSM
     key `HARMOSTES_FORGEJO_TOKEN`): post the DECISION as the review event —
     `{"event":"REQUEST_CHANGES"|"APPROVED","body":"N blocking","commit_id":"<sha>","comments":[…]}`.
-    Branch protection (e.g. rhesadox `main`: `required_approvals=1` +
-    `block_on_rejected_reviews` + `dismiss_stale_approvals` + approvals whitelist
-    `[harmostes-bot, tibrez]` + `block_on_official_review_requests`) then enforces
+    Branch protection (e.g. rhesadox `main`: `block_on_rejected_reviews` + `dismiss_stale_approvals` +
+    `apply_to_admins` — any verdict that lands is binding. Adversarial review
+    is OPT-IN per PR (arm the Review-Ready Gate): enforcement then rides the
+    dev-workflow merge chain (gate-12 requires the bot APPROVE trailer), not a
+    static approval requirement; the approvals whitelist
+    (`[harmostes-bot, tibrez]`) is staged for re-enforcement.) then enforces
     the verdict at the platform level: a reject physically blocks merge, a
     re-review from the same user auto-dismisses its prior verdict, fresh
     pushes invalidate stale approvals. Still post the trailer comment —
