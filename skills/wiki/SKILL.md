@@ -85,6 +85,10 @@ extension in this skill's `extensions/rig-query.ts`, installed at
     rig component <name>          # deps + files + doc comments
     rig search 'symbol*'          # FTS5 symbol search → file:line
     rig deps <name> --reverse     # who depends on it
+    rig dead [component]          # zero-caller exports (two-tier; needs call data)
+    rig clones [symbol]           # near-clone pairs (MinHash+LSH, similar table)
+    rig impact diff=<patch>       # diff → touched symbols, blast radius, risk
+    rig trace '<a> <b>'           # shortest call paths between two symbols
 
 Outside pi, the same commands exist as the module CLI:
 
