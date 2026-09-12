@@ -290,18 +290,33 @@ already-authenticated forge CLI:
   in_reply_to=$ID` (the `/replies` subpath 404s — verified live; use
   `in_reply_to`). Resolve via GraphQL `resolveReviewThread`
   (map the comment's databaseId → thread id with a `reviewThreads` query).
-- **Forgejo / Codeberg (`fj`, native since v16.0.3-rezus.1)**: findings post
-  as a real anchored review — the review-event endpoint rejects only
-  REQUEST_CHANGES from the PR author (#29); COMMENT carries the full payload:
-  `fj --host <host> api repo create-pull-review --owner O --repo R --index N --body
-  '{"body":"…","event":"COMMENT","commit_id":"<reviewed sha>","comments":
-  [{"path":"F","new_position":N,"body":"finding"}]}'`. THE LINE FIELD IS
-  `new_position` (`new_line` 500s server-side). One create-pull-review per
-  round carrying ALL findings. Reply/resolve: the REST shape has no
+- **Forgejo / Codeberg (`fj`, native since v16.0.3-rezus.2)**: findings post
+  as a real anchored review — one create-pull-review per round carrying ALL
+  findings. THE LINE FIELD IS `new_position` (`new_line` 500s server-side).
+  Reply/resolve: the REST shape has no
   in_reply_to yet (fork gap, rezuscloud/forgejo#… follow-up) — until it
   ships, a thread is addressed by a follow-up create-pull-review whose
   comment body leads with `path:line` + the resolution and the original
   comment id; native reply/resolve lands with the fork API extension.
+- **Verdict sink — identity decides.** Forgejo rejects self-approve and
+  self-reject server-side (`pull_review.go`: “reject your own pull is not
+  allowed”); only COMMENT is unrestricted. So the posting identity picks the
+  mode:
+  - **runtime identity ≠ PR author** (git.rezus.cloud: `harmostes-bot`, BSM
+    key `HARMOSTES_FORGEJO_TOKEN`): post the DECISION as the review event —
+    `{"event":"REQUEST_CHANGES"|"APPROVED","body":"N blocking","commit_id":"<sha>","comments":[…]}`.
+    Branch protection (e.g. rhesadox `main`: `required_approvals=1` +
+    `block_on_rejected_reviews` + `dismiss_stale_approvals`) then enforces
+    the verdict at the platform level: a reject physically blocks merge, a
+    re-review from the same user auto-dismisses its prior verdict, fresh
+    pushes invalidate stale approvals. Still post the trailer comment —
+    gate-12 consumes it as merge currency (defense in depth).
+  - **runtime identity = PR author** (no bot account available): the server
+    422s verdict events → fall back to `{"event":"COMMENT"}` carrying the
+    full payload + the trailer comment; enforcement rides gate-12 alone.
+  The polished `fj review` surface mirrors this: `fj review create <PR>
+  --event REQUEST_CHANGES` (positional args fixed in v16.0.3-rezus.3 — the
+  rezus.2 binary bound both path params from args[0], #113).
 - **GitLab (`glab`)**: positioned discussions —
   `glab api projects/:id/merge_requests/$N/discussions -X POST …`;
   reply via `…/discussions/$ID/notes`; resolve via `PUT … {"resolved":true}`.
