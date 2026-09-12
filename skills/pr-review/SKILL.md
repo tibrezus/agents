@@ -306,7 +306,8 @@ already-authenticated forge CLI:
     key `HARMOSTES_FORGEJO_TOKEN`): post the DECISION as the review event —
     `{"event":"REQUEST_CHANGES"|"APPROVED","body":"N blocking","commit_id":"<sha>","comments":[…]}`.
     Branch protection (e.g. rhesadox `main`: `required_approvals=1` +
-    `block_on_rejected_reviews` + `dismiss_stale_approvals`) then enforces
+    `block_on_rejected_reviews` + `dismiss_stale_approvals` + approvals whitelist
+    `[harmostes-bot, tibrez]` + `block_on_official_review_requests`) then enforces
     the verdict at the platform level: a reject physically blocks merge, a
     re-review from the same user auto-dismisses its prior verdict, fresh
     pushes invalidate stale approvals. Still post the trailer comment —
