@@ -22,8 +22,9 @@
 
 import { readFileSync } from "node:fs";
 import { execFileSync, spawn } from "node:child_process";
+import { pathToFileURL } from "node:url";
 
-const CATEGORY = [
+export const CATEGORY = [
   ["orientation (rig)", (name) => name === "rig"],
   ["fixed: context fetch", (name, cmd) =>
     name === "read" || /pr-context|pr-diff|^cat \/workspace\/|^wc -l \/workspace\//.test(cmd)],
@@ -34,7 +35,7 @@ const CATEGORY = [
   ["discovery (grep)", (_name, cmd) => /\bgrep\b|\brg\b/.test(cmd)],
 ];
 
-function categorize(entry) {
+export function categorize(entry) {
   const name = entry.tool_name ?? entry.toolName ?? "";
   let cmd = entry.tool_input?.command ?? entry.toolInput?.command ?? "";
   if (typeof cmd !== "string") cmd = JSON.stringify(cmd ?? "");
@@ -44,7 +45,7 @@ function categorize(entry) {
   return { label: "other", head: `${name}: ${cmd.slice(0, 80).replace(/\n/g, " | ")}` };
 }
 
-function extractCalls(lines) {
+export function extractCalls(lines) {
   const calls = [];
   for (const line of lines) {
     let e;
@@ -111,17 +112,19 @@ function fetchSession(attempt, runId) {
   })();
 }
 
-const args = process.argv.slice(2);
-const attemptIdx = args.indexOf("--attempt");
-if (attemptIdx === -1 && args.length === 0) {
-  console.error("usage: review-audit.mjs <pi-session.jsonl> | --attempt <name> [--run <id>]");
-  process.exit(1);
+if (import.meta.url === `file://${process.argv[1]}`
+    || import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const args = process.argv.slice(2);
+  const attemptIdx = args.indexOf("--attempt");
+  if (attemptIdx === -1 && args.length === 0) {
+    console.error("usage: review-audit.mjs <pi-session.jsonl> | --attempt <name> [--run <id>]");
+    process.exit(1);
+  }
+  const run = async () => {
+    const text = attemptIdx !== -1
+      ? await fetchSession(args[attemptIdx + 1], args[args.indexOf("--run") + 1])
+      : readFileSync(args[0], "utf8");
+    report(extractCalls(text.split("\n")));
+  };
+  await run();
 }
-
-const run = async () => {
-  const text = attemptIdx !== -1
-    ? await fetchSession(args[attemptIdx + 1], args[args.indexOf("--run") + 1])
-    : readFileSync(args[0], "utf8");
-  report(extractCalls(text.split("\n")));
-};
-await run();
