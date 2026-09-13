@@ -46,12 +46,16 @@ unposted. Never spend budget re-deriving what the diff itself shows.
 
 ## Ingress contract — validated SHAs only
 
-**This skill owns the review contract**: the two-stance methodology below,
-the verdict vocabulary (APPROVE / REQUEST_CHANGES / COMMENT), the trailer
-format `<!-- pr-review: DECISION @ sha -->`, the `reviewed_sha` currency
-rule, and the label lifecycle (set by the requester; consumed ONLY by a
-verdict posted at the exact reviewed SHA). `dev-workflow` requests and
-consumes verdicts; it never re-states these rules.
+**This skill owns the review process** (the two-stance methodology below,
+the verdict vocabulary APPROVE / REQUEST_CHANGES / COMMENT, the
+`reviewed_sha` currency rule, and the label lifecycle: set by the
+requester; consumed ONLY by a verdict posted at the exact reviewed SHA).
+The r7 output CONTRACT's canonical home is `verdictTrailer` in the
+harmostes tree (internal/review/review.go) — the deploy composes the
+verdict line + trailer; where any text here or elsewhere claims the
+agent writes a body or posts new findings, that text is stale.
+`dev-workflow` requests and consumes verdicts; it never re-states these
+rules.
 
 Two ingress points, one contract:
 - **harmostes (automated):** the event-armed Review-Ready Gate (ADR-0006)
@@ -281,9 +285,14 @@ checked-out delta — pipeline CI is green by ingress contract.
 
 ## The inline review protocol — threads are the merge currency
 
-A bullet list is not a review. **Every finding goes in as a real inline
-review comment anchored to the code**, posted by you with the
-already-authenticated forge CLI:
+A bullet list is not a review — but under the r7 output contract the
+threads are NOT yours to post. **Every NEW blocking finding rides
+`review.json`'s `comments[]`** (path, line, body); the deploy node
+publishes them as native anchored threads and composes the one-line
+verdict. NEVER post NEW findings via the forge CLI yourself — a
+self-post duplicates the deploy's publish and the verdict line lies
+about the count. The CLI protocol below is for the AUTHOR-side replies
+and resolutions that close a thread:
 
 - **GitHub (`gh`)**: `gh api repos/{o}/{r}/pulls/$N/comments -f commit_id=$SHA -f path=F -F line=N -f body="…"`.
   Reply: `gh api repos/{o}/{r}/pulls/$N/comments -f body="…" -F
@@ -325,8 +334,10 @@ already-authenticated forge CLI:
   `glab api projects/:id/merge_requests/$N/discussions -X POST …`;
   reply via `…/discussions/$ID/notes`; resolve via `PUT … {"resolved":true}`.
 
-One thread per finding; the verdict body only **summarizes** (with thread
-ids). On a later round: verify each fix in the diff, **reply on the thread
+One thread per finding; the verdict is a deploy-composed ONE-LINE
+comment (decision + SHA + blocking count + trailer) — review.json has
+NO body field and you write no prose. On a later round: verify each fix
+in the diff, **reply on the thread
 with the fixing SHA**, then **resolve it**.
 
 **Author side (dev agent) — mandatory before the pipeline resumes:** reply
