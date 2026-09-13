@@ -33,32 +33,15 @@ A change may merge only after **all** gates pass, in order. Each gate is
 independently falsifiable.
 
 1. **Grounded in documented design — load architectural context before
-   implementing.** The purpose: insert the most compressed, accurate picture
-   of the project's architecture into context so the implementation follows
-   the project's structure and best practice. If the project has an
-   architecture graph (`rig.db` — via the [llm-wiki](/skill:llm-wiki)
-   pipeline, a wiki checkout, or committed in-repo), load in this order
-   (each item: mandatory if it exists):
-
-   1. **`rig overview`** — the whole graph in ~400 tokens: every build-target
-      component, its type, file count, dependency edges, symbol counts.
-      (pi `rig` tool, auto-discovers `raw/arch/<project>/rig.db`;
-      elsewhere: `python3 .llm-wiki/.github/actions/repo-map/rig-query.py
-      <rig.db> overview`.)
-   2. **Targeted drill-down into the area you're touching** —
-      `rig component <name>` (deps + files + doc comments),
-      `rig search '<term>*'` (FTS5 symbol search → exact `file:line`),
-      `rig deps <name> --reverse` (blast radius). Hundreds of tokens, not
-      thousands.
-   3. **project's own wiki `Architecture.md`** — the merged human page
-      (rendered views, source map, LikeC4 model, CI registry),
-      CI-regenerated on every push: **authoritative** for architecture.
-   4. relevant llm-wiki `wiki/` pages — decisions, trade-offs, the *why*.
-
-   Implementation without this context is invalid. **The graph is the
-   primary tool against code duplication**: before writing a new
-   function/type, `rig search` for the name/capability — if it already
-   exists as an export, extend it instead of duplicating.
+   implementing.** If the project has an architecture graph (`rig.db`), load
+   it in order (each mandatory if it exists): **`rig overview`** (the whole
+   graph in ~400 tokens), targeted drill-down (`rig component`, `rig
+   search`, `rig deps --reverse`), the project wiki's **`Architecture.md`**
+   (CI-regenerated, authoritative), and the relevant llm-wiki pages
+   (decisions, trade-offs, the why). Implementation without this context is
+   invalid. **The graph is the primary tool against code duplication**:
+   before writing a new function/type, `rig search` the capability — extend
+   what exists instead of duplicating.
 2. **Issue exists** — an open issue (found or created) describes the change.
 3. **Branch tied to the issue** — a branch whose name contains the issue
    number, created off the default branch. No work on the default branch.
@@ -187,20 +170,15 @@ once at ready declaration — gate 11) as reusable jobs. A throwaway script
 leaves CI frozen while the code moves on — it looks like coverage but
 protects nothing. Depth: [`references/ci-concepts.md`](references/ci-concepts.md) §1.
 
-**CI code is expensive — a check's purpose is never duplicated.** Every line
-of CI is paid for three times, forever: runner minutes on every future push,
-a second place to keep in sync, and a second red light nobody can trust.
-Before adding any CI logic — a test, a job, a step, a tool — audit the
-**entire** CI surface (all workflow files **plus** the repo runners CI
-invokes: `scripts/test`, Makefile targets) and map every existing check to
-its **purpose** — the defect it exists to catch — not its literal commands.
-If the purpose is already achieved anywhere, the logic **moves** into the
-right form and is never added a second time: manual → always-on in CI,
-local-only → wired into CI, fast → slow tier, wrong trigger → right one.
-Extending an existing check beats opening a parallel one; a genuinely new
-purpose is added once, in the tier its runtime belongs in. The audit runs
-before the first line of CI code is written, and its result is stated on
-the PR. Depth: [`references/ci-concepts.md`](references/ci-concepts.md) §3.
+**CI code is expensive — a check's purpose is never duplicated.** Every
+line of CI is paid three times, forever: runner minutes, a second place to
+sync, a second red light nobody trusts. Before adding any CI logic, audit
+the entire CI surface and map each existing check to its **purpose** — if
+the purpose exists anywhere, the logic moves into the right form and is
+never added twice; a genuinely new purpose is added once, in the tier its
+runtime belongs in. The audit runs before the first line of CI code is
+written, and its result is stated on the PR.
+Depth: [`references/ci-concepts.md`](references/ci-concepts.md) §3.
 
 **Safety-critical boolean logic requires MC/DC.** When the project declares
 `SAFETY_LEVEL: mcdc`, every boolean decision in changed code must achieve

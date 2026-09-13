@@ -36,7 +36,7 @@ spend it where findings come from:
 |---|---|---|
 | Orient (context + diff + RIG component of touched nodes) | 3 min | The diff is the artifact under review — read IT, not the codebase around it. Follow a symbol out of the diff only when the finding hinges on it. |
 | Investigate (the pillars the diff's triggers select) | 7 min | Targeted source reads. A trace across packages earns its keep only when a finding names the seam. |
-| Deterministic proof | 3 min | ONE warm build (`go build ./...` or equivalent) + tests for the TOUCHED packages only (`go test ./internal/worker/ ./api/...`) — never the full battery; pipeline CI owns that and it is green by ingress. Mutation probes: batch ALL candidate edits into ONE edit→test→revert cycle. Probes are for load-bearing pin claims, not decoration — a probe that cannot change a verdict is skipped. |
+| Deterministic proof | 3 min | ONE warm build + tests for the TOUCHED packages only — never the full battery (pipeline CI is green by ingress). Mutation probes batch into one edit→test→revert cycle, and only for load-bearing claims. |
 | Judge + write | 2 min | The verdict is the payload. Write it, post it, done. |
 
 If the budget runs out mid-investigation, post what the evidence already
@@ -46,31 +46,22 @@ unposted. Never spend budget re-deriving what the diff itself shows.
 
 ## Ingress contract — validated SHAs only
 
-**This skill owns the review process** (the two-stance methodology below,
-the verdict vocabulary APPROVE / REQUEST_CHANGES / COMMENT, the
-`reviewed_sha` currency rule, and the label lifecycle: set by the
-requester; consumed ONLY by a verdict posted at the exact reviewed SHA).
-The r7 output CONTRACT's canonical home is `verdictTrailer` in the
-harmostes tree (internal/review/review.go) — the deploy composes the
-verdict line + trailer; where any text here or elsewhere claims the
-agent writes a body or posts new findings, that text is stale.
-`dev-workflow` requests and consumes verdicts; it never re-states these
-rules.
+**This skill owns the review process**: the two-stance methodology, the
+verdict vocabulary (APPROVE / REQUEST_CHANGES), the `reviewed_sha`
+currency rule, and the label lifecycle (set by the requester; consumed
+only by a verdict at the exact reviewed SHA). The output contract's
+canonical home is `verdictTrailer` in the harmostes tree
+(internal/review/review.go); `dev-workflow` requests and consumes
+verdicts — it never re-states these rules.
 
-Two ingress points, one contract:
-- **harmostes (automated):** the event-armed Review-Ready Gate (ADR-0006)
-  proceeds only when the label is present ∧ every merge-rule required
-  context is green at the head SHA; the workspace plugin provisions the
-  knowns (clone at head, PR context, tools); the agent runs this skill.
-- **manual:** `dw_request_review` guards greenness requester-side, then
-  sets the same label — human-ticking the label in the UI is equivalent.
-
-Invoked **only on a pipeline-green SHA**: the harmostes gate pins the
-validated SHA, or `dw_request_review` refuses
-unvalidated heads. CI evidence in `pr-context.json` is green by contract —
-red CI is fixed on the branch, never reviewed; this pass exists for what CI
-*cannot* see. Phase-0 deterministic proof (local build/test of the delta)
-remains — it catches nondeterminism and drift, not CI status.
+Two ingress points, one contract: the **harmostes Review-Ready Gate**
+(ADR-0006, armed per PR by the `needs-review` label) proceeds only when
+the label is present ∧ the merge-rule context is green at the head SHA;
+or **manual** via `dw_request_review`, which refuses unvalidated heads.
+Invoked **only on a pipeline-green SHA** — red CI is fixed on the branch,
+never reviewed; this pass exists for what CI cannot see. Phase-0
+deterministic proof remains: it catches nondeterminism and drift, not CI
+status.
 
 ## Context you have (assembled by pr-fetch)
 
@@ -161,71 +152,48 @@ investigation to the risk of the change, not to the number of pillars.
 
 Investigate the relevant structural pillars:
 
-- **Coupling**: does the diff add imports/calls across components? If a RIG
-  exists, check whether each new dependency is an edge in the graph. If not,
-  is the coupling documented in the wiki/ADR? Undocumented cross-component
-  edges are findings. Then check **architecture decay** against a
-  deterministic baseline, not by eyeball: fetch the base graph — the
-  project's arch package at the merge-base SHA (package versions are the
-  SHA series; `fj`/token auth) or the kb `raw/arch/<proj>/rig.db` at the
-  base commit — run `rig-fitness.py <db> --json` (module repo-map) on base
-  and head, and diff: new cycles, fan-in growth on touched components,
-  size growth concentrated in the largest component, new duplicated
-  symbols. Findings even when each edge is individually documented —
-  scalability is a graph *shape* property, not an edge property. The
-  Phase-0 `brief` result is the fine-grained complement: its risk
-  lines name the exact touched symbols, their fan-in, and cross-component
-  hops — cite a HIGH line rather than re-deriving it.
-  **Evidence**: cite the delta (e.g. `fan-in 3→9 on decode`), the RIG edge,
-  the `rig impact` risk line, or the import line.
-- **Design Intent**: does the change align with the wiki's documented
-  decisions? Read the relevant entity/concept/ADR pages for the touched
-  components. **Also (DRY)**: for every new exported function/type, `rig
-  search` the graph for its name and capability keywords — a matching export
-  in **any** component (not only the touched ones) is a finding: extend the
-  existing symbol instead of adding a near-duplicate. When the exact search
-  misses but the capability smells duplicated, `rig clones <symbol>` checks
-  the near-clone edges (MinHash+LSH over bodies — catches paraphrased
-  copies the FTS index cannot see). And `rig dead [component]` flags new
-  exports zero callers reach: adding an export nobody calls is a finding
-  (dead API surface), not a neutral fact. Without a rig.db, fall back to
-  model.c4 `// Exports:` + `grep`. **Evidence**: cite the rig
-  search hit (symbol + file:line), the `rig clones` edge (jaccard +
-  scope), the `rig dead` line, the wiki page/ADR, or the export line
-  being duplicated.
+- **Coupling**: does the diff add imports/calls across components? Each new
+  dependency must be a graph edge or documented in the wiki/ADR —
+  undocumented cross-component edges are findings. Then check **architecture
+  decay** against a deterministic baseline, not by eyeball: run
+  `rig-fitness.py <db> --json` on the base graph (merge-base SHA or the kb's
+  `raw/arch/<proj>/rig.db`) and the head graph, and diff — new cycles,
+  fan-in growth on touched components, size growth in the largest component.
+  Scalability is a graph *shape* property; findings stand even when each
+  edge is individually documented. The Phase-0 `brief` risk lines are the
+  fine-grained complement — cite a HIGH line rather than re-deriving it.
+  **Evidence**: the delta (`fan-in 3→9 on decode`), the RIG edge, or the
+  `rig impact` risk line.
+- **Design Intent**: aligned with the wiki's documented decisions (read the
+  entity/concept/ADR pages for the touched components)? **And DRY**: for
+  every new exported symbol, `rig search` its name and capability keywords —
+  a matching export anywhere is a finding (extend, don't duplicate);
+  `rig clones <symbol>` catches paraphrased copies; `rig dead` flags new
+  exports zero callers reach (dead API surface is a finding, not a neutral
+  fact). Without a rig.db: model.c4 `// Exports:` + `grep`. **Evidence**:
+  the search hit, the `rig clones` edge, the `rig dead` line, or the ADR.
 - **Interface Stability**: does the diff modify exported/public symbols, API
   contracts, or schema? `grep` for usages of changed symbols across the repo.
   Breaking changes without versioning/migration are findings. **Evidence**:
   cite the symbol and its usages.
-- **CI Economy**: CI is fundamental — every merge passes through it — and it
-  is the most expensive asset in the repository: every check is paid again on
-  every future push, forever. When the diff adds or moves CI work, re-run the
-  author's purpose audit independently: enumerate the **entire** CI surface
-  (all workflow files **plus** what CI invokes — Makefile targets,
-  `scripts/test`, composite/reusable actions), reduce each existing check to
-  its **purpose** (the defect it exists to catch, not its literal command — a
-  `tidy` Makefile target *is* a dependency-drift check once CI calls it), and
-  compare the diff's additions against that map. Findings:
-  - a new check whose purpose an existing check already achieves — in any
-    file, any form — **MAJOR**: the logic must move (extend or re-home the
-    existing check), never clone. Tests count: Test Quality hunts *missing*
-    coverage; CI Economy hunts *redundant* coverage — together they bound the
-    test delta from both sides.
-  - an existing check re-homed by copy-paste instead of moved (the purpose
-    now has two homes) → **MAJOR**.
-  - a genuinely new purpose placed wrongly — slow-tier runtime in the fast
-    tier, always-on where a merge-time dispatch belongs, or a manual-only
-    check guarding a merge-relevant invariant — **MAJOR** if the waste or
-    gap recurs on every push, **MINOR** otherwise.
-  - inefficiency inside a legitimate check (no caching where the platform
-    offers it, unbounded matrix legs, missing `concurrency` cancellation,
-    repeated work that a composite/reusable action should share) →
-    **MINOR**.
-  Also verify the converse held: existing checks were **moved, not removed**
-  — run `dw_ci_conformance "origin/<default>"` when workflow files changed;
-  its findings are findings here too. **Evidence**: cite the colliding
-  existing check (file:line), the duplicated purpose, or the tier/trigger
-  mismatch.
+- **CI Economy**: every check is paid on every future push, forever. When the
+  diff adds or moves CI work, re-run the author's purpose audit
+  independently: enumerate the entire CI surface (workflow files plus what
+  CI invokes — Makefile targets, `scripts/test`, reusable actions), reduce
+  each check to its **purpose** (the defect it catches, not its commands),
+  and compare the diff's additions against that map. Findings:
+  - a new check whose purpose an existing check already achieves —
+    **MAJOR**: the logic moves (extend or re-home), never clones.
+  - a purpose re-homed by copy-paste (two homes) → **MAJOR**.
+  - a new purpose in the wrong tier/trigger → **MAJOR** if the waste
+    recurs on every push, **MINOR** otherwise.
+  - inefficiency inside a legitimate check (no caching, unbounded matrix,
+    missing `concurrency` cancellation) → **MINOR**.
+  Test Quality hunts *missing* coverage; CI Economy hunts *redundant*
+  coverage — together they bound the test delta from both sides. When
+  workflow files changed, run `dw_ci_conformance "origin/<default>"`; its
+  findings are findings here too. **Evidence**: the colliding check
+  (file:line), the duplicated purpose, or the tier/trigger mismatch.
 
 ### Phase 2: Adversary — behavioral soundness
 
