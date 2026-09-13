@@ -113,15 +113,23 @@ independently falsifiable.
     push or default-branch move invalidates the run — re-rebase, then
     re-trigger (the helper toggles the label). Skipped when no full
     workflow is configured (the fast tier *is* the pipeline).
-12. **Adversarial review APPROVE on the head SHA** — `dw_request_review`
-    (guarded ingress: refuses heads without a green pipeline) triggers the
-    `pr-review` skill; APPROVE must land at the same head SHA. On repos
-    whose review runs as a harmostes workflow, monitor/trigger attempts
-    via the **`harmostes`** skill.
+12. **Adversarial review APPROVE on the head SHA — when armed.** Adversarial
+    review is **opt-in per PR**: `dw_request_review` (guarded ingress:
+    refuses heads without a green pipeline) arms it by setting the
+    `needs-review` label, which wakes the harmostes Review-Ready Gate and
+    runs the `pr-review` skill as the reviewer (`harmostes-bot`). Its
+    verdict is then binding: the bot's native APPROVED/REQUEST_CHANGES
+    review satisfies branch-protection approvals where armed, and APPROVE
+    lands only when every review thread — findings AND TODOs — is
+    resolved by the dev (open threads downgrade an APPROVE). When
+    adversarial review is NOT required, skip this gate: after gate 11 the
+    dev (admin) merges independently — the reviewer is never added
+    unrequested.
 13. **Merge-ready, then merged** — `dw_merge_readiness` verifies fast +
-    full + review + rebase at one frozen head SHA; only then `dw_merge_pr`.
-    Branch deleted; the merged PR (`Closes #n`) closes the issue and is the
-    implementation record — no separate issue comment required.
+    full + rebase at one frozen head SHA (plus the review verdict when
+    gate 12 was armed); only then `dw_merge_pr`. Branch deleted; the
+    merged PR (`Closes #n`) closes the issue and is the implementation
+    record — no separate issue comment required.
 
 **Two-phase readiness:** development pushes run the fast tier only; the
 full pipeline + adversarial review run **once, at ready declaration, on the
@@ -134,12 +142,12 @@ means back to developing, never into review. Depth:
 ## Hard rules
 
 0. **Review threads are the merge currency.** When an adversarial review
-   leaves inline comments (gh / fj / glab threads), the dev agent replies
-   on EVERY open thread — the fix SHA plus a one-line rationale — and
-   resolves it (native resolve on GitHub/GitLab; a closing reply on
-   Forgejo). The full pipeline resumes and a re-review can APPROVE only
-   when zero threads are unresolved; post-review downgrades APPROVEs
-   issued over open threads.
+   leaves inline comments (gh / fj / glab threads) — blocking findings AND
+   TODOs alike — the dev agent replies on EVERY open thread (the fix SHA
+   plus a one-line rationale) and resolves it (native resolve on
+   GitHub/GitLab; a closing reply on Forgejo). The full pipeline resumes
+   and a re-review can APPROVE only when zero threads are unresolved;
+   post-review downgrades APPROVEs issued over open threads.
 1. A direct commit/push to the default branch is forbidden unless the user
    gave an explicit instruction that is recorded on the issue. When in doubt,
    branch.
@@ -388,18 +396,20 @@ source "$(dirname "$(readlink -f "$0")")/scripts/host.sh"   # or source the abso
    dw_ci_conformance "origin/$(dw_default_branch)" \
      || { echo "CI conformance red — satisfy I1–I5 (shift checks, never delete)"; exit 1; }
    ```
-9. **Declare ready — full pipeline, review, merge:**
+9. **Declare ready — full pipeline, review (when armed), merge:**
    ```bash
    PR=$(dw_pr_number_from_branch "$BRANCH")
    dw_rebase_onto_default "$BRANCH"        # hard rule 3 — BEFORE triggering
    dw_trigger_full_pipeline "$PR"          # gate 11: sets the full-pipeline label; REFUSES unrebased heads (no-op if none configured)
    dw_watch_full_pipeline "$BRANCH" || { echo "full pipeline red — fix, re-push, re-declare"; exit 1; }
-   dw_request_review "$PR"                 # gate 12 — refuses unvalidated heads
-   dw_wait_review "$PR"                    # blocks for the verdict trailer
+   dw_request_review "$PR"                 # gate 12 — ONLY when adversarial review is required (opt-in)
+   dw_wait_review "$PR"                    # blocks for the verdict trailer — skip when not armed
    dw_merge_pr "$PR" squash                # gate 13 — refuses unless merge-ready
    ```
-   A REQUEST_CHANGES verdict means: address the findings, then re-run this
-   step — the new head SHA re-opens gates 11 and 12.
+   A REQUEST_CHANGES verdict means: address the findings, resolve every
+   thread (TODOs too), then re-run this step — the new head SHA re-opens
+   gates 11 and 12. When adversarial review was not armed, gate 11 green
+   is enough — merge.
 
 The agent is not bound to these exact commands — they illustrate the dispatch.
 Load [`references/platform-commands.md`](references/platform-commands.md) for

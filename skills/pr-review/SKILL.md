@@ -280,6 +280,15 @@ there is no risk.
 | Any CRITICAL or verified MAJOR finding | REQUEST_CHANGES (each becomes a thread) |
 | Only MINOR/NIT, or all clean + CI green + deterministic proof passes | APPROVE (MINOR/NIT are dropped, not posted) |
 
+5. **Completely missing, not wrong?** A missing piece — absent test scope,
+   an unwired tool, a doc that should exist — that is not a defect in what
+   the diff contains is a **TODO**, not a finding: record it in
+   `todos[]` (same shape as `comments[]`). TODOs anchor as non-blocking
+   threads the dev must address (reply with the follow-up, then resolve);
+   they never change THIS decision, but unresolved TODO threads downgrade
+   the NEXT round's APPROVE. Anything that makes the change incorrect or
+   unmergeable is a finding, never a TODO.
+
 "Deterministic proof" here is the reviewer's independent local run of the
 checked-out delta — pipeline CI is green by ingress contract.
 
@@ -307,58 +316,53 @@ and resolutions that close a thread:
   ships, a thread is addressed by a follow-up create-pull-review whose
   comment body leads with `path:line` + the resolution and the original
   comment id; native reply/resolve lands with the fork API extension.
-- **Verdict sink — identity decides.** Forgejo rejects self-approve and
-  self-reject server-side (`pull_review.go`: “reject your own pull is not
-  allowed”); only COMMENT is unrestricted. So the posting identity picks the
-  mode:
-  - **runtime identity ≠ PR author** (git.rezus.cloud: `harmostes-bot`, BSM
-    key `HARMOSTES_FORGEJO_TOKEN`): post the DECISION as the review event —
-    `{"event":"REQUEST_CHANGES"|"APPROVED","body":"N blocking","commit_id":"<sha>","comments":[…]}`.
-    Branch protection (e.g. rhesadox `main`: `block_on_rejected_reviews` + `dismiss_stale_approvals` +
-    `apply_to_admins` — any verdict that lands is binding. Adversarial review
-    is OPT-IN per PR (arm the Review-Ready Gate): enforcement then rides the
-    dev-workflow merge chain (gate-12 requires the bot APPROVE trailer), not a
-    static approval requirement; the approvals whitelist
-    (`[harmostes-bot, tibrez]`) is staged for re-enforcement.) then enforces
-    the verdict at the platform level: a reject physically blocks merge, a
-    re-review from the same user auto-dismisses its prior verdict, fresh
-    pushes invalidate stale approvals. Still post the trailer comment —
-    gate-12 consumes it as merge currency (defense in depth).
-  - **runtime identity = PR author** (no bot account available): the server
-    422s verdict events → fall back to `{"event":"COMMENT"}` carrying the
-    full payload + the trailer comment; enforcement rides gate-12 alone.
-  The polished `fj review` surface mirrors this: `fj review create <PR>
-  --event REQUEST_CHANGES` (positional args fixed in v16.0.3-rezus.3 — the
-  rezus.2 binary bound both path params from args[0], #113).
+- **Verdict sink — identity decides.** The deploy posts the verdict as a
+  native review event under the runtime identity. On repos where the
+  adversarial review is armed in branch protection (rhesadox `main`:
+  `required_approvals=1` + `block_on_rejected_reviews` +
+  `dismiss_stale_approvals` + `apply_to_admins`, whitelist
+  `[harmostes-bot, tibrez]`), that native APPROVED/REQUEST_CHANGES **is**
+  the binding approval: a reject physically blocks merge, a newer verdict
+  from the same identity auto-dismisses the prior one, fresh pushes
+  invalidate stale approvals. When the runtime identity IS the PR author,
+  Forgejo rejects self-verdicts server-side → the deploy falls back to
+  COMMENT; enforcement rides gate-12's trailer alone. Still post the
+  trailer comment — gate-12 consumes it as merge currency (defense in
+  depth).
 - **GitLab (`glab`)**: positioned discussions —
   `glab api projects/:id/merge_requests/$N/discussions -X POST …`;
   reply via `…/discussions/$ID/notes`; resolve via `PUT … {"resolved":true}`.
 
-One thread per finding; the verdict is a deploy-composed ONE-LINE
-comment (decision + SHA + blocking count + trailer) — review.json has
-NO body field and you write no prose. On a later round: verify each fix
-in the diff, **reply on the thread
-with the fixing SHA**, then **resolve it**.
+One thread per finding (and per TODO); the verdict is a deploy-composed
+ONE-LINE comment (decision + SHA + blocking count + trailer) — review.json
+has NO body field and you write no prose. On a later round: verify each fix
+in the diff, **reply on the thread with the fixing SHA**, then **resolve
+it**.
 
 **Author side (dev agent) — mandatory before the pipeline resumes:** reply
-to every open review thread with the fix SHA + one-line rationale, resolve
-it (native where the host has it, a closing reply on Forgejo), and only
-then re-arm. post-review mechanically **downgrades an APPROVE issued over
-open prior-round threads** — unresolved threads block the full pipeline
-and the merge, no matter what the verdict text says.
+to every open thread — findings AND TODOs — with the fix SHA + one-line
+rationale, resolve it (native where the host has it, a closing reply on
+Forgejo), and only then re-arm. post-review mechanically **downgrades an
+APPROVE issued over open prior-round threads** — unresolved threads block
+the full pipeline and the merge, no matter what the verdict text says.
 
 ## Output contract — threads are the review; the comment is one line
 
 The posted output is SMALL by design. The pillar analysis (Phases 0-3)
 happens in your head and in your tool calls — it is never posted as prose.
-Exactly two things leave this review:
+Exactly three things leave this review:
 
 1. **Blocking findings** — each CRITICAL or verified MAJOR finding becomes
-   ONE entry in `comments[]`. The deploy step posts them as native inline
-   review threads anchored to the code; each must be closed before the PR
-   can merge. MINOR and NIT findings are NOT posted — they do not block
-   merges and a review is not the place for style notes.
-2. **A one-line verdict** — written by the deploy step, not by you. It
+   ONE entry in `comments[]`. The deploy posts them as native inline
+   review threads anchored to the code; each must be independently
+   resolved by the dev before the PR can merge. MINOR and NIT findings are
+   NOT posted — they do not block merges and a review is not the place for
+   style notes.
+2. **TODOs** — each completely-missing piece becomes ONE entry in
+   `todos[]`, anchored as a non-blocking thread the dev must address.
+   TODOs never change the decision; unresolved ones downgrade the next
+   round.
+3. **A one-line verdict** — written by the deploy step, not by you. It
    states the decision, the SHA, and the blocking-finding count. Nothing
    else. There is no pillar-structured body, no summary section, no
    coverage essay.
@@ -373,7 +377,11 @@ review = {
     "reviewed_sha": "<head SHA of /workspace/repo>",
     "comments": [
         {"path": "src/foo.zig", "line": 42,
-         "body": "Blocking: <what is wrong> <evidence> <what to do>. "}
+         "body": "Blocking: <what is wrong> <evidence> <what to do>."}
+    ],
+    "todos": [
+        {"path": "src/bar.zig", "line": 7,
+         "body": "<what is completely missing> <where it belongs>."}
     ]
 }
 json.dump(review, open("/workspace/review.json", "w"), indent=2)
@@ -381,18 +389,20 @@ json.dump(review, open("/workspace/review.json", "w"), indent=2)
 
 - `decision` — `APPROVE` (no blocking findings) or `REQUEST_CHANGES`
   (≥1 blocking finding). There is no COMMENT middle ground: MINOR/NIT
-  findings are dropped, not posted.
+  findings are dropped, not posted. TODOs do not affect the decision.
 - `reviewed_sha` — the head SHA of `/workspace/repo` (full 40 hex). The
-  deploy step embeds it in the verdict line and anchors every thread to it.
+  deploy embeds it in the verdict line and anchors every thread to it.
 - `comments` — ONLY blocking findings (empty `[]` when approving). Each
   is one self-contained thread: what is wrong, the evidence, what to do.
-  The deploy step deduplicates and publishes them; do not post them
-  yourself.
+  The deploy deduplicates and publishes them; do not post them yourself.
+- `todos` — optional; ONLY completely-missing pieces (empty `[]` or omit
+  the key). Same self-contained-thread rule: what is missing, where it
+  belongs.
 
 **Coverage** stays your discipline: every pillar investigated per the
-phases above. But coverage is reported by the deploy step's one-line
-verdict ("pillars clean" vs "N blocking"), not by an N/A essay — a pillar
-with no blocking finding simply produces nothing.
+phases above. But coverage is reported by the deploy's one-line verdict
+("pillars clean" vs "N blocking"), not by an N/A essay — a pillar with no
+blocking finding simply produces nothing.
 
 ## Do NOT
 
