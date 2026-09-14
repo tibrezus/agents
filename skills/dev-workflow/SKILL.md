@@ -81,7 +81,9 @@ independently falsifiable.
     the forge, so early scaffolding stays on the branch with the local
     loop.
 10. **Fast CI green on every push** — lint/build/unit/targeted tests. Red
-    is fixed on the branch, never merged red.
+    is fixed on the branch, never merged red. Silence is not green: a
+    conflicted (DIRTY) PR gets NO runs at all — treat "no checks" as a
+    rebase signal, prevented by gate 7's conflict probe.
 11. **Full pipeline green on the head SHA** — at ready declaration: rebase
     onto the default branch, then set the `full-pipeline` label on the PR
     (`dw_trigger_full_pipeline`), which runs the full pipeline on that head
@@ -367,8 +369,14 @@ source "$(dirname "$(readlink -f "$0")")/scripts/host.sh"   # or source the abso
    Run the project's fast-tier workloads locally (build + lint +
    `dw_run_tests`) until green and the simplification pass (gate 8) is
    done. Opening a PR consumes CI on the forge — push and open it **once**,
-   when the local mirror is green:
+   when the local mirror is green. Probe the conflict state BEFORE pushing:
+   a branch that conflicts with the default branch is DIRTY, and GitHub
+   creates no merge ref for a DIRTY PR — `pull_request` workflows silently
+   never run, which reads as "CI is slow" but is actually "CI is absent":
    ```bash
+   git fetch origin "$(dw_default_branch)" -q
+   git merge-tree --write-tree "HEAD" "origin/$(dw_default_branch)" >/dev/null 2>&1 \
+     || { echo "branch conflicts with $(dw_default_branch) — rebase BEFORE pushing (CI will not run otherwise)"; exit 1; }
    git push -u origin "$BRANCH"
    dw_open_pr "$BRANCH" "$(dw_default_branch)" "<title>" "Closes #$ISSUE"
    ```
@@ -377,6 +385,13 @@ source "$(dirname "$(readlink -f "$0")")/scripts/host.sh"   # or source the abso
    ```bash
    dw_watch_ci "$BRANCH" || { echo "fast CI red — fix on the branch and re-push"; exit 1; }
    ```
+   **"No checks reported" is a STATE, not slowness.** On GitHub, check
+   `gh pr view --json mergeStateStatus` first: `DIRTY`/`CONFLICTING` means
+   the merge ref could not be created, so **no workflow will ever run for
+   this PR** — no amount of waiting or reopen cycles helps. Rebase onto the
+   default branch (carrying only this branch's changes) and force-push the
+   branch; runs appear within a minute. On Forgejo the same state is the
+   PR's `mergeable == false`.
    If the change touched workflow files, CI conformance must hold:
    ```bash
    dw_ci_conformance "origin/$(dw_default_branch)" \
