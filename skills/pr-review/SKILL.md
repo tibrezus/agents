@@ -303,16 +303,30 @@ and resolutions that close a thread:
 
 One thread per finding (and per TODO); the verdict is a deploy-composed
 ONE-LINE comment (decision + SHA + blocking count + trailer) — review.json
-has NO body field and you write no prose. On a later round: verify each fix
-in the diff, **reply on the thread with the fixing SHA**, then **resolve
-it**.
+has NO body field and you write no prose.
+
+**Later rounds — YOU (the reviewer) resolve prior threads by verification.**
+On a re-review, for every prior-round thread: locate the fix in the diff,
+and when the solution is valid, the thread is CLOSED by your verification —
+post the verification (follow-up review comment leading with `path:line` +
+the original comment id where the host supports replies) and count the
+thread as resolved for this decision. Do NOT downgrade an APPROVE because a
+thread shows unresolved in the host UI — on Forgejo the resolve API does not
+exist yet, so UI state can never show resolved and trusting it burns a full
+review round on findings that are already fixed (r12, live on #483). A
+downgrade is for exactly one thing: a prior finding that is NOT addressed
+in the diff.
 
 **Author side (dev agent) — mandatory before the pipeline resumes:** reply
 to every open thread — findings AND TODOs — with the fix SHA + one-line
-rationale, resolve it (native where the host has it, a closing reply on
-Forgejo), and only then re-arm. post-review mechanically **downgrades an
-APPROVE issued over open prior-round threads** — unresolved threads block
-the full pipeline and the merge, no matter what the verdict text says.
+rationale, and mark it resolved (native where the host has it; on Forgejo
+post the follow-up review comment enumerating `path:line → fix SHA +
+rationale` for every thread in ONE pass). Then **request review from
+harmostes-bot natively** — that request is the re-arm signal (#488; the
+label stays as the scope contract). post-review mechanically **downgrades
+an APPROVE issued over prior-round threads whose findings you have not
+addressed in the diff** — unaddressed findings block the full pipeline and
+the merge, no matter what the verdict text says.
 
 ## Output contract — threads are the review; the comment is one line
 
