@@ -128,9 +128,17 @@ means back to developing, never into review. Depth:
    leaves inline comments (gh / fj / glab threads) — blocking findings AND
    TODOs alike — the dev agent replies on EVERY open thread (the fix SHA
    plus a one-line rationale) and resolves it (native resolve on
-   GitHub/GitLab; a closing reply on Forgejo). The full pipeline resumes
-   and a re-review can APPROVE only when zero threads are unresolved;
-   post-review downgrades APPROVEs issued over open threads.
+   GitHub/GitLab; on Forgejo, where the thread API has no reply/resolve
+   yet, ONE follow-up review comment enumerating `path:line → fix SHA +
+   rationale` for every thread). The dev then **requests review from
+   harmostes-bot natively** — the request is the re-arm signal (#488; the
+   `needs-review` label stays as the scope contract). The REVIEWER — not
+   the dev — closes threads on the next round: it verifies each fix in the
+   diff and resolves/counts the thread as addressed; it never downgrades
+   for host-UI thread state on Forgejo (the resolve API does not exist
+   there). The full pipeline resumes and a re-review can APPROVE only when
+   every finding is verifiably addressed in the diff; post-review
+   downgrades APPROVEs issued over findings that are not.
 1. A direct commit/push to the default branch is forbidden unless the user
    gave an explicit instruction that is recorded on the issue. When in doubt,
    branch.
