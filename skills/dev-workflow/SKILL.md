@@ -165,6 +165,17 @@ means back to developing, never into review. Depth:
    preference. If a proper fix is genuinely blocked, surface the blocker on
    the issue rather than routing around it silently. "It works" is not the
    bar; "it is correct and well-structured" is.
+6. **A finding cites one instance; the dev fixes the class.** Review
+   findings name a single occurrence (`path:line`) — before fixing,
+   determine whether the same mistake repeats elsewhere: sweep for it
+   (grep the pattern, `rig search` the capability, `rig clones` for
+   paraphrased copies). Isolated → fix the instance. Repeated → the fix
+   is **structural**: correct every instance AND the root cause that
+   invites the mistake — a component refactor within the change, or,
+   when the architecture's shape itself is the cause, an
+   architectural-change proposal (ADR / wiki page + issue) enumerating
+   the instances. A reply that fixes only the cited instance of a
+   repeated pattern re-opens the finding next round.
 
 ## Continuous integration discipline
 
@@ -411,10 +422,13 @@ source "$(dirname "$(readlink -f "$0")")/scripts/host.sh"   # or source the abso
    dw_wait_review "$PR"                    # blocks for the verdict trailer — skip when not armed
    dw_merge_pr "$PR" squash                # gate 13 — refuses unless merge-ready
    ```
-   A REQUEST_CHANGES verdict means: address the findings, resolve every
-   thread (TODOs too), then re-run this step — the new head SHA re-opens
-   gates 11 and 12. When adversarial review was not armed, gate 11 green
-   is enough — merge.
+   A REQUEST_CHANGES verdict means: address the findings — for each, sweep
+   for the class first (hard rule 6): an isolated mistake is fixed at its
+   instance; a repeated pattern takes the structural fix (every instance +
+   root cause: component refactor, or an architectural-change proposal when
+   it exceeds this PR). Then resolve every thread (TODOs too) and re-run
+   this step — the new head SHA re-opens gates 11 and 12. When adversarial
+   review was not armed, gate 11 green is enough — merge.
 
 The agent is not bound to these exact commands — they illustrate the dispatch.
 Load [`references/platform-commands.md`](references/platform-commands.md) for
