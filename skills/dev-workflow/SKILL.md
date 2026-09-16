@@ -134,9 +134,13 @@ means back to developing, never into review. Depth:
    in a separate comment — carrying the fix SHA plus a one-line rationale,
    then resolving it natively where the host has resolve. Sole exception:
    Forgejo, where the thread API has no reply/resolve yet
-   (rezuscloud/forgejo#115) — there ONE follow-up review comment
-   enumerating `path:line → fix SHA + rationale` for every thread is the
-   only sanctioned separate comment. The dev then **requests review from
+   (github.com/rezuscloud/forgejo#115) — there post ONE `create-pull-review`
+   (`event: COMMENT`) whose **body** enumerates `path:line → fix SHA +
+   rationale` for every open thread, with **`comments[]` empty**. NEVER
+   create new anchored snippet comments per finding — each starts a NEW
+   thread instead of answering the finding's (anti-pattern observed live,
+   rhesadox#2241: five `reply_to=None` comments, one per finding). The dev
+   then **requests review from
    harmostes-bot natively** — the request is the re-arm signal (#488; the
    `needs-review` label stays as the scope contract). The REVIEWER — not
    the dev — closes threads on the next round: it verifies each fix in the
