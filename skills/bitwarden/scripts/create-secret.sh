@@ -4,12 +4,17 @@
 #   create-secret.sh NAME 'value'          # explicit value (single-quoted)
 #
 # Requires the vault to be unlocked (source scripts/unlock.sh first) and
-# BW_SESSION exported.
+# BW_SESSION exported. The BSM project id comes from the machine-local env
+# file (~/.config/bitwarden-agent/env) — never hardcoded in this skill.
 set -euo pipefail
+
+BW_ENV_FILE="${BW_ENV_FILE:-$HOME/.config/bitwarden-agent/env}"
+# shellcheck disable=SC1090
+[ -f "$BW_ENV_FILE" ] && . "$BW_ENV_FILE"
 
 NAME="${1:?usage: create-secret.sh NAME [value]}"
 VALUE="${2:-}"
-PROJ="${BW_PROJECT_ID:-0901f4dc-19f0-42dd-8def-b2cb012a0841}"
+PROJ="${BW_PROJECT_ID:?BW_PROJECT_ID not set — add it to $HOME/.config/bitwarden-agent/env}"
 
 if [ -z "${BW_SESSION:-}" ]; then
   echo "create-secret: BW_SESSION not set — source scripts/unlock.sh first" >&2

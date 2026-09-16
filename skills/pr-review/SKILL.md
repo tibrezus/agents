@@ -19,6 +19,31 @@ context: the diff, the architecture graph (RIG + C4), and selective tools.
 
 Keep the context small. Do not read the whole repo. Route to the minimal source.
 
+## The 15-minute contract
+
+A review that has not posted its verdict within the run bound is a FAILED
+review, no matter how good it would have been — the platform kills the run
+and the next one starts over. Observed live (#357 r14): a focused 5-file
+PR spent run 1 dying at the 30-minute bound mid-trace and run 2 re-deriving
+it, 65 minutes wall for a diff whose verdict took 5 minutes to earn. The
+failure was not hard thinking — it was unbounded verification theater:
+watching CI the ingress contract already guarantees, a cold full-battery
+test run, per-finding mutation probes each rebuilding from scratch, and a
+verdict written as an essay. Budget the whole review at **15 minutes** and
+spend it where findings come from:
+
+| Phase | Cap | Rule |
+|---|---|---|
+| Orient (context + diff + RIG component of touched nodes) | 3 min | The diff is the artifact under review — read IT, not the codebase around it. Follow a symbol out of the diff only when the finding hinges on it. |
+| Investigate (the pillars the diff's triggers select) | 7 min | Targeted source reads. A trace across packages earns its keep only when a finding names the seam. |
+| Deterministic proof | 3 min | ONE warm build (`go build ./...` or equivalent) + tests for the TOUCHED packages only (`go test ./internal/worker/ ./api/...`) — never the full battery; pipeline CI owns that and it is green by ingress. Mutation probes: batch ALL candidate edits into ONE edit→test→revert cycle. Probes are for load-bearing pin claims, not decoration — a probe that cannot change a verdict is skipped. |
+| Judge + write | 2 min | The verdict is the payload. Write it, post it, done. |
+
+If the budget runs out mid-investigation, post what the evidence already
+supports at the highest remaining severity — an honest APPROVE-with-note
+or REQUEST_CHANGES on partial coverage beats a perfect review that dies
+unposted. Never spend budget re-deriving what the diff itself shows.
+
 ## Ingress contract — validated SHAs only
 
 **This skill owns the review contract**: the two-stance methodology below,
@@ -67,7 +92,7 @@ Read `pr-context.json` first, then route selectively.
 external knowledge adds value. For most changes, the diff + RIG + lint/tests
 are sufficient.
 
-## The eight pillars
+## The 9 pillars
 
 The review vocabulary. Scan the diff against the **Trigger** column to decide
 which pillars are relevant. Investigate those; mark the rest N/A.
@@ -76,8 +101,8 @@ which pillars are relevant. Investigate those; mark the rest N/A.
 
 | Pillar | Question | Proof | Trigger (investigate when…) |
 |--------|----------|-------|-----------------------------|
-| **Coupling** | Does it respect component boundaries in the RIG — and keep the graph's shape scalable (no cycles, hubs, god-components)? | RIG edge check + `rig overview` shape | the diff adds imports/calls across components, or grows a component's footprint |
-| **Design Intent** | Aligned with documented decisions / ADRs? **Does the diff duplicate existing functionality?** | `rig search` (whole graph) + wiki pages + model.c4 `// Exports:` | the change touches documented architecture, **or adds new functions/types** |
+| **Coupling** | Does it respect component boundaries in the RIG — and keep the graph's shape scalable (no cycles, hubs, god-components)? | RIG edge check + `rig overview` shape + the brief's risk lines (blast radius) | the diff adds imports/calls across components, or grows a component's footprint |
+| **Design Intent** | Aligned with documented decisions / ADRs? **Does the diff duplicate existing functionality?** | `rig search` (whole graph) + `rig clones` near-dup edges + `rig dead` + wiki pages + model.c4 `// Exports:` | the change touches documented architecture, **or adds new functions/types** |
 | **Interface Stability** | Breaking changes to exported symbols / API contracts? | grep exports + diff | the change modifies public/exported API |
 | **CI Economy** | Is CI treated as the expensive asset it is — is each new check **necessary** (no existing check already achieves the same purpose in a different way), and is it **efficient and in the right place** (tier, trigger, single home)? | Read the full CI surface (all workflow files + Makefile/`scripts/test` runners) and purpose-map it against the diff | the diff touches workflow/CI files or test runners, adds/moves checks between tiers, or adds tests that run in CI |
 
@@ -102,15 +127,29 @@ investigation to the risk of the change, not to the number of pillars.
 
 1. `cat /workspace/pr-context.json` — what project, what CI status, what files?
 2. Read the diff (`/workspace/pr-diff.patch`).
-3. If `rig_path` is set, read the RIG components touched by the diff. If
-   `c4_path` is set, read the relevant C4 view.
-4. Run deterministic proof via `bash` — detect the build system from the repo
-   (Makefile `make test`, `scripts/test`, `go.mod`→`go`, `build.zig`→`zig`,
-   `package.json`→`npm`, `Cargo.toml`→`cargo`):
-   - Build: `cd /workspace/repo && <build cmd>`
-   - Lint: `<lint cmd>` (if configured)
-   - Tests: `<test cmd>`
+3. **One graph call, the whole orientation:** when `rig_path` is set and the
+   diff touches code, run `rig brief diff=$(git diff
+   origin/<default>...HEAD) expectSha=$HEAD_SHA` — provenance (stale graph
+   → re-emit, never review one), touched files → components, risk-ranked
+   touched symbols with fan-in and cross-component hops, orphaned new
+   exports, near-clone edges, and the drill-down menu. **Orientation is one
+   call; drill down only where the brief flags.** The drill-downs (`rig
+   impact`, `rig dead <component>`, `rig clones <symbol>`, `rig trace <a>
+   <b>`, `rig component`) exist for the follow-up a finding names — not as
+   a second orientation pass. If `c4_path` is set, read the relevant C4
+   view for design intent beyond what the brief flags.
+4. Run deterministic proof via `bash`, CHEAPLY (see the 15-minute contract):
+   detect the build system from the repo (Makefile `make test`,
+   `scripts/test`, `go.mod`→`go`, `build.zig`→`zig`, `package.json`→`npm`,
+   `Cargo.toml`→`cargo`):
+   - Build: `cd /workspace/repo && <build cmd>` — once; this warms every
+     later test invocation.
+   - Tests: **touched packages only** (`go test ./pkg/under/test/...`), not
+     the repo battery — pipeline CI ran the battery on this exact SHA and
+     it is green by the ingress contract.
    - A failing build or test is an automatic REQUEST_CHANGES — no debate.
+   - CI status is a FIELD in `pr-context.json`. Read it; never poll, never
+     watch a pipeline — that is the dispatcher's spent budget, not yours.
 5. **Scan the diff against the pillar triggers.** Note which pillars are
    relevant before investigating.
 
@@ -129,17 +168,26 @@ Investigate the relevant structural pillars:
   and head, and diff: new cycles, fan-in growth on touched components,
   size growth concentrated in the largest component, new duplicated
   symbols. Findings even when each edge is individually documented —
-  scalability is a graph *shape* property, not an edge property.
+  scalability is a graph *shape* property, not an edge property. The
+  Phase-0 `brief` result is the fine-grained complement: its risk
+  lines name the exact touched symbols, their fan-in, and cross-component
+  hops — cite a HIGH line rather than re-deriving it.
   **Evidence**: cite the delta (e.g. `fan-in 3→9 on decode`), the RIG edge,
-  or the import line.
+  the `rig impact` risk line, or the import line.
 - **Design Intent**: does the change align with the wiki's documented
   decisions? Read the relevant entity/concept/ADR pages for the touched
   components. **Also (DRY)**: for every new exported function/type, `rig
   search` the graph for its name and capability keywords — a matching export
   in **any** component (not only the touched ones) is a finding: extend the
-  existing symbol instead of adding a near-duplicate. Without a rig.db,
-  fall back to model.c4 `// Exports:` + `grep`. **Evidence**: cite the rig
-  search hit (symbol + file:line), the wiki page/ADR, or the export line
+  existing symbol instead of adding a near-duplicate. When the exact search
+  misses but the capability smells duplicated, `rig clones <symbol>` checks
+  the near-clone edges (MinHash+LSH over bodies — catches paraphrased
+  copies the FTS index cannot see). And `rig dead [component]` flags new
+  exports zero callers reach: adding an export nobody calls is a finding
+  (dead API surface), not a neutral fact. Without a rig.db, fall back to
+  model.c4 `// Exports:` + `grep`. **Evidence**: cite the rig
+  search hit (symbol + file:line), the `rig clones` edge (jaccard +
+  scope), the `rig dead` line, the wiki page/ADR, or the export line
   being duplicated.
 - **Interface Stability**: does the diff modify exported/public symbols, API
   contracts, or schema? `grep` for usages of changed symbols across the repo.
@@ -181,7 +229,11 @@ Investigate the relevant behavioral pillars:
 
 - **Correctness**: logic errors, unhandled errors, off-by-one, nil/null deref,
   race conditions, missing input validation. Verify invariants hold on edge
-  cases (empty, max, concurrent). **Evidence**: cite the code line.
+  cases (empty, max, concurrent). When the tests cannot answer a call-chain
+  question (who reaches this path, what breaks if this invariant flips),
+  `rig trace '<a> <b>'` returns the shortest call paths — escalation only,
+  never a substitute for running the tests. **Evidence**: cite the code
+  line, or the trace path with the broken link in it.
 - **Security**: injection, secret exposure, missing authz, unsafe
   deserialization. If the diff touches auth/crypto/network/SQL, `web_search`
   for known vulnerabilities in the specific functions/patterns.
@@ -221,59 +273,115 @@ there is no risk.
 
 | Condition | Decision |
 |-----------|----------|
-| Any CRITICAL or verified MAJOR finding | REQUEST_CHANGES |
-| Only MINOR/NIT | COMMENT |
-| All investigated pillars pass + CI green + deterministic proof passes | APPROVE |
+| Any CRITICAL or verified MAJOR finding | REQUEST_CHANGES (each becomes a thread) |
+| Only MINOR/NIT, or all clean + CI green + deterministic proof passes | APPROVE (MINOR/NIT are dropped, not posted) |
 
 "Deterministic proof" here is the reviewer's independent local run of the
 checked-out delta — pipeline CI is green by ingress contract.
 
-## Output contract
+## The inline review protocol — threads are the merge currency
 
-Write the review to `/workspace/review.json` using Python (NOT a bash heredoc —
-heredocs break on Markdown backticks and special chars):
+A bullet list is not a review. **Every finding goes in as a real inline
+review comment anchored to the code**, posted by you with the
+already-authenticated forge CLI:
+
+- **GitHub (`gh`)**: `gh api repos/{o}/{r}/pulls/$N/comments -f commit_id=$SHA -f path=F -F line=N -f body="…"`.
+  Reply: `gh api repos/{o}/{r}/pulls/$N/comments -f body="…" -F
+  in_reply_to=$ID` (the `/replies` subpath 404s — verified live; use
+  `in_reply_to`). Resolve via GraphQL `resolveReviewThread`
+  (map the comment's databaseId → thread id with a `reviewThreads` query).
+- **Forgejo / Codeberg (`fj`, native since v16.0.3-rezus.2)**: findings post
+  as a real anchored review — one create-pull-review per round carrying ALL
+  findings. THE LINE FIELD IS `new_position` (`new_line` 500s server-side).
+  Reply/resolve: the REST shape has no
+  in_reply_to yet (fork gap, rezuscloud/forgejo#… follow-up) — until it
+  ships, a thread is addressed by a follow-up create-pull-review whose
+  comment body leads with `path:line` + the resolution and the original
+  comment id; native reply/resolve lands with the fork API extension.
+- **Verdict sink — identity decides.** Forgejo rejects self-approve and
+  self-reject server-side (`pull_review.go`: “reject your own pull is not
+  allowed”); only COMMENT is unrestricted. So the posting identity picks the
+  mode:
+  - **runtime identity ≠ PR author** (git.rezus.cloud: `harmostes-bot`, BSM
+    key `HARMOSTES_FORGEJO_TOKEN`): post the DECISION as the review event —
+    `{"event":"REQUEST_CHANGES"|"APPROVED","body":"N blocking","commit_id":"<sha>","comments":[…]}`.
+    Branch protection (e.g. rhesadox `main`: `block_on_rejected_reviews` + `dismiss_stale_approvals` +
+    `apply_to_admins` — any verdict that lands is binding. Adversarial review
+    is OPT-IN per PR (arm the Review-Ready Gate): enforcement then rides the
+    dev-workflow merge chain (gate-12 requires the bot APPROVE trailer), not a
+    static approval requirement; the approvals whitelist
+    (`[harmostes-bot, tibrez]`) is staged for re-enforcement.) then enforces
+    the verdict at the platform level: a reject physically blocks merge, a
+    re-review from the same user auto-dismisses its prior verdict, fresh
+    pushes invalidate stale approvals. Still post the trailer comment —
+    gate-12 consumes it as merge currency (defense in depth).
+  - **runtime identity = PR author** (no bot account available): the server
+    422s verdict events → fall back to `{"event":"COMMENT"}` carrying the
+    full payload + the trailer comment; enforcement rides gate-12 alone.
+  The polished `fj review` surface mirrors this: `fj review create <PR>
+  --event REQUEST_CHANGES` (positional args fixed in v16.0.3-rezus.3 — the
+  rezus.2 binary bound both path params from args[0], #113).
+- **GitLab (`glab`)**: positioned discussions —
+  `glab api projects/:id/merge_requests/$N/discussions -X POST …`;
+  reply via `…/discussions/$ID/notes`; resolve via `PUT … {"resolved":true}`.
+
+One thread per finding; the verdict body only **summarizes** (with thread
+ids). On a later round: verify each fix in the diff, **reply on the thread
+with the fixing SHA**, then **resolve it**.
+
+**Author side (dev agent) — mandatory before the pipeline resumes:** reply
+to every open review thread with the fix SHA + one-line rationale, resolve
+it (native where the host has it, a closing reply on Forgejo), and only
+then re-arm. post-review mechanically **downgrades an APPROVE issued over
+open prior-round threads** — unresolved threads block the full pipeline
+and the merge, no matter what the verdict text says.
+
+## Output contract — threads are the review; the comment is one line
+
+The posted output is SMALL by design. The pillar analysis (Phases 0-3)
+happens in your head and in your tool calls — it is never posted as prose.
+Exactly two things leave this review:
+
+1. **Blocking findings** — each CRITICAL or verified MAJOR finding becomes
+   ONE entry in `comments[]`. The deploy step posts them as native inline
+   review threads anchored to the code; each must be closed before the PR
+   can merge. MINOR and NIT findings are NOT posted — they do not block
+   merges and a review is not the place for style notes.
+2. **A one-line verdict** — written by the deploy step, not by you. It
+   states the decision, the SHA, and the blocking-finding count. Nothing
+   else. There is no pillar-structured body, no summary section, no
+   coverage essay.
+
+Write the review to `/workspace/review.json` using Python (NOT a bash
+heredoc — heredocs break on Markdown backticks and special chars):
 
 ```python
 import json
 review = {
-    "decision": "APPROVE",
+    "decision": "REQUEST_CHANGES",
     "reviewed_sha": "<head SHA of /workspace/repo>",
-    "body": (
-        "## Adversarial Review\n\n"
-        "### Architectural Fit\n"
-        "- **Coupling:** (finding, or N/A + reason)\n"
-        "- **Design Intent:** (finding, or N/A)\n"
-        "- **Interface Stability:** (finding, or N/A)\n"
-        "- **CI Economy:** (finding, or N/A)\n\n"
-        "### Adversary Findings\n"
-        "- **Correctness:** (finding, or N/A)\n"
-        "- **Security:** (finding, or N/A)\n"
-        "- **Performance:** (finding, or N/A)\n"
-        "- **Observability:** (finding, or N/A)\n"
-        "- **Test Quality:** (finding, or N/A)\n\n"
-        "### Verdict\n(decision + weighted reasoning)\n\n"
-        "<!-- pr-review: APPROVE @ <reviewed_sha> -->"
-    ),
     "comments": [
-        {"path": "src/foo.zig", "line": 42, "body": "Consider ..."}
+        {"path": "src/foo.zig", "line": 42,
+         "body": "Blocking: <what is wrong> <evidence> <what to do>. "}
     ]
 }
 json.dump(review, open("/workspace/review.json", "w"), indent=2)
 ```
 
-- `decision` — `APPROVE`, `REQUEST_CHANGES`, or `COMMENT`.
-- `reviewed_sha` — the head SHA of `/workspace/repo`. The body must **end**
-  with the trailer `<!-- pr-review: <DECISION> @ <reviewed_sha> -->` (exact
-  decision keyword, full SHA) — `dw_wait_review` polls for it,
-  `dw_merge_readiness` binds it to the merge SHA.
-- `body` — Markdown, structured by pillar (see above).
-- `comments` — inline review comments (optional, `[]` if none). Each has
-  `path`, `line`, `body`.
+- `decision` — `APPROVE` (no blocking findings) or `REQUEST_CHANGES`
+  (≥1 blocking finding). There is no COMMENT middle ground: MINOR/NIT
+  findings are dropped, not posted.
+- `reviewed_sha` — the head SHA of `/workspace/repo` (full 40 hex). The
+  deploy step embeds it in the verdict line and anchors every thread to it.
+- `comments` — ONLY blocking findings (empty `[]` when approving). Each
+  is one self-contained thread: what is wrong, the evidence, what to do.
+  The deploy step deduplicates and publishes them; do not post them
+  yourself.
 
-**Coverage rule**: every pillar appears in the body — either a finding or
-"N/A — (brief reason)". Pillars can be grouped if multiple are N/A:
-"N/A: Security (no auth/crypto surface), Observability (no prod paths)".
-This makes coverage auditable — a reader sees what was checked at a glance.
+**Coverage** stays your discipline: every pillar investigated per the
+phases above. But coverage is reported by the deploy step's one-line
+verdict ("pillars clean" vs "N blocking"), not by an N/A essay — a pillar
+with no blocking finding simply produces nothing.
 
 ## Do NOT
 
@@ -297,3 +405,14 @@ This makes coverage auditable — a reader sees what was checked at a glance.
   `dw_merge_readiness` consumes as merge currency.
 - **`llm-wiki`** — the wiki consulted for Design Intent. The RIG and C4 model
   are the deterministic architecture graph; the wiki pages are the reasoning.
+
+## Divergence ledger — carried across rounds (never re-litigate, never forget)
+
+Empirical source: rounds r18–r20 of the model-role flip + #367's blocker. Multi-round loops were never *disagreements about the implementation* — they were **unverified claims about the implementation**. Each round must check the *class*, not just the finding:
+
+1. **Tests pin mechanism, not intent.** Mutation-probe the load-bearing test: swap the guarded value for nonsense (`BOGUS/primary`), run the suite — red required. A test that survives nonsense is decoration. (r18: 19/19 passed with a BOGUS default.)
+2. **One fact, one home.** When a fix updates a stated fact (constant, chain, clamp, limit), grep for EVERY home of that fact (docblocks, canonical comments, ADRs) — fix the class, not the instance. (r19: third stale vintage in `applyChains` docblock.)
+3. **Deployment claims are manifest-grounded.** Any claim about durability, env, volumes, or topology must be falsified against `job.go`, the chart, and the ops repo — never accepted from an ADR's prose. (r20: "the directory IS the association" died on `/tmp` being per-pod ephemeral.)
+4. **Self-authored spec = suspect premise.** When the PR's author also authored the ADR/spec it implements, the load-bearing assumption gets an adversarial pass *first*.
+
+**Session continuity:** a PR's review rounds are ONE lineage. If a prior verdict exists at an earlier head, resume its context (ADR-0010): previously-verified findings stay verified, previously-addressed fixes are acknowledged as addressed, and the review examines the delta between heads. The findings ledger above is the compaction seed — what survives between rounds.

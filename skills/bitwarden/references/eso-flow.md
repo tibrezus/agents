@@ -3,7 +3,7 @@
 How a secret created with `bw secrets create` reaches a pod:
 
 1. **Bitwarden Secrets Manager** stores the secret under a *project*
-   (`0901f4dc-19f0-42dd-8def-b2cb012a0841` for this platform), EU tenancy.
+   (`$BW_PROJECT_ID` — defined in the machine-local `~/.config/bitwarden-agent/env`).
 2. A **machine account** (access token in `external-secrets/bitwarden-access-token`)
    has read access to that project. ExternalSecrets Operator cannot call the BSM
    REST API directly — it talks to an in-cluster **`bitwarden-sdk-server`**
