@@ -227,6 +227,9 @@ kubectl annotate workflow.harmostes.dev <name> -n harmostes \
 kubectl get workflow.harmostes.dev <name> -n harmostes
 kubectl logs -n harmostes deploy/harmostes-worker-pool -c worker --tail=50
 kubectl logs -n harmostes deploy/harmostes-controller -c controller --tail=50
+# Gate holds at a glance (#512): red/pending-CI holds are healthy — only
+# "ingress may be lost" rows deserve a second look:
+kubectl logs -n harmostes deploy/harmostes-worker-pool -c worker | grep -E "armed .*\(waiting: (ci |label absent)"
 ```
 The UI (`harmostes.rezus.cloud`) is **observe-only**; nav is three pages:
 **Live** (`/` — the wall: what is running right now), **Runs** (attempt
@@ -313,7 +316,14 @@ refused; override by re-applying the `needs-review` label) and
 keyed `pi-lineage/<repo>~<pr>` in Dapr state — fetch/materialize at run
 start, stable `harmostes-<pr>` session id, publish back post-run; resumed
 runs get a delta prompt, and the identical prefix gives provider KV-cache
-hits across review rounds.
+hits across review rounds. The claim's live marker is SUBTRACTIVE (#512):
+`harmostes.dev/review-claim=released` marks RELEASED, ABSENCE means live —
+never "repair" a live claim by adding a label; a stranded marker is
+invisible (holds no slot) and the next candidate arm heals it. Gate hold
+logs discriminate CI (#512, release 1.2.0-215+): `ci red/pending at head
+(…) — dispatch on green` is the benign armed hold; `ingress may be lost`
+(green or unreadable head, no verdict) is the only class worth a second
+look — one grep separates them.
 
 ## Relationship to other skills
 
