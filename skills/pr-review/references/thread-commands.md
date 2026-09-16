@@ -17,7 +17,7 @@ landed. The protocol that governs WHEN to use these lives in SKILL.md
 - **Replies / verifications / resolutions** — yours, via the shapes below.
   **A reply lands ON the thread it answers** (`in_reply_to`, discussion
   notes) — never as a new standalone comment; Forgejo (no reply API yet)
-  is the sole exception, via the enumerated follow-up review.
+  is the sole exception, via the ONE enumeration review below.
 
 ## GitHub (`gh`)
 
@@ -42,24 +42,27 @@ gh api graphql -f query='
 
 ## Forgejo / Codeberg (`fj`, native since v16.0.3-rezus.2)
 
-Findings post as a real anchored review — **one create-pull-review per
-round carrying ALL findings** (this is the deploy's job; repeated here only
-because author-side follow-ups use the same call):
+**The deploy's verdict review** (new findings, one create-pull-review per
+round carrying ALL anchored comments) is NOT yours to post. You use the
+same call only for the **thread-reply fallback** — and its shape is exact:
+
+**Reply/resolve gap:** the REST API has no reply and no resolve (both 405;
+github.com/rezuscloud/forgejo#115). A thread is answered by **ONE
+follow-up review whose BODY enumerates every open thread — `comments[]`
+EMPTY**:
 
 ```bash
 fj api --host <host> repos/{o}/{r}/pulls/$N/reviews -X POST \
   -H Content-Type:application/json \
-  -d '{"body":"…","event":"COMMENT","comments":[
-        {"path":"F","new_position":N,"body":"…"}]}'
-# THE LINE FIELD IS new_position — `new_line` 500s server-side.
+  -d '{"event":"COMMENT","body":"Thread resolutions @ <fix-SHA>:\n- src/foo.zig:42 (c36003): fixed in <sha> — <one-line rationale>\n- src/bar.zig:7 (c36004): fixed in <sha> — <one-line rationale>","comments":[]}'
 ```
 
-**Reply/resolve gap:** the REST shape has no `in_reply_to` and no resolve
-endpoint (rezuscloud/forgejo#115, both 405). Until the fork API extension
-ships, a thread is addressed by a follow-up create-pull-review whose
-comment body leads with `path:line` + the resolution + the original
-comment id. Do NOT trust UI thread state as resolve evidence (see SKILL.md:
-later rounds).
+**A new anchored snippet comment starts a NEW thread** — it never answers
+the finding's. Do NOT fragment the conversation with per-finding anchored
+comments (anti-pattern observed live on rhesadox#2241: five
+`reply_to=None` anchored comments, one per finding, instead of this
+enumeration). Line anchors in reviews use **`new_position`** (`new_line`
+500s server-side) — relevant only to the deploy's finding review.
 
 ## GitLab (`glab`)
 

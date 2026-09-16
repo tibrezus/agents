@@ -236,7 +236,8 @@ deploy-composed ONE-LINE comment (decision + SHA + blocking count +
 trailer) — you write no prose.
 
 **Exact per-host call shapes** (gh/fj/glab post/reply/resolve, the Forgejo
-`new_position` field, the reply/resolve API gap rezuscloud/forgejo#115,
+`new_position` field, the reply/resolve API gap
+github.com/rezuscloud/forgejo#115,
 verdict-sink identity mechanics) live in
 [`references/thread-commands.md`](references/thread-commands.md) — load it
 when replying to or closing threads, or debugging where a verdict landed.
@@ -254,8 +255,8 @@ merge currency (defense in depth).
 verification.** For every prior-round thread: locate the fix in the diff;
 when the solution is valid, the thread is CLOSED by your verification —
 post the verification **on that same thread** (the host's reply mechanism;
-on Forgejo, the follow-up review comment leading with `path:line` + the
-original comment id) and count the thread resolved.
+on Forgejo, inside the ONE enumeration review described below) and count
+the thread resolved.
 Do NOT downgrade an APPROVE because a thread shows unresolved in the host
 UI — on Forgejo the resolve API does not exist, so UI state can never show
 resolved; trusting it burns a full review round on findings already fixed
@@ -270,9 +271,14 @@ carrying the fix SHA + one-line rationale, then resolves it natively where
 the host has resolve. A reply posted as a separate/new comment does NOT
 count — the answer lives where the finding lives, so the thread reads as
 one conversation. Sole exception: Forgejo, whose thread API has no
-reply/resolve yet (rezuscloud/forgejo#115) — there the dev posts ONE
-follow-up review comment enumerating `path:line → fix SHA + rationale`
-for every open thread. Then **request review from harmostes-bot
+reply/resolve yet (github.com/rezuscloud/forgejo#115) — there post **ONE
+`create-pull-review` (`event: COMMENT`) whose BODY is the enumeration**
+(`path:line → fix SHA + rationale`, one line per open thread, original
+comment id cited) **and whose `comments[]` is EMPTY**. New anchored
+snippet comments per finding are FORBIDDEN — each starts a new thread
+instead of answering the finding's (anti-pattern observed live,
+rhesadox#2241: five `reply_to=None` comments, one per finding). Then
+**request review from harmostes-bot
 natively** — the request is the re-arm signal (#488; the label stays the
 scope contract). post-review mechanically **downgrades an APPROVE issued
 over prior-round threads whose findings are not addressed in the diff** —
