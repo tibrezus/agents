@@ -128,11 +128,15 @@ means back to developing, never into review. Depth:
 
 0. **Review threads are the merge currency.** When an adversarial review
    leaves inline comments (gh / fj / glab threads) — blocking findings AND
-   TODOs alike — the dev agent replies on EVERY open thread (the fix SHA
-   plus a one-line rationale) and resolves it (native resolve on
-   GitHub/GitLab; on Forgejo, where the thread API has no reply/resolve
-   yet, ONE follow-up review comment enumerating `path:line → fix SHA +
-   rationale` for every thread). The dev then **requests review from
+   TODOs alike — the dev agent replies on EVERY open thread, and the reply
+   lands **on that same anchored review comment** (the host's reply
+   mechanism: `in_reply_to` on GitHub, discussion notes on GitLab), never
+   in a separate comment — carrying the fix SHA plus a one-line rationale,
+   then resolving it natively where the host has resolve. Sole exception:
+   Forgejo, where the thread API has no reply/resolve yet
+   (rezuscloud/forgejo#115) — there ONE follow-up review comment
+   enumerating `path:line → fix SHA + rationale` for every thread is the
+   only sanctioned separate comment. The dev then **requests review from
    harmostes-bot natively** — the request is the re-arm signal (#488; the
    `needs-review` label stays as the scope contract). The REVIEWER — not
    the dev — closes threads on the next round: it verifies each fix in the
