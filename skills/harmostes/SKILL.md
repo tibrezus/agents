@@ -5,10 +5,10 @@ description: "Operate harmostes — a Kubernetes-native workflow orchestration p
 
 # Harmostes — Workflow Orchestration Platform
 
-Harmostes is a **Kubernetes-native orchestration platform** for workflows that
-combine deterministic operations with agentic reasoning. Workflows are CRs
-(`Workflow`, `harmostes.dev/v1alpha1`) that the controller triggers via Dapr
-pub/sub and the worker pool executes as typed graphs
+Harmostes is a **Kubernetes-native orchestration platform** for workflows
+that combine deterministic operations and agentic reasoning. Workflows are
+CRs (`Workflow`, `harmostes.dev/v1alpha1`) that the controller triggers via
+Dapr pub/sub and the worker pool executes as typed graphs
 (`prepare → agent → gate → deploy`).
 
 **Read the model first:** [How Harmostes Works](https://github.com/tibrezus/harmostes/wiki/How-Harmostes-Works)
@@ -36,8 +36,8 @@ chart values (harmostes PR     UI form → thin CR             harmostes UI
    a template, supply a name + the template's **declared scope fields**
    (the form renders from `spec.scope`; only declared keys are stored in
    `spec.config`, per-key overlaying the template's `prepare.config`). The
-   CR is thin — it duplicates nothing. **Creation is inert**: instances are
-   born `spec.disabled: true` — a form submit never arms an unattended
+   CR is thin — it duplicates nothing. **Creation is inert**: instances
+   are born `spec.disabled: true` — a form submit never arms an unattended
    agent loop. Arming is a separate deliberate act (#418 ships the run
    controls; until then an operator flips `spec.disabled` deliberately).
    GitOps instances in k8s-config remain sanctioned (owner label carried
@@ -73,98 +73,39 @@ with owner stamping as the load-bearing invariant (harmostes#414).
 
 ---
 
-## Drift-prevention contract (apply when reviewing or making changes)
+## Drift-prevention lens (reviewing or making changes)
 
-### Kernel PRs (harmostes repo)
+The UI-only path depends on six load-bearing kernel pieces (creation
+routes, owner stamping, template resolution, read-path resolution, scope
+schema, one archetype registry) and on placement rules for k8s-config and
+docs. The piece-by-piece map with file paths, must-remain clauses, and
+the post-change verification recipes:
+**[references/drift-contract.md](references/drift-contract.md)**.
 
-The UI-only path depends on four load-bearing pieces — changes must keep all
-four intact:
+**Reject any PR/MR that:** re-adds example Workflow CR YAML (`examples/`)
+or any YAML/GitOps creation flow (docs or code); creates Workflow CRs
+from any component other than the UI; lets an instance carry a duplicated
+pipeline shape (fat instance); re-creates `platform/harmostes/workflows/`;
+puts templates or CRD bytes into k8s-config; reintroduces a Go-side
+gate/archetype catalog; hardcodes instance-config keys in the creation
+form (the pr-review keys are pr-review's declaration, not the form's
+business).
 
-| Piece | Where | Must remain |
-|---|---|---|
-| Creation routes | `internal/ui/server.go` (`GET /workflows/new`, `POST /workflows`, `POST /workflows/{name}/delete`) | Registered, templateRef-only, owner-stamping |
-| Owner stamping | `internal/ui/workflows.go` (`StampOwnerLabel`) | Server-set from session, never client input |
-| Template resolution | `api/v1alpha1/template.go` (`ApplyTemplateDefaults`) + worker fetch in `cmd/harmostes-worker/main.go` | Field-wise, instance wins, nil-safe; applied after CR fetch |
-| Read-path resolution | `internal/ui` (`resolveWorkflow` in list/detail/graph) + creation RBAC in `chart/templates/ui-rbac.yaml` | Thin instances render merged shape; UI SA has workflow create/delete |
-| Scope schema | `api/v1alpha1/workflowtemplate_types.go` (`ScopeParam`) + `scopeConfigJSON` in `internal/ui/workflows.go` | The template owns its config dialect: form renders from `spec.scope`, creation stores ONLY declared keys (defaults on empty) |
-| One archetype registry | `internal/ui` (no gateCatalog — deleted; grouping by `templateRef`) | No hardcoded archetype catalogs anywhere; adding a template is YAML only |
-
-**Also reject** any PR that reintroduces a Go-side gate/archetype catalog,
-hardcodes instance-config keys in the creation form (the pr-review keys are
-pr-review's declaration, not the form's business), or copies CRD YAML into
-k8s-config (CRDs are single-sourced from the kernel repo via the
-`harmostes-crds` Flux source).
-
-**Reject** any PR that: re-adds example Workflow CR YAML (`examples/`),
-re-introduces a YAML/GitOps creation flow in docs or code, lets an instance
-carry a duplicated pipeline shape (fat instance), or creates Workflow CRs
-from any component other than the UI.
-
-### k8s-config MRs
-
-- `platform/harmostes/workflows/` must **not exist** (and must not be
-  re-created). Instance YAMLs live as `workflow-instances-*.yaml` files in
-  `platform/harmostes/`, carry `harmostes.dev/owner` explicitly, and are
-  sanctioned until harmostes#418 retires them.
-- Templates do NOT live in k8s-config — they are **chart values** in the
-  harmostes repo (`chart/values.yaml`, ADR-0011). Each template must carry
-  **full executable defaults** — model, taskTemplate with `configMap` +
-  `key`, plugin configMaps — **and a `spec.scope` declaration** for every
-  instance-config key its prepare plugin consumes (the UI form is useless
-  without it).
-- CRDs: k8s-config holds **zero CRD bytes** — the `harmostes-crds`
-  GitRepository + Kustomization source `chart/crds/` from the kernel repo
-  (`prune: false`; fresh clusters: apply
-  `platform/harmostes/gitrepository-crds.yaml` once directly).
-
-### Documentation changes
-
-- The wiki is the source of truth: [How-Harmostes-Works](https://github.com/tibrezus/harmostes/wiki/How-Harmostes-Works)
-  (model), [Managing-Workflows](https://github.com/tibrezus/harmostes/wiki/Managing-Workflows)
-  (operations). Any procedure doc that teaches creating workflows outside the
-  UI is drift — fix it, don't follow it.
-- The wiki follows Diátaxis: this skill must never contradict
-  [Managing-Workflows](https://github.com/tibrezus/harmostes/wiki/Managing-Workflows).
-
-### Verification after any workflow-related change
-
-```bash
-# 1. Only the UI path created workflows (no GitOps drift):
-kubectl get workflows.harmostes.dev -n harmostes \
-  -o custom-columns=NAME:.metadata.name,OWNER:.metadata.labels.harmostes\.dev/owner
-# → every row has an OWNER (UI-stamped); zero rows = also fine
-
-# 2. The workflow is visible/operable in the UI (port-forward + session header):
-kubectl port-forward -n harmostes svc/harmostes-ui 18083:8083 &
-curl -s -H "X-Authentik-Username: <owner>" http://127.0.0.1:18083/workflows | grep <workflow-name>
-
-# 3. Thin instance resolves (detail shows the template's nodes):
-curl -s -H "X-Authentik-Username: <owner>" \
-  http://127.0.0.1:18083/workflows/<workflow-name> | grep -E "pr-fetch|AGENT|post-review" # template-dependent
-```
-
-A change that passes tests but leaves any check red is **not done**.
-
----
+A change that passes tests but leaves any verification check red is
+**not done**.
 
 ## Canonical documentation
 
-| Resource | URL | When to read |
-|----------|-----|--------------|
-| **How Harmostes Works** | [wiki/How-Harmostes-Works](https://github.com/tibrezus/harmostes/wiki/How-Harmostes-Works) | **Always first** — the complete model |
-| **Managing Workflows** | [wiki/Managing-Workflows](https://github.com/tibrezus/harmostes/wiki/Managing-Workflows) | Create, deploy, trigger, monitor, remove |
-| Architecture | [wiki/Architecture](https://github.com/tibrezus/harmostes/wiki/Architecture) | Components, execution model, data flow |
-| Execution Model | [wiki/Execution-Model](https://github.com/tibrezus/harmostes/wiki/Execution-Model) | trigger→worker→pipeline flow |
-| Gate Catalog | [wiki/Gate-Catalog](https://github.com/tibrezus/harmostes/wiki/Gate-Catalog) | The gates and their structure |
-| Workflow CRD Reference | [wiki/Workflow-CRD-Reference](https://github.com/tibrezus/harmostes/wiki/Workflow-CRD-Reference) | Every spec field |
-| Workflow Catalog | [wiki/Workflow-Catalog](https://github.com/tibrezus/harmostes/wiki/Workflow-Catalog) | What exists, where it lives, how it fires |
-| Fork Maintenance | [wiki/Fork-Maintenance](https://github.com/tibrezus/harmostes/wiki/Fork-Maintenance) | Fork sync model (self-hosted transport) |
-| Observability Views | [wiki/Observability-Views](https://github.com/tibrezus/harmostes/wiki/Observability-Views) | UI views (Map, Flows, Sessions, Attempts) |
-| Credential Management | [wiki/Credential-Management](https://github.com/tibrezus/harmostes/wiki/Credential-Management) | Secrets, tokens, ExternalSecrets |
-| Event-Driven Worker Pool | [wiki/Event-Driven-Worker-Pool](https://github.com/tibrezus/harmostes/wiki/Event-Driven-Worker-Pool) | Execution/pod debugging |
-| Webhook Triggers | [wiki/Webhook-Triggers](https://github.com/tibrezus/harmostes/wiki/Webhook-Triggers) | Instant triggers |
-| CONTEXT.md (glossary) | [repo/CONTEXT.md](https://github.com/tibrezus/harmostes/blob/main/CONTEXT.md) | Domain language |
-| ADRs (0001–0010) | [wiki Home → ADRs](https://github.com/tibrezus/harmostes/wiki/Home#adrs-architecture-decisions) | Design decisions — incl. 0006 event-armed gates, 0007 Job-per-attempt, 0008 attempt-scoped resumption, 0009 graph-first navigation, **0010 PR-scoped agent session lineages** |
+Model: **[How-Harmostes-Works](https://github.com/tibrezus/harmostes/wiki/How-Harmostes-Works)** (always first).
+Operations: **[Managing-Workflows](https://github.com/tibrezus/harmostes/wiki/Managing-Workflows)** (create/deploy/trigger/monitor/remove).
+Depth on wiki: Architecture, Execution-Model, Gate-Catalog,
+Workflow-CRD-Reference (every spec field), Workflow-Catalog,
+Fork-Maintenance, Observability-Views (Map/Flows/Sessions/Attempts),
+Credential-Management, Event-Driven-Worker-Pool, Webhook-Triggers.
+Glossary: repo `CONTEXT.md`. ADRs 0001–0010 on the wiki Home — incl.
+ADR-0006 event-armed gates, ADR-0007 Job-per-attempt, ADR-0008
+attempt-scoped resumption, ADR-0009 graph-first navigation,
+**ADR-0010 PR-scoped agent session lineages**.
 
 ## The gate-centric model
 
@@ -181,41 +122,33 @@ A workflow's **gate** determines its structure — templates encode this:
 
 ## Where things live
 
-| Artifact | Location | Git remote |
-|----------|----------|------------|
-| **Workflow instances** | harmostes UI (`/workflows/new`, inert by default) or `k8s-config/platform/harmostes/workflow-instances-*.yaml` | both: `github.com:tibrezus/harmostes` + `gitlab.com:rezusnet/operations/k8s-config` |
-| **WorkflowTemplates** (pipeline shapes) | `harmostes/chart/values.yaml` (chart values, ADR-0011) | `github.com:tibrezus/harmostes` |
-| **Harmostes platform** (controller, worker, UI) | `harmostes/` | `github.com:tibrezus/harmostes` |
-| **Chart** (Helm) | `harmostes/chart/` | `github.com:tibrezus/harmostes` |
-| **Documentation** | `harmostes.wiki/` | `github.com:tibrezus/harmostes.wiki` |
-| **Credentials** | `harmostes/chart/values.yaml` `credentials:` block (chart-rendered ExternalSecrets, ADR-0011) | BSM → ExternalSecrets |
+| Artifact | Location |
+|----------|----------|
+| **Workflow instances** | harmostes UI (`/workflows/new`, inert by default) or `k8s-config/platform/harmostes/workflow-instances-*.yaml` (sanctioned until #418) |
+| **WorkflowTemplates** | `harmostes/chart/values.yaml` (chart values, ADR-0011) — must carry full executable defaults + `spec.scope` for every instance-config key |
+| **Platform / chart / docs** | `harmostes/` repo (+ `.wiki`); credentials in chart `values.yaml` `credentials:` block (chart-rendered ExternalSecrets) |
 
-## Cluster details
-
-| Detail | Value |
-|--------|-------|
-| Namespace | `harmostes` |
-| Cluster | `admin@talosoci` |
-| Chart source | `oci://ghcr.io/tibrezus/harmostes` (Flux `HelmRepository`) |
-| Flux Kustomization | `platform` (watches `k8s-config`) |
-| UI | `harmostes.rezus.cloud` (behind Authentik SSO) |
-| Dapr pub/sub topic | `harmostes-triggers` (`pubsub.redis` on Valkey) |
+Cluster: namespace `harmostes` @ `admin@talosoci`; chart
+`oci://ghcr.io/tibrezus/harmostes` (Flux `HelmRepository`); Flux
+Kustomization `platform` watches k8s-config; UI `harmostes.rezus.cloud`
+(behind Authentik SSO); Dapr topic `harmostes-triggers`
+(`pubsub.redis` on Valkey).
 
 ## Common operations
 
 ### Create a workflow (the only way)
 
-1. Open the UI → **Workflows → New Workflow** (`/workflows/new`)
+1. UI → **Workflows → New Workflow** (`/workflows/new`)
 2. Pick a WorkflowTemplate; supply name (`{gate}-{targetSlug}`), schedule,
    scope (label/repos/wiki)
 3. Create — owner is stamped from your session; verify it appears in your list
-4. If no template fits: add/change a **template** via k8s-config MR — never a
-   fat instance, never YAML
+4. If no template fits: add/change a **template** via a harmostes PR to
+   `chart/values.yaml` — never a fat instance, never YAML
 
 ### Trigger / toggle / delete
 
-UI actions on the workflow detail page (**Trigger** / **Toggle** / **Delete**).
-Fallback for scripted triggering only:
+UI actions on the workflow detail page (**Trigger** / **Toggle** /
+**Delete**). Fallback for scripted triggering only:
 ```bash
 kubectl annotate workflow.harmostes.dev <name> -n harmostes \
   harmostes.dev/trigger-revision="$(date +%s)" --overwrite
@@ -231,92 +164,47 @@ kubectl logs -n harmostes deploy/harmostes-controller -c controller --tail=50
 # "ingress may be lost" rows deserve a second look:
 kubectl logs -n harmostes deploy/harmostes-worker-pool -c worker | grep -E "armed .*\(waiting: (ci |label absent)"
 ```
-The UI (`harmostes.rezus.cloud`) is **observe-only**; nav is three pages:
-**Live** (`/` — the wall: what is running right now), **Runs** (attempt
-history → run detail: timeline graph + logs + transcripts), **Workflows**
-(templates + instances). Page-tabs: Workflows | Templates.
+The UI is **observe-only**; nav: **Live** (`/` wall), **Runs** (attempt
+history → detail: timeline graph + logs + transcripts), **Workflows**
+(templates + instances; page-tabs Workflows | Templates).
 
-### Query attempt / run state (the efficient path)
+### Query attempt / run state
 
-An attempt IS the run (ADR-0007): one graph execution = one Attempt CR; each
-node execution inside it = one run = one K8s Job = one pod. The Attempt CR is
-the durable spine; Jobs/pods are ephemeral. Query CRs for state and history,
-pods only for live logs.
-
-**Durable layer — Attempt CRs (`harmostes.dev/v1alpha1`):**
-
-```bash
-# Every attempt: phase + owner + workflow (owner = who may see it in the UI)
-kubectl get attempts.harmostes.dev -n harmostes \
-  -o custom-columns=NAME:.metadata.name,PHASE:.status.phase,OWNER:.metadata.labels.harmostes\.dev/owner,WF:.metadata.labels.harmostes\.dev/workflow
-
-# All attempts of one workflow (attempt names embed workflow + head SHA:
-# attempt-pr-review-rhesadox-0f034bedd3a0)
-kubectl get attempts.harmostes.dev -n harmostes -l harmostes.dev/workflow=pr-review-rhesadox
-
-# The run list: one row per node-execution; phase "running" = live position
-kubectl get attempt <name> -n harmostes \
-  -o jsonpath='{range .status.runs[*]}{.name}{"\t"}{.phase}{"\t"}{.startedAt}{"\t"}{.endedAt}{"\n"}{end}'
-
-# The node-result ledger: per-node state + duration (ms) as the UI's graph
-# and timing waterfall render it
-kubectl get attempt <name> -n harmostes \
-  -o jsonpath='{range .status.nodeResults[*]}{.nodeID}{"\t"}{.runID}{"\t"}{.status}{"\t"}{.durationMs}{"\t"}{.producedAt}{"\n"}{end}'
-```
-
-Phase vocabulary: attempt `reconciling` (in progress) → `validated` (a
-deterministic claim confirmed the targeted state) / `failed` /
-`superseded` (a newer targeted state replaced this one); runs are
-`running` → `succeeded`/`failed`. Envelope status: `ok`/`failed`/`skipped`.
-
-**Ephemeral layer — Jobs/pods, keyed by the attempt label:**
+An attempt IS the run (ADR-0007): one graph execution = one Attempt CR;
+each node inside = one run = one Job = one pod. Attempt CRs are the
+durable spine (query those for state/history); Jobs/pods are ephemeral
+(logs only). Phase vocabulary: attempt `reconciling` → `validated` /
+`failed` / `superseded`; runs `running` → `succeeded`/`failed`; envelope
+`ok`/`failed`/`skipped`. Full cookbook — Attempt-CR custom-columns/
+jsonpath queries, attempt-labeled Job/pod queries, owner-scoped UI curls
+(`X-Authentik-Username`; foreign names 404 — no existence leak), live SSE
+streams, session-lineage reads:
+**[references/queries.md](references/queries.md)**.
 
 ```bash
-kubectl get jobs -n harmostes -l harmostes.dev/attempt=<attempt-name>
-kubectl get pods -n harmostes -l harmostes.dev/attempt=<attempt-name> -o wide
-kubectl logs -n harmostes -l harmostes.dev/attempt=<attempt-name> -c run --tail=100 -f
+kubectl get attempts.harmostes.dev -n harmostes -l harmostes.dev/workflow=<name>
+kubectl get attempt <attempt> -n harmostes -o jsonpath='{range .status.runs[*]}{.name}{"\t"}{.phase}{"\n"}{end}'
 ```
-
-**Through the UI (owner-scoped reads; port-forward + session header):**
-
-```bash
-kubectl port-forward -n harmostes svc/harmostes-ui 18083:8083 &
-U="-H X-Authentik-Username:<owner>"   # foreign names 404 — no existence leak
-curl -s $U http://127.0.0.1:18083/                            # wall (live rollups)
-curl -s $U http://127.0.0.1:18083/runs                        # attempt list
-curl -s $U http://127.0.0.1:18083/runs/<attempt>              # detail: graph + claims + transcripts
-curl -s $U http://127.0.0.1:18083/runs/<attempt>/runs/<run>/logs        # log fragment (HTML)
-curl -s $U http://127.0.0.1:18083/runs/<attempt>/runs/<run>/session     # agent transcript
-curl -s $U http://127.0.0.1:18083/runs/<attempt>/runs/<run>/pi-session  # raw pi session JSONL
-curl -sN $U http://127.0.0.1:18083/runs/<attempt>/graph/events          # live graph SSE stream
-curl -sN $U http://127.0.0.1:18083/api/wall/events                      # live wall SSE stream
-```
-
-A foreign or unknown attempt name under `/runs/...` returns the same 404 —
-the multi-tenant gate; don't debug it as a routing bug.
 
 ## Execution model (summary)
 
 ```
 Controller detects workflow is due
   → publishes TriggerEvent to Dapr pub/sub (harmostes-triggers)
-    → worker pool consumer receives event
-      → fetches Workflow CR + resolves templateRef (ApplyTemplateDefaults)
-      → execs one-shot worker
-        → prepare → agent (LLM) → gate → deploy
+    → worker pool consumer fetches Workflow CR + resolves templateRef
+      → execs one-shot worker: prepare → agent (LLM) → gate → deploy
       → ACK on success / NACK on failure (at-least-once via Redis Streams)
 ```
 
-Key properties: single-flight per pod, at-least-once delivery, `detect:
-changed` skips no-op runs, Node Result Envelopes + Attempt CRs record
+Key properties: single-flight per pod; at-least-once delivery; `detect:
+changed` skips no-op runs; Node Result Envelopes + Attempt CRs record
 history (ADR-0005). Reviews run attempt-scoped Jobs (ADR-0007) with a
 **dead-dispatch breaker** (N dispatches dying verdictless ⇒ re-arm
 refused; override by re-applying the `needs-review` label) and
-**PR-scoped pi session lineages** (ADR-0010, #367): the session store is
-keyed `pi-lineage/<repo>~<pr>` in Dapr state — fetch/materialize at run
-start, stable `harmostes-<pr>` session id, publish back post-run; resumed
-runs get a delta prompt, and the identical prefix gives provider KV-cache
-hits across review rounds. The claim's live marker is SUBTRACTIVE (#512):
+**PR-scoped pi session lineages** (ADR-0010, #367): keyed
+`pi-lineage/<repo>~<pr>` in Dapr state, stable `harmostes-<pr>` session
+id, delta prompt on resume, identical prefix ⇒ provider KV-cache hits
+across review rounds. The claim's live marker is SUBTRACTIVE (#512):
 `harmostes.dev/review-claim=released` marks RELEASED, ABSENCE means live —
 never "repair" a live claim by adding a label; a stranded marker is
 invisible (holds no slot) and the next candidate arm heals it. Gate hold
