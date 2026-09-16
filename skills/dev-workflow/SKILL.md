@@ -5,124 +5,92 @@ description: "Enforce branch-based development — every change flows issue → 
 
 # Dev Workflow — Issue → Branch → Green CI → Merge
 
-This skill enforces one invariant: **the default branch only ever moves via a
-merged PR whose CI is green — never a direct commit.** The gate chain below is
-that invariant in operational, falsifiable form; every change must pass all
-gates in order.
+One invariant: **the default branch only ever moves via a merged PR whose
+CI is green — never a direct commit.** The gate chain below is that
+invariant in operational, falsifiable form. It is **universal**:
+multi-platform (issue/branch/PR/CI/merge dispatch via
+[`scripts/host.sh`](scripts/host.sh)) and multi-project (per-project
+differences are *data* in the project's AGENTS.md, not logic here).
 
-It is **universal**: multi-platform (issue/branch/PR/CI/merge calls dispatch to
-the right host via [`scripts/host.sh`](scripts/host.sh)) and multi-project
-(per-project differences — default branch, milestone/test/CI commands — are
-*data* in that project's AGENTS.md, not logic here).
-
-## When to use this skill
-
-- About to implement a feature, fix, refactor, or docs change in a project
-  that follows this workflow (you will see the `## Development Workflow`
-  section in its `AGENTS.md`).
-- Need to create an issue, branch, or PR tied to an issue/milestone.
-- CI ran on a PR and you must decide merge vs. fix.
-- A change is about to be considered "done" — confirm it is grounded in the
-  documented design, covered by tests, and free of undocumented coupling.
-- "Set up / change / propagate the workflow in repo X" → run `adopt`
-  (idempotent; re-run in each project to propagate).
+Use when: implementing a feature/fix/refactor/docs change in a project
+with the `## Development Workflow` section in its AGENTS.md; creating
+issues/branches/PRs tied to an issue/milestone; deciding merge vs. fix on
+a red PR; declaring a change "done"; setting up or propagating the
+workflow in a repo (`adopt` — idempotent, re-run per project).
 
 ## The change lifecycle (gate chain)
 
-A change may merge only after **all** gates pass, in order. Each gate is
-independently falsifiable.
+A change may merge only after **all** gates pass, in order; each is
+independently falsifiable. (Numbers are stable identifiers —
+`references/*` and other skills cite them.)
 
-1. **Grounded in documented design — load architectural context before
-   implementing.** If the project has an architecture graph (`rig.db`), load
-   it in order (each mandatory if it exists): **`rig overview`** (the whole
-   graph in ~400 tokens), targeted drill-down (`rig component`, `rig
-   search`, `rig deps --reverse`), the project wiki's **`Architecture.md`**
-   (CI-regenerated, authoritative), and the relevant llm-wiki pages
-   (decisions, trade-offs, the why). Implementation without this context is
-   invalid. **The graph is the primary tool against code duplication**:
-   before writing a new function/type, `rig search` the capability — extend
-   what exists instead of duplicating.
+1. **Grounded in documented design** — before implementing, load context
+   in order (each mandatory if it exists): `rig overview` (whole graph,
+   ~400 tokens), targeted drill-down (`rig component`, `rig search`,
+   `rig deps --reverse`), the project wiki's `Architecture.md`
+   (CI-regenerated, authoritative), relevant llm-wiki pages (decisions,
+   the why). Implementation without this context is invalid. **The graph
+   is the primary tool against duplication**: before writing a new
+   function/type, `rig search` the capability — extend what exists.
 2. **Issue exists** — an open issue (found or created) describes the change.
-3. **Branch tied to the issue** — a branch whose name contains the issue
-   number, created off the default branch. No work on the default branch.
-4. **Milestone assigned** — the issue is associated with a milestone (current
-   by convention, or per the project config).
+3. **Branch tied to the issue** — name contains the issue number, created
+   off the default branch. No work on the default branch.
+4. **Milestone assigned** — per the project's convention.
 5. **Change made on the branch** — commits reference the issue
    (`Refs #<n>` / `Fixes #<n>`). The implementation is **optimal** (hard
-   rule 5): root cause, right abstraction, no workarounds. **No unnecessary
-   duplication** — before writing a new function/type, `rig search` the
-   graph for the capability; extend what exists, and justify a near-duplicate
-   on the PR if reuse is impossible.
-
+   rule 5): root cause, right abstraction, no workarounds, **no
+   unnecessary duplication** (gate 1's `rig search` rule; justify a
+   near-duplicate on the PR if reuse is impossible).
 6. **Change covered by tests** — unit tests for every behavior added or
-   altered (fast tier); extend the integration suite where one exists.
-   Every new or altered test is **mutation-probed before push**:
-   deliberately break the behavior it guards, confirm the test goes red,
-   restore. Green tests that survive nonsense are not coverage (r18
-   lesson: a BOGUS constant passed 19/19). Before any new test, job, or
-   step goes into CI, audit the **entire** CI for a check that already
-   achieves the same purpose — reuse, extend, or move it; a purpose is
-   never duplicated (see [CI discipline](#continuous-integration-discipline)).
-   Every test and tool is **wired into CI** — never a throwaway script. For
-   `SAFETY_LEVEL: mcdc` projects, also achieve MC/DC
-   ([`references/mcdc.md`](references/mcdc.md)).
-7. **No undocumented coupling** — any coupling the change introduces between
-   components is part of the intended architecture; if it is not, record it in
-   the wiki (`/skill:llm-wiki`) **before** the PR merges.
-8. **Simplification pass** — re-read the full diff and ask "can this be
-   simpler?" Remove dead code, redundant abstractions, speculative
-   generality. A complex implementation is not optimal when a simpler one
-   exists (hard rule 5). Runs **before pushing to CI** and is re-checked
-   **before merging**.
-9. **PR open — only after the local CI mirror is green.** The project's
-    fast-tier workloads run locally first (build, lint, unit/targeted tests
-    — `dw_run_tests` + the project's lint) and the PR opens **once**, when
-    all of it passes. Opening a PR is the expensive step: it triggers CI on
-    the forge, so early scaffolding stays on the branch with the local
-    loop.
-10. **Fast CI green on every push** — lint/build/unit/targeted tests. Red
-    is fixed on the branch, never merged red. Silence is not green: a
-    conflicted (DIRTY) PR gets NO runs at all — treat "no checks" as a
-    rebase signal, prevented by gate 7's conflict probe.
+   altered (fast tier); extend the integration suite where one exists
+   (what counts: [`test-policy.md`](references/test-policy.md)). Every new
+   or altered test is **mutation-probed before push**: break the behavior,
+   confirm red, restore — green tests that survive nonsense are not
+   coverage (r18: a BOGUS constant passed 19/19). Before any new test,
+   job, or step goes into CI, audit the whole CI surface for a check that
+   already achieves the purpose ([`ci-wiring.md`](references/ci-wiring.md)).
+   Every test and tool is **wired into CI** — never a throwaway script.
+   `SAFETY_LEVEL: mcdc` projects also achieve MC/DC
+   ([`mcdc.md`](references/mcdc.md)).
+7. **No undocumented coupling** — coupling the change introduces must be
+   part of the intended architecture or recorded in the wiki
+   (`/skill:llm-wiki`) **before** merge ([`coupling.md`](references/coupling.md)).
+8. **Simplification pass** — re-read the full diff, ask "can this be
+   simpler?", remove dead code / redundant abstractions / speculative
+   generality (hard rule 5). Before pushing to CI, re-checked before merge.
+9. **PR open — only after the local CI mirror is green.** Fast-tier
+   workloads run locally first (build, lint, `dw_run_tests`); the PR opens
+   **once** — it triggers CI on the forge, so scaffolding stays on the
+   branch. Probe conflicts BEFORE pushing: a DIRTY PR gets no runs at all
+   (procedure step 7).
+10. **Fast CI green on every push** — lint/build/unit/targeted tests; red
+    fixed on the branch. Silence is not green: "no checks" is a rebase
+    signal (procedure step 8).
 11. **Full pipeline green on the head SHA** — at ready declaration: rebase
-    onto the default branch, then set the `full-pipeline` label on the PR
-    (`dw_trigger_full_pipeline`), which runs the full pipeline on that head
-    SHA; watch it green. **The rebase is enforced at the trigger** — the
-    helper refuses any head that is not a descendant of the current default
-    head, on the first trigger and on every re-trigger alike (a human
-    ticking the label in the UI carries the same obligation). The refusal
-    is a resource rule: the full pipeline is the expensive tier
-    (benchmarks, GPU/infra matrices, long evaluations) — triggering it on a
-    head behind default buys a green status on a SHA that the mandatory
-    rebase invalidates anyway; rebase is free, a full run is not. Any later
-    push or default-branch move invalidates the run — re-rebase, then
-    re-trigger (the helper toggles the label). Skipped when no full
-    workflow is configured (the fast tier *is* the pipeline).
-12. **Adversarial review APPROVE on the head SHA — when armed.** Adversarial
-    review is **opt-in per PR**: `dw_request_review` (guarded ingress:
-    refuses heads without a green pipeline) arms it by setting the
-    `needs-review` label, which wakes the harmostes Review-Ready Gate and
-    runs the `pr-review` skill as the reviewer (`harmostes-bot`). Its
-    verdict is then binding: the bot's native APPROVED/REQUEST_CHANGES
-    review satisfies branch-protection approvals where armed, and APPROVE
-    lands only when every review thread — findings AND TODOs — is
-    resolved by the dev (open threads downgrade an APPROVE). When
-    adversarial review is NOT required, skip this gate: after gate 11 the
-    dev (admin) merges independently — the reviewer is never added
-    unrequested.
+    onto default, then `dw_trigger_full_pipeline` (the helper **refuses
+    unrebased heads** — first trigger and re-triggers alike; the full
+    tier is expensive: benchmarks, GPU/infra matrices, long evals). Any
+    later push or default-branch move invalidates the run — re-rebase,
+    re-trigger. Skipped when no full workflow is configured.
+12. **Adversarial review APPROVE on the head SHA — when armed.** Opt-in
+    per PR: `dw_request_review` (guarded ingress: refuses heads without a
+    green pipeline) arms it via the `needs-review` label, which wakes the
+    harmostes Review-Ready Gate; the `pr-review` skill runs as
+    `harmostes-bot`. The bot's native APPROVED/REQUEST_CHANGES satisfies
+    branch-protection approvals where armed; APPROVE lands only when every
+    review thread — findings AND TODOs — is resolved by the dev. When not
+    required, skip: the dev (admin) merges independently after gate 11.
 13. **Merge-ready, then merged** — `dw_merge_readiness` verifies fast +
     full + rebase at one frozen head SHA (plus the review verdict when
-    gate 12 was armed); only then `dw_merge_pr`. Branch deleted; the
-    merged PR (`Closes #n`) closes the issue and is the implementation
-    record — no separate issue comment required.
+    armed); then `dw_merge_pr`. Branch deleted; the merged PR
+    (`Closes #n`) closes the issue and is the implementation record.
 
 **Two-phase readiness:** development pushes run the fast tier only; the
-full pipeline + adversarial review run **once, at ready declaration, on the
-final head SHA** (rebase *before* triggering — the trigger refuses unrebased
-heads). Statuses bind to SHAs, so any
-push after declaration — source or docs — re-opens the path; a red pipeline
-means back to developing, never into review. Depth:
-[`references/ci-concepts.md`](references/ci-concepts.md) §1.3.
+full pipeline + adversarial review run **once, at ready declaration, on
+the final head SHA** (rebase *before* triggering). Statuses bind to SHAs,
+so any push after declaration — source or docs — re-opens the path; red
+pipeline means back to developing, never into review (depth:
+[`test-policy.md`](references/test-policy.md)).
 
 ## Hard rules
 
@@ -140,33 +108,32 @@ means back to developing, never into review. Depth:
    create new anchored snippet comments per finding — each starts a NEW
    thread instead of answering the finding's (anti-pattern observed live,
    rhesadox#2241: five `reply_to=None` comments, one per finding). The dev
-   then **requests review from
-   harmostes-bot natively** — the request is the re-arm signal (#488; the
-   `needs-review` label stays as the scope contract). The REVIEWER — not
-   the dev — closes threads on the next round: it verifies each fix in the
-   diff and resolves/counts the thread as addressed; it never downgrades
-   for host-UI thread state on Forgejo (the resolve API does not exist
-   there). The full pipeline resumes and a re-review can APPROVE only when
-   every finding is verifiably addressed in the diff; post-review
-   downgrades APPROVEs issued over findings that are not.
+   then **requests review from harmostes-bot natively** — the request is
+   the re-arm signal (#488; the `needs-review` label stays as the scope
+   contract). The REVIEWER — not the dev — closes threads on the next
+   round: it verifies each fix in the diff and resolves/counts the thread
+   as addressed; it never downgrades for host-UI thread state on Forgejo
+   (the resolve API does not exist there). The full pipeline resumes and a
+   re-review can APPROVE only when every finding is verifiably addressed
+   in the diff; post-review downgrades APPROVEs issued over findings that
+   are not.
 1. A direct commit/push to the default branch is forbidden unless the user
-   gave an explicit instruction that is recorded on the issue. When in doubt,
-   branch.
-2. Never force-push (`--force` / `--force-with-lease`) to the default branch
-   on **any** platform — and on **Codeberg** this is absolute: the default
-   branch (`main`/`master`) must never be overwritten. The only force-push
-   the workflow ever performs is to a *feature* branch after rebasing it onto
-   the default.
-3. Always rebase the feature branch onto the default branch before merging,
-   so the merge is conflict-free and linear.
+   gave an explicit instruction that is recorded on the issue. When in
+   doubt, branch.
+2. Never force-push to the default branch on **any** platform — on
+   **Codeberg** absolute. The only force-push the workflow performs is to
+   a *feature* branch after rebasing it onto the default.
+3. Always rebase the feature branch onto the default branch before
+   merging, so the merge is conflict-free and linear.
 4. Never change platform/repository rules (branch protection, force-push
    settings, merge-strategy constraints) to work around these rules. If a
-   merge is blocked, the fix is on the branch, never in the platform config.
+   merge is blocked, the fix is on the branch, never in the platform
+   config.
 5. Only optimal implementations are accepted. Workarounds at any level
    (code, tests, CI, tooling, configuration) are forbidden — they defer
-   problems, they don't solve them. A complex implementation is not optimal
-   when a simpler alternative exists — simplicity is a requirement, not a
-   preference. If a proper fix is genuinely blocked, surface the blocker on
+   problems, they don't solve them. Simplicity is a requirement, not a
+   preference; a complex implementation is not optimal when a simpler one
+   exists. If a proper fix is genuinely blocked, surface the blocker on
    the issue rather than routing around it silently. "It works" is not the
    bar; "it is correct and well-structured" is.
 6. **A finding cites one instance; the dev fixes the class.** Review
@@ -183,302 +150,113 @@ means back to developing, never into review. Depth:
 
 ## Continuous integration discipline
 
-"CI green" is a quality gate, not a build-status light. The change must be
-**covered by tests that actually run in CI** and must not smuggle in coupling
-the architecture did not ask for. Depth on both — what counts as coupling, how
-to detect it, how to wire tests into CI — lives in
-[`references/ci-concepts.md`](references/ci-concepts.md).
+"CI green" is a quality gate, not a build-status light. The mandates; each
+rule's depth lives in its reference page:
 
-**CI instrumentation evolves with the project — there is no throwaway test.**
-Run the project's own runner locally (`make test`, `npm test`, `scripts/test`
-— whatever CI runs) and wire every new test or tool into CI; before creating
-a component (tool, CI job, wiki page), check that an equivalent doesn't
-already exist and extend it instead. Unit tests are mandatory (fast tier,
-every push); benchmarks and long evaluations go in the slow tier (dispatched
-once at ready declaration — gate 11) as reusable jobs. A throwaway script
-leaves CI frozen while the code moves on — it looks like coverage but
-protects nothing. Depth: [`references/ci-concepts.md`](references/ci-concepts.md) §1.
-
-**CI code is expensive — a check's purpose is never duplicated.** Every
-line of CI is paid three times, forever: runner minutes, a second place to
-sync, a second red light nobody trusts. Before adding any CI logic, audit
-the entire CI surface and map each existing check to its **purpose** — if
-the purpose exists anywhere, the logic moves into the right form and is
-never added twice; a genuinely new purpose is added once, in the tier its
-runtime belongs in. The audit runs before the first line of CI code is
-written, and its result is stated on the PR.
-Depth: [`references/ci-concepts.md`](references/ci-concepts.md) §3.
-
-**Safety-critical boolean logic requires MC/DC.** When the project declares
-`SAFETY_LEVEL: mcdc`, every boolean decision in changed code must achieve
-Modified Condition/Decision Coverage — each condition proven to independently
-affect the outcome. This is a deterministic pipeline (spec-driven, not LLM
-reasoning). Load [`references/mcdc.md`](references/mcdc.md) when
-`SAFETY_LEVEL: mcdc` is set or when a change touches complex boolean
-decisions.
-
-**CI checks are never removed — they shift, they don't vanish.** When
-reshaping pipelines to satisfy the conformance invariants below (splitting a
-compound job, renaming to gate tokens, moving a check between tiers), every
-check that existed must still exist somewhere in the repo's workflows —
-different job, different file, different tier, but present. The validator
-enforces this deterministically against a base ref (`dw_ci_conformance
-"origin/main"`); a removal finding is either fixed by re-homing the check or
-justified to the reviewer as genuinely obsolete. Deleting coverage to make a
-naming or structure rule pass is a violation, not a refactor.
-
-**CI conformance — the five invariants.** Independent of platform and of
-pipeline shape, a repo's native CI files (`.github/workflows/`,
-`.forgejo/workflows/`, `.gitea/workflows/`, `.gitlab-ci.yml`) must hold:
-
-- **I1 Check equivalence** — a logical check runs the same normalized commands
-  on every backend that claims to run it.
-- **I2 Matrix coherence** — every leg of a matrix axis runs the same check set.
-- **I3 Justified non-suitability** — a leg that skips a check declares why,
-  with a `not-suitable: runner=<token> — <capability reason>` marker adjacent
-  to the condition; the reason names a capability, not a preference.
-- **I4 No silent divergence** — any difference not covered by I3 is a failure.
-- **I5 Naming consistency** — one concept, one token: job ids are kebab,
-  matrix values are runner tokens, status contexts decompose to tokens, and
-  free-text expansions (`inputs.*`, `github.event.*`) never reach a context.
-
-The framework is conceptual, not a schema: pipelines stay free-form; only
-these properties are enforced. Validation is deterministic
-(`dw_ci_conformance`, backed by `scripts/ci-conformance.py` — static
-analysis + `--base` preservation diff + `--fleet` vocabulary report). Run it
-after any commit that touches workflow files. Repos opt into failing CI over
-findings with a `.ci-conformance` file containing `strict`; until then
-findings are advisory. Depth: [`references/ci-concepts.md`](references/ci-concepts.md) §5.
-
-**Coupling is intentional or documented.** Avoid coupling between components
-unless it is part of the intended architecture (build-time, runtime, data,
-temporal — heuristics in `ci-concepts.md`); a clean change keeps components
-independently buildable and testable. If coupling is unavoidable and not part
-of the documented design, record it in the wiki (`/skill:llm-wiki`) before the
-PR merges — describing the coupling, why it is required, and the boundary it
-creates. A project may set `COUPLING_POLICY` (`strict` default /
-`documented-exceptions` / `legacy`); see `ci-concepts.md`.
+- **CI instrumentation evolves with the project — there is no throwaway
+  test.** Run the project's own runner locally (`make test`, `npm test`,
+  `scripts/test`) and wire every new test or tool into CI; before creating
+  a component (tool, CI job, wiki page), check that an equivalent doesn't
+  already exist and extend it. A throwaway script leaves CI frozen while
+  the code moves on — it looks like coverage but protects nothing.
+  Depth: [`test-policy.md`](references/test-policy.md).
+- **CI code is expensive — a check's purpose is never duplicated.** Before
+  adding any CI logic, audit the entire CI surface and map each existing
+  check to its **purpose**; if the purpose exists anywhere, the logic
+  moves into the right form — never added twice. The audit runs before the
+  first line of CI code and its result is stated on the PR. **A purpose
+  has exactly one home in CI; checks move between homes, never cloned,
+  never orphaned.** Depth: [`ci-wiring.md`](references/ci-wiring.md).
+- **Safety-critical boolean logic requires MC/DC** when the project
+  declares `SAFETY_LEVEL: mcdc` — deterministic pipeline, spec-driven.
+  Load [`mcdc.md`](references/mcdc.md) when set or when touching complex
+  boolean decisions.
+- **CI checks are never removed — they shift, they don't vanish.** Every
+  check that existed must still exist somewhere after a pipeline reshape
+  (different job/file/tier, but present); `dw_ci_conformance "origin/main"`
+  enforces this against a base ref; a removal is fixed by re-homing or
+  justified as genuinely obsolete.
+- **CI conformance — the five invariants.** Native CI files must hold:
+  **I1** check equivalence, **I2** matrix coherence, **I3** justified
+  non-suitability (`not-suitable: runner=<token> — <capability reason>`
+  markers), **I4** no silent divergence, **I5** naming consistency
+  (kebab job ids, runner tokens, decomposable contexts). Conceptual, not a
+  schema; validation is deterministic (`dw_ci_conformance`, run after any
+  commit touching workflow files). Advisory until a `.ci-conformance`
+  file opts into `strict`. Depth: [`invariants.md`](references/invariants.md).
+- **Coupling is intentional or documented.** Clean changes keep components
+  independently buildable and testable; unavoidable-but-undocumented
+  coupling is recorded in the wiki before merge. `COUPLING_POLICY` knob:
+  `strict` (default) / `documented-exceptions` / `legacy`. Depth:
+  [`coupling.md`](references/coupling.md).
 
 ## How this stays one workflow
 
-The rule is split across two places so it is always-on without drifting:
-
-- **Enforcement** ("never commit to the default branch", the gates, the
-  CI-discipline mandates) lives in each project's `AGENTS.md`, read at the
-  start of every session. The `adopt` command puts it there as a short,
-  marker-delimited section that points back to this skill.
-- **Procedure** (how to find issues, create branches, watch CI, merge) lives
-  once here, loaded on demand. It evolves without touching every repo.
+- **Enforcement** (never commit to the default branch, the gates, the
+  CI-discipline mandates) lives in each project's `AGENTS.md` — injected
+  by `adopt` as a short marker-delimited section pointing back to this
+  skill.
+- **Procedure** lives once here, loaded on demand, evolving without
+  touching every repo.
 
 Do **not** duplicate the procedure into every project's AGENTS.md — that
 recreates drift. Update it here, then re-run `adopt` to propagate.
 
 ## Operating commands
 
-All paths resolve relative to this skill directory.
+| Command | Purpose | Full usage |
+|---|---|---|
+| `adopt` | inject/update the workflow section in a project's AGENTS.md (idempotent; marker-delimited; template: [`templates/agents-workflow-section.md`](templates/agents-workflow-section.md) — never hand-edit the block) | [`references/commands.md`](references/commands.md) |
+| `review` | `dw_request_review "<pr>"` — guarded ingress, adds `needs-review`; verdict = comment with `<!-- pr-review: <DECISION> @ <sha> -->`; runtime progress via the `harmostes` skill | [`references/commands.md`](references/commands.md) |
+| `ci-conformance` | `dw_ci_conformance ["origin/main"] [--fleet a b]` — I1–I5 + checks-preservation; run after any workflow-file commit | [`references/commands.md`](references/commands.md) |
+| Make a change | the per-change procedure, full bash | [`references/procedure.md`](references/procedure.md) |
 
-### `adopt` — inject or update the workflow in a project's AGENTS.md
+### Make a change — the skeleton
 
-```bash
-bash scripts/adopt.sh [repo-path]   # default: current directory
-```
+1. Consult the wiki (`/skill:llm-wiki` consult/read) — gate 1.
+2. Resolve the issue: `dw_find_issue` → else `dw_create_issue`.
+3. Resolve the branch: `dw_find_branch_for_issue` → else create
+   `feat/${ISSUE}-<slug>` off default.
+4. Assign milestone: `dw_resolve_milestone current` → `dw_set_milestone`.
+5. Make the change **including its tests**; document new coupling in the
+   wiki now; commit with `Refs #$ISSUE`.
+6. Simplification pass on the full diff (gate 8).
+7. Green locally (`dw_run_tests` + build + lint), probe conflicts
+   (`git merge-tree`), then push and open the PR **once**
+   (`dw_open_pr "$BRANCH" "$(dw_default_branch)" "<title>" "Closes #$ISSUE"`).
+8. Watch fast CI (`dw_watch_ci`); if workflow files changed, CI
+   conformance must hold (`dw_ci_conformance "origin/<default>"`).
+9. Declare ready: `dw_rebase_onto_default` → `dw_trigger_full_pipeline`
+   → `dw_watch_full_pipeline` → (when armed) `dw_request_review` →
+   `dw_wait_review` → `dw_merge_pr squash`. REQUEST_CHANGES → address the
+   findings (hard rule 6: sweep for the class), resolve every thread,
+   re-run this step.
 
-Auto-detects platform, default branch, CI-watch command, and test command. It
-wraps the section in `<!-- BEGIN dev-workflow -->` / `<!-- END dev-workflow -->`
-markers, so re-running `adopt` **replaces** it (idempotent — this is how "change
-the workflow to the one in the skill" propagates). It converts a legacy
-unmarked `## Development Workflow` header to the marker form, and creates a
-minimal `AGENTS.md` if none exists. It injects the gate chain + CI-discipline
-mandates + a pointer to this skill + a **Project configuration** block (see
-[`templates/agents-workflow-section.md`](templates/agents-workflow-section.md)
-for the exact content — edit there, then re-`adopt`). Never hand-edit the
-marker block; change the template and re-adopt.
-
-### `review` — request the adversarial review (gate 12)
-
-```bash
-dw_request_review "<pr-number>" [label]
-```
-
-**Guarded ingress:** refuses unless the pipeline is green at the PR's head
-SHA (full pipeline, or fast tier when none is configured). On success it
-adds the `needs-review` label (created if missing — no per-repo setup).
-
-The label is the single portable trigger: the harmostes **Review-Ready
-Gate** (event-armed, ADR-0006) wakes on the label webhook and re-verifies
-label ∧ merge-rule greenness itself — verdicts land within minutes, not a
-10-minute poll. **The review methodology and the verdict contract are
-owned by the `pr-review` skill** (stances, pillars, trailer format, label
-lifecycle) — this skill only requests and consumes; it never duplicates
-those rules. The verdict lands as a comment ending in the trailer
-`<!-- pr-review: <DECISION> @ <sha> -->` — `dw_wait_review` polls for it,
-`dw_merge_readiness` binds it to the head SHA.
-
-**Checking review progress — two surfaces:** (1) **the PR itself** —
-verdicts land as comments on the repo's PR/issue, identified by the trailer
-`<!-- pr-review: <DECISION> @ <sha> -->` (format owned by `pr-review`):
-read the latest verdict at a SHA, or a PR's review history; (2) **the
-harmostes runtime** — whether the pr-review workflow is armed, queued,
-running, or failed, and at which stage. To read the runtime, load the
-**`harmostes`** skill: it owns the pr-review workflow end to end
-(Review-Ready Gate, attempts, event history) and provides the exact
-progress/query commands — never reconstruct them by hand.
-
-### `ci-conformance` — validate CI against the five invariants
-
-```bash
-dw_ci_conformance                 # advisory scan of this repo's CI files
-dw_ci_conformance "origin/main"   # + checks-preservation diff vs base
-dw_ci_conformance --fleet /path/a /path/b   # cross-repo vocabulary report
-```
-
-Deterministic static validation of native CI files (GitHub/Forgejo/Gitea
-Actions + GitLab) against the conceptual framework: **I1** check equivalence,
-**I2** matrix coherence, **I3** justified non-suitability (`not-suitable:`
-markers), **I4** no silent divergence, **I5** naming consistency — plus the
-checks-preservation policy (checks are shifted, never removed). Advisory by
-default; strict when the repo carries a `.ci-conformance` file with `strict`.
-Gate rule: run after any commit touching workflow files — the same rule as
-markdownlint for docs. Backed by `scripts/ci-conformance.py`; depth in
-[`references/ci-concepts.md`](references/ci-concepts.md) §5.
-
-### Make a change (the per-change procedure)
-
-From the project repo:
-
-```bash
-source "$(dirname "$(readlink -f "$0")")/scripts/host.sh"   # or source the absolute skill path
-```
-
-1. **Consult the wiki** for the project's documented design
-   (`/skill:llm-wiki` `consult`/`read`) — entities, concepts, ADRs.
-2. **Resolve the issue.** Search, else create:
-   ```bash
-   ISSUE=$(dw_find_issue "<short task description>")
-   [ -z "$ISSUE" ] && ISSUE=$(dw_create_issue "<Title>" "<Body with acceptance criteria>")
-   ```
-3. **Resolve the branch.** Find by issue number, else create off the default branch:
-   ```bash
-   BRANCH=$(dw_find_branch_for_issue "$ISSUE")
-   if [ -z "$BRANCH" ]; then
-     BRANCH="feat/${ISSUE}-<slug>"
-     dw_create_branch "$BRANCH"
-   else git switch "$BRANCH"; fi
-   ```
-4. **Assign a milestone** (convention from the project's AGENTS.md):
-   ```bash
-   M=$(dw_resolve_milestone current)        # → "<id>:<title>"
-   dw_set_milestone "$ISSUE" "${M%%:*}"
-   ```
-5. **Make the change** on the branch, **including its tests** — consolidate:
-   before adding any test, tool, or CI job, audit the entire CI surface for
-   a check that already achieves the purpose — extend or move it, never
-   duplicate it; the same applies to tooling and wiki pages (see
-   [CI discipline](#continuous-integration-discipline)). If
-   the change introduces coupling not part of the documented design, document
-   it in the wiki now (`/skill:llm-wiki`). Commit with `Refs #$ISSUE`.
-6. **Simplification pass** — re-read the full diff (`git diff` against the
-   default branch). Ask: "can this be simpler?" Remove dead code, collapse
-   redundant abstractions, eliminate speculative generality. If you change
-   code, re-verify locally before proceeding. (Gate 8; hard rule 5.)
-7. **Green locally first — the PR is the expensive step:**
-   ```bash
-   dw_run_tests || { echo "local tests red — fix before pushing"; exit 1; }
-   ```
-   Run the project's fast-tier workloads locally (build + lint +
-   `dw_run_tests`) until green and the simplification pass (gate 8) is
-   done. Opening a PR consumes CI on the forge — push and open it **once**,
-   when the local mirror is green. Probe the conflict state BEFORE pushing:
-   a branch that conflicts with the default branch is DIRTY, and GitHub
-   creates no merge ref for a DIRTY PR — `pull_request` workflows silently
-   never run, which reads as "CI is slow" but is actually "CI is absent":
-   ```bash
-   git fetch origin "$(dw_default_branch)" -q
-   git merge-tree --write-tree "HEAD" "origin/$(dw_default_branch)" >/dev/null 2>&1 \
-     || { echo "branch conflicts with $(dw_default_branch) — rebase BEFORE pushing (CI will not run otherwise)"; exit 1; }
-   git push -u origin "$BRANCH"
-   dw_open_pr "$BRANCH" "$(dw_default_branch)" "<title>" "Closes #$ISSUE"
-   ```
-8. **Fast CI confirms on a clean runner** (it re-runs what you ran
-   locally):
-   ```bash
-   dw_watch_ci "$BRANCH" || { echo "fast CI red — fix on the branch and re-push"; exit 1; }
-   ```
-   **"No checks reported" is a STATE, not slowness.** On GitHub, check
-   `gh pr view --json mergeStateStatus` first: `DIRTY`/`CONFLICTING` means
-   the merge ref could not be created, so **no workflow will ever run for
-   this PR** — no amount of waiting or reopen cycles helps. Rebase onto the
-   default branch (carrying only this branch's changes) and force-push the
-   branch; runs appear within a minute. On Forgejo the same state is the
-   PR's `mergeable == false`.
-   If the change touched workflow files, CI conformance must hold:
-   ```bash
-   dw_ci_conformance "origin/$(dw_default_branch)" \
-     || { echo "CI conformance red — satisfy I1–I5 (shift checks, never delete)"; exit 1; }
-   ```
-9. **Declare ready — full pipeline, review (when armed), merge:**
-   ```bash
-   PR=$(dw_pr_number_from_branch "$BRANCH")
-   dw_rebase_onto_default "$BRANCH"        # hard rule 3 — BEFORE triggering
-   dw_trigger_full_pipeline "$PR"          # gate 11: sets the full-pipeline label; REFUSES unrebased heads (no-op if none configured)
-   dw_watch_full_pipeline "$BRANCH" || { echo "full pipeline red — fix, re-push, re-declare"; exit 1; }
-   dw_request_review "$PR"                 # gate 12 — ONLY when adversarial review is required (opt-in)
-   dw_wait_review "$PR"                    # blocks for the verdict trailer — skip when not armed
-   dw_merge_pr "$PR" squash                # gate 13 — refuses unless merge-ready
-   ```
-   A REQUEST_CHANGES verdict means: address the findings — for each, sweep
-   for the class first (hard rule 6): an isolated mistake is fixed at its
-   instance; a repeated pattern takes the structural fix (every instance +
-   root cause: component refactor, or an architectural-change proposal when
-   it exceeds this PR). Then resolve every thread (TODOs too) and re-run
-   this step — the new head SHA re-opens gates 11 and 12. When adversarial
-   review was not armed, gate 11 green is enough — merge.
-
-The agent is not bound to these exact commands — they illustrate the dispatch.
-Load [`references/platform-commands.md`](references/platform-commands.md) for
-the raw per-platform forms and token env vars when adapting.
+The agent is not bound to these exact commands — they illustrate the
+dispatch. Raw per-platform forms and token env vars:
+[`references/platform-commands.md`](references/platform-commands.md).
 
 ## Milestone resolution
 
-- `current` (default) — the most recent open milestone on the forge.
-- `none` — skip milestone assignment.
-- `<exact title>` — match an open milestone by title.
-
-If `current` finds no open milestone, ask the user whether to create one rather
-than silently proceeding without a milestone.
+`current` (default) = most recent open milestone; `none` = skip; `<exact
+title>` = match by title. If `current` finds none, ask the user whether to
+create one rather than silently proceeding without.
 
 ## Relationship to other skills
 
-This skill owns **enforcement** (the gates). It deliberately does not own the
-adjacent depth, and cross-references instead of duplicating it:
+- **`llm-wiki`** — the knowledge base **and the architecture-context
+  provider** (gate 1 loads the graph via its `rig` tool). Consult at the
+  start; write to it before merge when a change adds undocumented coupling.
+- **`tdd`** — *how* to write the tests gate 6 requires.
+- **`pr-review`** — gate 12's reviewer counterpart: adversarial APPROVE on
+  the head SHA; SHA-guarded at ingress.
+- **`harmostes`** — the pr-review runtime (Review-Ready Gate, attempts,
+  event history) and its query commands; load it when checking
+  adversarial-review progress.
+- **`fork-maintenance`** — *external* change (upstream moved, keep the
+  fork's release branch green); governs upstream-sync PRs where this skill
+  governs your own feature branches. CI-watching is one pattern
+  everywhere.
 
-- **`llm-wiki`** — the project's persistent knowledge base **and the
-  architecture-context provider** (its `rig` tool is how gate 1 loads a
-  project's graph into context in ~400 tokens). Consult it **at the start**
-  (`rig overview` / `read`) to ground a change in documented design; write to
-  it **before merge** when a change adds coupling that is not part of that
-  design (pages, ADRs, cross-references).
-- **`tdd`** — *how* to write the tests this skill requires (behavior over
-  implementation, vertical red-green slices, mocking). Load it when writing the
-  unit/integration tests for a change.
-- **`fork-maintenance`** — *external* change: upstream moved, keep the fork's
-  release branch green (two-branch mirror/release topology).
-- **`pr-review`** — **gate 12**, the reviewer counterpart: adversarial
-  review APPROVE on the head SHA is required for merge-ready. It is
-  SHA-guarded at ingress, so it only ever evaluates pipeline-green code.
-- **`harmostes`** — when the task touches harmostes workflows (triggering,
-  monitoring attempts/jobs, debugging pr-review or fork-maintenance runs)
-  **or when checking adversarial-review progress**: query the PR's verdict
-  comments (trailer `<!-- pr-review: DECISION @ sha -->`), then the
-  harmostes runtime for the pr-review workflow's progress
-  (armed/queued/running/failed). Load it for the runtime: it owns the
-  platform's single supported path, the event history, and the efficient
-  query commands. This skill does not duplicate any of it.
-
-For forked repos `dev-workflow` and `fork-maintenance` both apply: this skill
-governs your own feature branches; fork-maintenance governs the upstream-sync
-PRs. CI-watching is one pattern everywhere (`gh pr checks --watch` on GitHub,
-commit-status polling on Forgejo).
-
-The gate chain above is the done-checklist — a change is "done" only when every
+The gate chain is the done-checklist — a change is "done" only when every
 gate has passed and the default branch has moved via the merged PR.

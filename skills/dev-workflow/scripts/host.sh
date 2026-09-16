@@ -565,7 +565,7 @@ dw_watch_full_pipeline() {
 #
 # These run the SAME suite CI runs, locally, for a fast feedback loop — the
 # local half of the test gate; CI is the authoritative half (see the skill's
-# references/ci-concepts.md §1). Detection lives in detect-test-command.sh
+# references/test-policy.md + ci-wiring.md). Detection lives in detect-test-command.sh
 # (shared with adopt.sh) so the precedence + language list are defined once.
 
 # dw_test_command  → echoes the project's test command, or empty.
@@ -577,7 +577,7 @@ dw_test_command() { dw_detect_test_command; }
 #   Dies with guidance if no command can be determined.
 dw_run_tests() {
   local cmd; cmd=$(dw_test_command)
-  [ -n "$cmd" ] || dw_die "no test command detected — commit scripts/test, set CI_TEST_COMMAND, or add a 'Test command' in the project's AGENTS.md (see references/ci-concepts.md)"
+  [ -n "$cmd" ] || dw_die "no test command detected — commit scripts/test, set CI_TEST_COMMAND, or add a 'Test command' in the project's AGENTS.md (see references/ci-wiring.md)"
   echo "dev-workflow: running tests: $cmd" >&2
   sh -c "$cmd"
 }

@@ -64,15 +64,15 @@ gates hold for every change:
   (`not-suitable:` markers) · I4 no silent divergence · I5 naming consistency
   (kebab tokens, contexts decompose to tokens, no free-text expansions).
   Run `dw_ci_conformance` after any commit touching workflow files.
-  Depth: the skill's `ci-concepts.md` §5.
+  Depth: the skill's `references/invariants.md`.
 - **Measurements live in CI, not on laptops.** A benchmark, A/B comparison, or
   quality eval relevant over time is wired into the slow tier as a **reusable**
   job (`workflow_dispatch`), not an ad-hoc script. One harness, many
   invocations — composite actions, reusable workflows — never copy-pasted jobs.
-  Depth: the skill's `ci-concepts.md` §1.4.
+  Depth: the skill's `references/test-policy.md`.
 
 Depth (what counts as coupling, detection heuristics, CI wiring) lives in the
-skill's `references/ci-concepts.md`.
+skill's `references/ci-wiring.md` + `test-policy.md`.
 
 ### Project configuration
 
@@ -85,9 +85,9 @@ skill's `references/ci-concepts.md`.
 - **Test command:** `{{TEST_COMMAND}}` — the suite CI runs; verify locally with
   the same command before pushing. This is a best-effort *suggestion*; if wrong,
   commit `scripts/test` (preferred) or set `CI_TEST_COMMAND` rather than
-  hand-editing — see the skill's `ci-concepts.md`.
+  hand-editing — see the skill's `references/ci-wiring.md`.
 - **Coupling policy:** `{{COUPLING_POLICY}}` — one of `strict` (default) /
-  `documented-exceptions` / `legacy`; see the skill's `ci-concepts.md`.
+  `documented-exceptions` / `legacy`; see the skill's `references/coupling.md`.
 - **Safety level:** `{{SAFETY_LEVEL}}` — one of `none` (default) / `mcdc`.
   When `mcdc`, every boolean decision in changed code must achieve Modified
   Condition/Decision Coverage. See the skill's `mcdc.md`.
@@ -97,7 +97,7 @@ skill's `references/ci-concepts.md`.
   Forgejo set the workflow *name* if it differs from the filename.
 - **CI conformance:** `{{CI_CONFORMANCE}}` — one of `advisory` (default) /
   `strict` (`.ci-conformance` file contains `strict`: violations fail the
-  gate). See the skill's `ci-concepts.md` §5.
+  gate). See the skill's `references/invariants.md`.
 
 ### Before every change
 

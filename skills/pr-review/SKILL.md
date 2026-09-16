@@ -348,7 +348,7 @@ clean" vs "N blocking"), not by an N/A essay.
 
 - **`dev-workflow`** — owns the gate chain; this skill **is gate 12**.
   Pillar→gate map: Coupling → Gate 7, Design Intent → Gate 1, CI Economy →
-  the CI-discipline purpose audit (`ci-concepts.md` §3). The verdict
+  the CI-discipline purpose audit ([`ci-wiring.md`](dev-workflow/references/ci-wiring.md) purpose audit). The verdict
   trailer is what `dw_merge_readiness` consumes as merge currency.
 - **`llm-wiki`** — consulted for Design Intent: RIG/C4 are the
   deterministic architecture graph; wiki pages are the reasoning.
