@@ -87,71 +87,37 @@ means you forgot `-H`.
 
 ## Command surface — by subcommand
 
-The three global flags apply everywhere. Per-group `--help` verbatim + live
-examples: [`references/command-reference.md`](references/command-reference.md)
-(506 `api` endpoints are not repeated there — discover them via the listing
-below; each takes `--help`).
+The three global flags apply everywhere. Per-group syntax, flags, and
+live output shapes: [`references/command-reference.md`](references/command-reference.md)
+(506 `api` endpoints are not repeated there — discover them via the
+listing; each takes `--help`).
 
 ### `auth` — multi-instance credentials
-Credentials live in `~/.local/share/forgejo-cli/keys.json` (portable across
-machines). `fj auth login <host>` (OAuth/token) · `add-key` · `list` ·
-`logout <host>` · `fj whoami -H <host>` proves the token. Token scopes (no
-admin): `write:repository`, `write:issue`, `write:organization`, `write:user`.
+`fj auth login <host>` · `add-key` · `list` · `logout <host>` · `fj whoami
+-H <host>` proves the token. Keys in `~/.local/share/forgejo-cli/keys.json`.
+Token scopes (no admin): `write:repository`, `write:issue`,
+`write:organization`, `write:user`.
 
 ### `actions` — CI status & logs ★
 Runs contain **jobs**, which contain the steps. Reading order for a failing
-PR: **`pr status` → `actions jobs <RUN>` → `actions logs --job <JOB>`**.
+PR: **`pr status` → `actions jobs <RUN>` → `actions logs --job <JOB>`**
+(`--job` → stdout; `--run` → zip). States: `OK · FAIL · RUN · WAIT ·
+BLOCKED`; **`runs`/`tasks` exit 0 even on failed runs** — parse the
+`FAIL` token, never the exit code.
 
-```bash
-fj actions runs  -H <host> -r <repo>        # #ID (sha) STATE (event): title
-fj actions jobs  <RUN> -H <host> -r <repo>  # which job failed, runs_on label
-fj actions logs --job <JOB> …               # that job's log → stdout (grep it)
-fj actions logs --run <RUN> --out f.zip …   # all jobs' logs → zip
-fj actions tasks -H <host> -r <repo>        # flat task list (col 1 = run id)
-fj actions dispatch|secrets|variables …
-```
-States: `OK · FAIL · RUN · WAIT · BLOCKED`. **`runs`/`tasks` exit 0 even on
-failed runs** — parse `FAIL` / `pr status`'s `Overall:` line, never the exit code.
-
-### `issue` — issues (alias `issues`)
-`<INDEX>` = repo-local number from the URL (`#1330`), not the DB id.
-```bash
-fj issue list  [-s open|closed|all] ; fj issue view <N> [-c]   # -c = comments
-fj issue create -t <title> -b <body> ; fj issue comment <N> -b <body> ; fj issue close <N>
-```
-
-### `pr` — pull requests (alias `prs`)
-```bash
-fj pr list [-s …] ; fj pr view <N> ; fj pr create --head <b> --base main -t … -b …
-fj pr status <N>            # ★ CI checks: state, duration, run/job deep link
-fj pr merge <N> [-s merge|rebase|squash|rebase-merge|fast-forward-only] [-d]
-```
-`pr status` needs the head commit to have reported checks (fresh PRs may be
-empty until CI schedules).
-
-### `release` / `tag`
-`fj release list|view <TAG>|create --tag v1 [--draft|--prerelease]|delete <TAG>`
-`fj tag list|create <TAG>|delete <TAG>`
-
-### `repo` / `user` / `org` / `wiki`
-`fj repo view [o/n]` · `fj repo clone <o/n> [dir]` · `fj user view|search|repos` ·
-`fj org list|view` · `fj wiki list|view <PAGE>` (wiki needs `-r`)
+### `issue` / `pr` / `release` / `tag` / `repo` / `user` / `org` / `wiki`
+`fj issue list|view <N> [-c]|create|comment|close` (INDEX = repo-local
+Number). `fj pr list|view|create|status|merge` — `pr status` is the CI
+health view (fresh PRs may show no checks until CI schedules). `fj
+release create --tag …|list|view|delete`; `fj tag list|create|delete`;
+`fj repo view|clone`; `fj user view|search|repos`; `fj org list|view`;
+`fj wiki list|view <PAGE>` (needs `-r`).
 
 ### `api` — the generated tree (everything else)
-Labels, branches, admin, runners, wiki CRUD, … — one subcommand
-per operationId. **Discover, never guess** (a wrong name = empty stdout,
-`unknown flag: --owner` on stderr):
-
-```bash
-fj api repo | grep -i milestone     # client-side discovery
-fj api repo issue-get-milestones-list --owner tibrez --repo rhesadox -H git.rezus.cloud
-fj api repo issue-create-milestone  --owner tibrez --repo rhesadox \
-     --body '{"title":"v2"}' -H git.rezus.cloud
-```
-
-`--help` and these listings render client-side — no host/auth needed (cobra
-handles help before RunE); `--body` field names still come from the spec,
-not `--help`.
+Labels, branches, admin, runners, wiki CRUD, milestones, … — one
+subcommand per operationId. **Discover, never guess** (wrong name =
+empty stdout, `unknown flag: --owner` on stderr): `fj api repo | grep -i
+<keyword>`; `--body` field names come from the spec, not `--help`.
 
 ### `version` / `whoami`
 `fj version [--client|--short]` — client + API (spec) + server versions.

@@ -30,12 +30,15 @@ thinker does not want commands.
   through what you explain. Hands on keyboard from step one.
 - **The instructor is absent.** You cannot correct mistakes mid-flight, so
   the text must: show expected output after every consequential command
-  (readers self-correct), pre-empt the one mistake a beginner will make.
+  (readers self-correct — `t:expected` checks this), pre-empt the one
+  mistake a beginner will make.
 - **Guaranteed, safe success.** Every step tested and repeatable. If a step
   can fail, the tutorial is wrong — not the reader. Failure must be safe and
   recoverable.
 - **One path, no alternatives.** No "on Windows you might…", no version
-  matrices, no edge cases. Alternatives are noise to a learner.
+  matrices, no edge cases. Alternatives, choices, abstraction and
+  information are the anti-pedagogical temptations — noise to a learner
+  (`t:choices` checks this).
 - **Minimal explanation.** "We use HTTPS because it's safer" + a link to an
   explanation page. Tutorials overloaded with theory are the most common
   Diátaxis failure.
@@ -45,18 +48,15 @@ thinker does not want commands.
 - **Show the destination as an achievement.** "In this tutorial we will
   create and deploy X" or "you will have built X" — not "in this tutorial
   you will learn…", which is presumptuous and a poor pattern.
-- **Visible results early and often.** Every step produces a comprehensible,
-  meaningful result; show the actual expected output after every
-  consequential command (`t:expected` checks this).
+- **Visible results early and often.** Every step produces a
+  comprehensible, meaningful result; show the actual expected output after
+  every consequential command.
 - **Maintain a narrative of the expected.** "You will notice…", "after a
   few moments the server responds with…". Flag the likely signs of going
   wrong: "if the output doesn't show X, you probably forgot Y".
 - **Point out what the learner should notice** — the prompt changed, the
   new line in the log. Observing is an active skill; learners are too
   focused to notice unless prompted.
-- **No choices.** Abstraction, explanation, choices and information are the
-  anti-pedagogical temptations. One safe path, no alternatives
-  (`t:choices` checks this).
 - **Target the feeling of doing** and **encourage repetition** — a learner
   returns to an exercise that reliably rewards them; tie purpose and action
   so the task flows.
@@ -115,17 +115,15 @@ look up."
   persuasion. Facts, described mechanically and consistently.
 - **Complete within its stated boundary.** Every option, every flag, every
   error the page's boundary claims — or fix the boundary statement.
-- **Consistency over variety.** Same heading pattern per symbol, same table
-  columns, same ordering — the reader learns the page's grammar once.
+- **Consistency is the load-bearing property** (`r:consistency` checks
+  table-column consistency): same heading pattern per symbol, same table
+  columns, same ordering — the reader learns the page's grammar once;
+  vocabulary variety is a failure here.
 - **Lookup-friendly form:** tables, code blocks, anchors. Prose paragraphs
   are the failure mode here, not tables.
 - **Description ≠ explanation.** "What it is, what values it accepts, what
   it returns" belongs here. "Why it exists, what alternatives were
   considered" belongs in explanation.
-- **Consistency is the load-bearing property.** Reference is useful when it
-  follows standard, repeated patterns — same heading grammar per symbol,
-  same table columns, same ordering (`r:consistency` checks table-column
-  consistency). Vocabulary variety is a failure here.
 - **The language of reference:** facts, lists of commands/options/flags/
   limitations/error messages, and warnings. Prescriptive modals are facts
   of the contract — "You must use a. Never d." — and are fine; narrative
@@ -155,8 +153,6 @@ look up."
   the reader to *do* something in sequence, that content is a how-to trying
   to escape.
 - **Connects things.** Explanation joins this topic to neighboring topics;
-  it is where the mental model forms.
-- **Connect things.** Explanation joins this topic to neighboring topics;
   it is where the mental model forms (`e:connects` checks that the page
   links out).
 - **Bound each page with a why-question.** Tutorials, how-tos and reference
