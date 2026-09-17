@@ -143,6 +143,10 @@ threads; the close-out is mechanical and native:
 - The reviewer — not the dev — closes threads it did not author, and
   queries `fj review comments <PR> <REVIEW>` (resolved markers) rather
   than downgrading for host-UI thread state.
+- Client floor: these subcommands need an `fj` build with review thread
+  support (`fj __complete review` must list `resolve|reply|comments`).
+  On a stale client, surface the gap — never fall back to separate
+  comments.
 
 Depth: the skill's `SKILL.md` hard rule 0.
 
