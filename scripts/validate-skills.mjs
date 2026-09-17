@@ -25,20 +25,56 @@
 // any WARNING. Use --no-strict to fail only on HARD errors (i.e. exactly what
 // pi would refuse to load).
 //
+// Line budget (issue #33): every non-vendored .md inside a skill root must
+// stay under WARN (150) lines — reported as a note, never gating — and under
+// FAIL (250) lines — a HARD error. Vendored skills (impeccable, bailian-*)
+// are exempt (updated wholesale upstream, not maintained line-by-line here).
+// Files above FAIL are only allowed via an explicit, reviewed exception in
+// LINE_BUDGET_EXCEPTIONS (cap + reason); exceeding the cap still fails.
+// --max-lines N overrides the FAIL threshold (e.g. a ratchet run).
+//
 // Usage:
 //   node scripts/validate-skills.mjs            # scan repo root, strict (CI)
 //   node scripts/validate-skills.mjs --no-strict # fail only on load-blocking errors
 //   node scripts/validate-skills.mjs skills/      # scan a specific root
+//   node scripts/validate-skills.mjs --max-lines 200
 //   node scripts/validate-skills.mjs --help
 
 import { readFileSync, readdirSync, statSync } from "node:fs";
-import { basename, dirname, join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import process from "node:process";
 import { parse } from "yaml";
 
 export const MAX_NAME_LENGTH = 64;
 export const MAX_DESCRIPTION_LENGTH = 1024;
+
+// ── line budget (issue #33) ─────────────────────────────────────────────────
+export const LINE_BUDGET_WARN = 150;
+export const LINE_BUDGET_FAIL = 250;
+
+// Skills vendored from an upstream — excluded from the line budget because
+// their content is refreshed wholesale, not densified here.
+export const VENDORED_SKILL_PATTERNS = [/^impeccable$/, /^bailian-/];
+
+// Explicit reviewed exceptions: budget key (path from the `skills/` segment,
+// posix) → { max, reason }. A file may sit above LINE_BUDGET_FAIL only by
+// being listed here, and only up to `max`. Add an entry only with a review
+// that accepted the deviation (issue/PR link in the reason).
+export const LINE_BUDGET_EXCEPTIONS = {
+  "skills/pr-review/SKILL.md": {
+    max: 400,
+    reason: "core review contract — debloat phase 2 accepted at 377-383 (PR #34, issue #33)",
+  },
+  "skills/fork-maintenance/SKILL.md": {
+    max: 320,
+    reason: "gate chain + fork-def YAML contract — phase 4 accepted at 307 (PR #42, issue #33)",
+  },
+  "skills/dev-workflow/SKILL.md": {
+    max: 270,
+    reason: "hard rules + procedure contract — phase 3 accepted at 262 (PR #40, issue #33)",
+  },
+};
 
 // ── frontmatter ───────────────────────────────────────────────────────────
 // Faithful copy of pi's utils/frontmatter.js extractFrontmatter / parseFrontmatter.
@@ -173,6 +209,116 @@ export function validateSkillFile(filePath) {
   return { name, errors, warnings };
 }
 
+// ── line budget ─────────────────────────────────────────────────────────────
+// Checks every .md under each discovered skill root against the budget.
+// Vendored roots are skipped entirely; exception keys are matched against the
+// file path from its last `skills/` segment, so scanning from the repo root or
+// from a nested directory yields the same key.
+
+export function countLines(content) {
+  if (content === "") return 0;
+  return content.endsWith("\n") ? content.split("\n").length - 1 : content.split("\n").length;
+}
+
+function isVendoredSkill(dirName, patterns) {
+  return patterns.some((p) => (typeof p === "string" ? p === dirName : p.test(dirName)));
+}
+
+export function budgetKey(file, root) {
+  const relp = relative(root, file).split(sep).join("/");
+  const i = relp.lastIndexOf("skills/");
+  return i === -1 ? relp : relp.slice(i);
+}
+
+function markdownFilesUnder(dir) {
+  const skip = new Set([".git", "node_modules"]);
+  const out = [];
+  const walk = (d) => {
+    let entries;
+    try {
+      entries = readdirSync(d, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (e.name.startsWith(".") || skip.has(e.name)) continue;
+      const p = join(d, e.name);
+      if (e.isDirectory()) walk(p);
+      else if (e.isFile() && e.name.endsWith(".md")) out.push(p);
+    }
+  };
+  walk(dir);
+  return out.sort();
+}
+
+// Returns { checked: [{ key, file, skillRoot, lines, kind, limit, reason }], excluded: [dir] }
+// kind: "ok" | "warn" (note) | "fail" (error) | "excepted" (note)
+export function checkLineBudget(
+  skillRoots,
+  {
+    warn = LINE_BUDGET_WARN,
+    fail = LINE_BUDGET_FAIL,
+    exceptions = LINE_BUDGET_EXCEPTIONS,
+    vendored = VENDORED_SKILL_PATTERNS,
+    root = process.cwd(),
+  } = {}
+) {
+  const checked = [];
+  const excluded = [];
+  for (const skillRoot of skillRoots) {
+    const dir = dirname(skillRoot);
+    if (isVendoredSkill(basename(dir), vendored)) {
+      excluded.push(dir);
+      continue;
+    }
+    for (const file of markdownFilesUnder(dir)) {
+      const key = budgetKey(file, root);
+      let lines;
+      try {
+        lines = countLines(readFileSync(file, "utf-8"));
+      } catch {
+        continue; // unreadable → not a budget concern
+      }
+      const base = { key, file, skillRoot: dir, lines };
+      const x = exceptions[key];
+      if (x) {
+        if (lines > x.max) {
+          checked.push({ ...base, kind: "fail", limit: x.max, reason: `exceeds reviewed exception cap — ${x.reason}` });
+        } else {
+          checked.push({ ...base, kind: "excepted", limit: x.max, reason: x.reason });
+        }
+      } else if (lines > fail) {
+        checked.push({ ...base, kind: "fail", limit: fail, reason: "line budget" });
+      } else if (lines > warn) {
+        checked.push({ ...base, kind: "warn", limit: warn, reason: "line budget" });
+      } else {
+        checked.push({ ...base, kind: "ok", limit: warn, reason: "line budget" });
+      }
+    }
+  }
+  return { checked, excluded };
+}
+
+// Attach budget findings to per-skill results: failures → errors (always
+// gate), warn/excepted → notes (visible in the report, never gate).
+export function attachBudget(results, budget) {
+  const bySkill = new Map();
+  for (const r of results) {
+    r.notes = r.notes || [];
+    bySkill.set(dirname(r.file), r);
+  }
+  for (const c of budget.checked) {
+    if (c.kind === "ok") continue;
+    const target = bySkill.get(c.skillRoot);
+    if (!target) continue;
+    const where = `${relative(c.skillRoot, c.file).split(sep).join("/")} is ${c.lines} lines`;
+    if (c.kind === "fail") target.errors.push(`${where} — over ${c.limit} (${c.reason})`);
+    else if (c.kind === "warn") target.notes.push(`${where} — over ${c.limit} (${c.reason}; warn-level, not gating)`);
+    else target.notes.push(`${where} — reviewed exception, cap ${c.limit} (${c.reason})`);
+  }
+  return results;
+}
+
 // ── aggregate + collision detection ───────────────────────────────────────
 
 export function validateAll(files, { strict = true } = {}) {
@@ -217,21 +363,28 @@ function rel(p, root) {
   return r && !r.startsWith("..") ? r : p;
 }
 
-export function formatReport({ results, strict }, root = ".") {
+export function formatReport({ results, strict, excludedSkills = [] }, root = ".") {
   const lines = [];
   let errors = 0;
   let warnings = 0;
+  let notes = 0;
   for (const r of results) {
     errors += r.errors.length;
     warnings += r.warnings.length;
-    const tag = r.errors.length ? "✗" : r.warnings.length ? "!" : "✓";
+    notes += (r.notes || []).length;
+    const tag = r.errors.length ? "✗" : r.warnings.length ? "!" : (r.notes || []).length ? "~" : "✓";
     lines.push(`${tag} ${rel(r.file, root)}` + (r.name ? `  [${r.name}]` : ""));
     for (const m of r.errors) lines.push(`    ERROR: ${m}`);
     for (const m of r.warnings) lines.push(`    WARN:  ${m}`);
+    for (const m of r.notes || []) lines.push(`    NOTE:  ${m}`);
+  }
+  if (excludedSkills.length) {
+    lines.push("");
+    lines.push(`line budget: ${excludedSkills.length} vendored skill(s) excluded: ${excludedSkills.map((d) => rel(d, root)).join(", ")}`);
   }
   lines.push("");
   lines.push(
-    `${results.length} skill(s) • ${errors} error(s) • ${warnings} warning(s)` +
+    `${results.length} skill(s) • ${errors} error(s) • ${warnings} warning(s) • ${notes} note(s)` +
       (strict ? "" : "  (--no-strict: warnings do not fail)")
   );
   return lines.join("\n");
@@ -241,11 +394,16 @@ export function formatReport({ results, strict }, root = ".") {
 
 function help() {
   return [
-    "usage: node scripts/validate-skills.mjs [root] [--no-strict] [--help]",
+    "usage: node scripts/validate-skills.mjs [root] [--no-strict] [--max-lines N] [--help]",
     "",
     "Validates every SKILL.md under <root> (default: repo root) using pi's rules.",
     "Strict by default (warnings fail the run, as in CI). --no-strict fails only on",
     "load-blocking errors (the conditions under which pi would not load the skill).",
+    "",
+    "Line budget (issue #33): non-vendored .md files warn over 150 lines (a note,",
+    "never gating) and fail over 250 lines. Vendored skills (impeccable, bailian-*)",
+    "are excluded; over-budget files need a reviewed entry in LINE_BUDGET_EXCEPTIONS.",
+    "--max-lines N overrides the fail threshold (ratchet-friendly).",
   ].join("\n");
 }
 
@@ -253,10 +411,19 @@ export function main(argv) {
   const args = argv.slice(2);
   let strict = true;
   let root = ".";
-  for (const a of args) {
+  let maxLines = LINE_BUDGET_FAIL;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
     if (a === "--no-strict") strict = false;
     else if (a === "--strict") strict = true;
-    else if (a === "-h" || a === "--help") {
+    else if (a === "--max-lines") {
+      const n = Number(args[++i]);
+      if (!Number.isInteger(n) || n <= 0) {
+        process.stderr.write(`validate-skills: --max-lines needs a positive integer (got ${args[i] ?? "nothing"})\n`);
+        return 2;
+      }
+      maxLines = n;
+    } else if (a === "-h" || a === "--help") {
       process.stdout.write(help() + "\n");
       return 0;
     } else root = a;
@@ -269,6 +436,9 @@ export function main(argv) {
     return 0;
   }
   const summary = validateAll(files, { strict });
+  const budget = checkLineBudget(files, { fail: maxLines, root });
+  attachBudget(summary.results, budget);
+  summary.excludedSkills = budget.excluded;
   process.stdout.write(formatReport(summary, root) + "\n");
   return computeExitCode(summary);
 }

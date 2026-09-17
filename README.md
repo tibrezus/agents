@@ -131,6 +131,26 @@ Add `--no-strict` to fail only on load-blocking errors:
 node validate-skills.mjs --no-strict ..
 ```
 
+### Line budget (issue #33)
+
+Every non-vendored `.md` file inside a skill directory is also checked
+against a line budget: **warn over 150 lines** (reported as a note — never
+gates the build) and **fail over 250 lines** (a hard error). The budget
+keeps skills router-shaped — SKILL.md carries the contract and the hot
+path; depth lives in `references/` files with their own load moment.
+
+- **Vendored skills are excluded** (`impeccable`, `bailian-*`): their
+  content is refreshed wholesale from an upstream, not densified here.
+- **Over-250 files need a reviewed exception**: an explicit entry in
+  `LINE_BUDGET_EXCEPTIONS` (in `scripts/validate-skills.mjs`) with a cap
+  and a reason citing the review that accepted the deviation. Exceeding
+  the cap still fails. Current exceptions: `pr-review` (400),
+  `fork-maintenance` (320), `dev-workflow` (270) — accepted in #33
+  phases 2–4.
+- **`--max-lines N`** overrides the fail threshold — useful as a ratchet
+  (e.g. `--max-lines 200` fails on everything not yet under 200) without
+  editing code.
+
 Frontmatter rules: `name` is lowercase `a-z0-9-`, ≤64 chars, no
 leading/trailing/consecutive hyphens; `description` is required and ≤1024
 chars. **Quote** any description containing `: ` or embedded quotes — e.g.
