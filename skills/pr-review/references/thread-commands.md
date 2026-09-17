@@ -16,8 +16,7 @@ landed. The protocol that governs WHEN to use these lives in SKILL.md
   you never post the verdict yourself.
 - **Replies / verifications / resolutions** — yours, via the shapes below.
   **A reply lands ON the thread it answers** (`in_reply_to`, discussion
-  notes) — never as a new standalone comment; Forgejo (no reply API yet)
-  is the sole exception, via the ONE enumeration review below.
+  notes, `fj review reply`) — never as a new standalone comment.
 
 ## GitHub (`gh`)
 
@@ -40,29 +39,36 @@ gh api graphql -f query='
   -f id=$THREAD_ID
 ```
 
-## Forgejo / Codeberg (`fj`, native since v16.0.3-rezus.2)
+## Forgejo / Codeberg (`fj` — native reply/resolve since #115 shipped)
 
 **The deploy's verdict review** (new findings, one create-pull-review per
-round carrying ALL anchored comments) is NOT yours to post. You use the
-same call only for the **thread-reply fallback** — and its shape is exact:
-
-**Reply/resolve gap:** the REST API has no reply and no resolve (both 405;
-github.com/rezuscloud/forgejo#115). A thread is answered by **ONE
-follow-up review whose BODY enumerates every open thread — `comments[]`
-EMPTY**:
+round carrying ALL anchored comments) is NOT yours to post. Your surface
+is the `fj review` group (all take `-H <host> -r <owner>/<repo>`):
 
 ```bash
-fj api --host <host> repos/{o}/{r}/pulls/$N/reviews -X POST \
-  -H Content-Type:application/json \
-  -d '{"event":"COMMENT","body":"Thread resolutions @ <fix-SHA>:\n- src/foo.zig:42 (c36003): fixed in <sha> — <one-line rationale>\n- src/bar.zig:7 (c36004): fixed in <sha> — <one-line rationale>","comments":[]}'
+fj review comments <PR> <REVIEW>              # list a review's threads + resolved markers
+                                              # (query this — never the host UI's thread state)
+fj review resolve <PR> <COMMENT-ID>           # resolve a conversation — THE standard close-out
+fj review unresolve <PR> <COMMENT-ID>         # reopen if a claimed fix fails verification
+fj review reply <PR> <COMMENT-ID> --body "…"  # the actual on-thread reply
 ```
+
+**Close-out order (canonical):** as each fix lands, resolve the threads it
+addresses (`fj review resolve <PR> <COMMENT-ID>`) — resolution is the
+close-out, the reviewer verifies the fix in the diff; the **actual
+replies** (`fj review reply`) come only when everything is done — one per
+thread, carrying `path:line → fix SHA + one-line rationale`, the round
+record.
 
 **A new anchored snippet comment starts a NEW thread** — it never answers
 the finding's. Do NOT fragment the conversation with per-finding anchored
 comments (anti-pattern observed live on rhesadox#2241: five
-`reply_to=None` anchored comments, one per finding, instead of this
-enumeration). Line anchors in reviews use **`new_position`** (`new_line`
-500s server-side) — relevant only to the deploy's finding review.
+`reply_to=None` anchored comments, one per finding). Line anchors in
+reviews use **`new_position`** (`new_line` 500s server-side) — relevant
+only to the deploy's finding review. (History: before #115 shipped, the
+thread API had no reply/resolve — both 405 — and the round record rode ONE
+follow-up `create-pull-review` whose body enumerated the fixes with
+`comments[]` empty; retired now that reply/resolve are native.)
 
 ## GitLab (`glab`)
 

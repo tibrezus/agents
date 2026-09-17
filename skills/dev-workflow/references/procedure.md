@@ -88,9 +88,13 @@ source "$(dirname "$(readlink -f "$0")")/scripts/host.sh"   # or source the abso
    for the class first (hard rule 6): an isolated mistake is fixed at its
    instance; a repeated pattern takes the structural fix (every instance +
    root cause: component refactor, or an architectural-change proposal when
-   it exceeds this PR). Then resolve every thread (TODOs too) and re-run
-   this step — the new head SHA re-opens gates 11 and 12. When adversarial
-   review was not armed, gate 11 green is enough — merge.
+   it exceeds this PR). Resolve every thread as its fix lands — on Forgejo
+   `fj review resolve <PR> <COMMENT-ID>` is the standard close-out — then,
+   when everything is done, the actual replies (`fj review reply`,
+   `in_reply_to`, discussion notes) carry `path:line → fix SHA + rationale`
+   as the round record (TODOs too). Re-run this step — the new head SHA
+   re-opens gates 11 and 12. When adversarial review was not armed, gate
+   11 green is enough — merge.
 
 The agent is not bound to these exact commands — they illustrate the dispatch.
 Load [`platform-commands.md`](platform-commands.md) for the raw per-platform

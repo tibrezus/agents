@@ -96,27 +96,29 @@ pipeline means back to developing, never into review (depth:
 
 0. **Review threads are the merge currency.** When an adversarial review
    leaves inline comments (gh / fj / glab threads) — blocking findings AND
-   TODOs alike — the dev agent replies on EVERY open thread, and the reply
-   lands **on that same anchored review comment** (the host's reply
-   mechanism: `in_reply_to` on GitHub, discussion notes on GitLab), never
-   in a separate comment — carrying the fix SHA plus a one-line rationale,
-   then resolving it natively where the host has resolve. Sole exception:
-   Forgejo, where the thread API has no reply/resolve yet
-   (github.com/rezuscloud/forgejo#115) — there post ONE `create-pull-review`
-   (`event: COMMENT`) whose **body** enumerates `path:line → fix SHA +
-   rationale` for every open thread, with **`comments[]` empty**. NEVER
-   create new anchored snippet comments per finding — each starts a NEW
-   thread instead of answering the finding's (anti-pattern observed live,
-   rhesadox#2241: five `reply_to=None` comments, one per finding). The dev
-   then **requests review from harmostes-bot natively** — the request is
-   the re-arm signal (#488; the `needs-review` label stays as the scope
-   contract). The REVIEWER — not the dev — closes threads on the next
-   round: it verifies each fix in the diff and resolves/counts the thread
-   as addressed; it never downgrades for host-UI thread state on Forgejo
-   (the resolve API does not exist there). The full pipeline resumes and a
-   re-review can APPROVE only when every finding is verifiably addressed
-   in the diff; post-review downgrades APPROVEs issued over findings that
-   are not.
+   TODOs alike — the dev agent addresses EVERY open thread, and each
+   response lands **on that same anchored review comment** (the host's
+   reply mechanism: `in_reply_to` on GitHub, discussion notes on GitLab,
+   `fj review reply` on Forgejo — native since #115 shipped), never in a
+   separate comment — carrying the fix SHA plus a one-line rationale.
+   **Forgejo close-out order (standard):** as each fix lands, resolve the
+   threads it addresses — `fj review resolve <PR> <COMMENT-ID>` — the
+   resolved marker IS the close-out, the reviewer verifies the fix in the
+   diff; the **actual replies** (`fj review reply`) come only when
+   everything is done — one per thread, carrying `path:line → fix SHA +
+   rationale`, as the round record. NEVER create new anchored snippet
+   comments per finding — each starts a NEW thread instead of answering
+   the finding's (anti-pattern observed live, rhesadox#2241: five
+   `reply_to=None` comments, one per finding). The dev then **requests
+   review from harmostes-bot natively** — the request is the re-arm
+   signal (#488; the `needs-review` label stays as the scope contract).
+   The REVIEWER — not the dev — closes threads it did not author: it
+   verifies each fix in the diff and resolves/counts the thread as
+   addressed (`fj review resolve`); it never downgrades for host-UI
+   thread state — query `fj review comments <PR> <REVIEW>` (resolved
+   markers) instead. The full pipeline resumes and a re-review can
+   APPROVE only when every finding is verifiably addressed in the diff;
+   post-review downgrades APPROVEs issued over findings that are not.
 1. A direct commit/push to the default branch is forbidden unless the user
    gave an explicit instruction that is recorded on the issue. When in
    doubt, branch.

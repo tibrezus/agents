@@ -20,6 +20,9 @@ differ.
 | Open PR | `gh pr create --base --head` | `fj pr create --base --head` |
 | **Watch CI** | `gh pr checks <n> --watch` (blocks) | **no `--watch`** — poll `fj actions tasks` or the commit status API |
 | **Merge PR** | `gh pr merge --squash --delete-branch` | **REST only** — `POST .../pulls/<n>/merge` |
+| **Reply on a review thread** | `gh api .../comments -f body=… -F in_reply_to=$ID` | `fj review reply <PR> <COMMENT-ID> --body …` |
+| **Resolve a review thread** | GraphQL `resolveReviewThread` | `fj review resolve <PR> <COMMENT-ID>` |
+| **List a review's threads + resolved markers** | `gh api .../pulls/$N/comments` | `fj review comments <PR> <REVIEW>` |
 | **Trigger full pipeline (label)** | `gh issue edit <n> --add-label full-pipeline` | `POST .../issues/<pr>/labels` body `{"labels":["full-pipeline"]}` |
 | **Dispatch full pipeline (fallback)** | `gh workflow run <wf> --ref <branch>` | `fj api repo dispatch-workflow ... --body '{"ref":"<branch>"}'` → `decode: EOF` = success (204) |
 | **Resolve PR head SHA** | `gh pr view <n> --json headRefOid` | `GET .../pulls/<n>` → `.head.sha` |
