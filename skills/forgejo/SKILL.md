@@ -113,6 +113,15 @@ release create --tag …|list|view|delete`; `fj tag list|create|delete`;
 `fj repo view|clone`; `fj user view|search|repos`; `fj org list|view`;
 `fj wiki list|view <PAGE>` (needs `-r`).
 
+### `review` — code reviews, threads, resolve ★
+`fj review comments <PR> <REVIEW>` (threads + resolved markers — the
+state query, never the host UI) · `resolve|unresolve <PR> <COMMENT-ID>`
+(resolve is the standard close-out step) · `reply <PR> <COMMENT-ID>
+--body …` (the on-thread reply, used when everything is done) ·
+`create|submit` (verdict reviews; self-verdicts by the PR author are
+rejected server-side) · `comment` (anchored comment on a pending
+review; `new_position`, not `new_line`).
+
 ### `api` — the generated tree (everything else)
 Labels, branches, admin, runners, wiki CRUD, milestones, … — one
 subcommand per operationId. **Discover, never guess** (wrong name =

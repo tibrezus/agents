@@ -97,6 +97,25 @@ fj actions dispatch | secrets | variables …
 `BLOCKED`. **`runs`/`tasks` exit 0 even on failed runs** — parse the
 `FAIL` token / `pr status`'s `Overall:` line, never the exit code.
 
+## `review` — code reviews, threads, resolve ★
+
+```bash
+fj review comments <PR> <REVIEW>              # a review's threads + resolved markers (query, don't trust UI)
+fj review resolve <PR> <COMMENT-ID>           # resolve a conversation — the standard close-out step
+fj review unresolve <PR> <COMMENT-ID>         # reopen
+fj review reply <PR> <COMMENT-ID> --body "…"  # the actual on-thread reply (in_reply_to)
+fj review create <PR> [--event APPROVED|REQUEST_CHANGES|COMMENT] [--commit-id <sha>] [--body "…"]
+                                              # no --event → start a PENDING review; add anchored comments:
+fj review comment <PR> <REVIEW> --path F [--new-position N | --old-position N] --body "…"
+fj review submit <PR> <REVIEW> --event … [--body "…"]   # submit the pending review with a verdict
+```
+
+Canonical flow (dev closing out review findings): as each fix lands,
+`fj review resolve <PR> <COMMENT-ID>`; the actual replies (`fj review
+reply`) only when everything is done. A self-review verdict from the PR
+author is rejected server-side (422). Line anchors use `new_position`
+(`new_line` 500s server-side).
+
 ## `repo` / `user` / `org` / `wiki`
 
 ```
