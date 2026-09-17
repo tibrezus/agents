@@ -129,6 +129,23 @@ skill's `references/ci-wiring.md` + `test-policy.md`.
    full + review at the same head SHA — then delete the branch and close
    the issue.
 
+**Review-thread close-out (Forgejo).** An adversarial review leaves inline
+threads; the close-out is mechanical and native:
+
+- As each fix lands, resolve the threads it addresses:
+  `fj review resolve <PR> <COMMENT-ID>` — the resolved marker IS the
+  close-out; the reviewer verifies the fix in the diff.
+- When everything is done, reply once per thread on the SAME anchored
+  comment (`fj review reply <PR> <COMMENT-ID> --body "…"`) carrying
+  `path:line → fix SHA + one-line rationale` as the round record. Never
+  open new anchored snippet comments per finding — each starts a NEW
+  thread instead of answering the finding's.
+- The reviewer — not the dev — closes threads it did not author, and
+  queries `fj review comments <PR> <REVIEW>` (resolved markers) rather
+  than downgrading for host-UI thread state.
+
+Depth: the skill's `SKILL.md` hard rule 0.
+
 A direct commit to the default branch requires an explicit user instruction,
 recorded on the issue.
 <!-- END dev-workflow -->
