@@ -138,8 +138,9 @@ failure modes: [references/safeguards.md](references/safeguards.md)).
    `go mod tidy`, ee-stripping) ran and produced expected artifacts.
 4. **Patch signatures intact** — every feature patch's grep-verifiable
    proof string still present (a merge didn't silently drop it).
-5. **Validation passed** — the checks *this fork* declares, built with
-   the **fork's declared toolchain**, all green in a real toolchain.
+5. **Validation passed** — the checks *this fork* declares (go_build /
+   go_test / clean_tree / integration), built with the **fork's declared
+   toolchain**, all green in a real toolchain.
 6. **(Agentic) conflict resolved & re-validated** — the resolution itself
    was validated before the PR is marked auto-mergeable.
 7. **(Opt-in) Auto-merge + auto-release** — if all above pass *and*
@@ -240,6 +241,9 @@ release: { dockerfiles, multi_arch, image_registry, chart_registry, build_cli, v
 validation:                               # ← multi-project: declare YOUR checks
   toolchain: { go: "1.25.7" }             # pin Go minor (declared > go.mod)
   go_build:   [{ module, packages }]
+  go_test:    [{ module, packages }]   # behavioral gate (#564): declare TARGETED
+                                       # feature packages, never upstream's suite
+                                       # (fast + deterministic — runs every sync)
   clean_tree: { paths: [...] }
   integration: { kind: forgejo-live, image, module, env }
 ```
