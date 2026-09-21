@@ -234,6 +234,22 @@ recreates drift. Update it here, then re-run `adopt` to propagate.
    findings (hard rule 6: sweep for the class), resolve every thread,
    re-run this step.
 
+**Verdict doctrine (r18) — verdicts are testing signals, not merge
+authority.** The adversarial review is a TESTING pass: it finds what
+deterministic gates cannot, but its verdict is a non-deterministic LLM
+output (rhesadox#2359: re-arm-as-retry was rational precisely because a
+verdict can change without the diff changing). Production merge
+authority is DETERMINISTIC: green CI, conformance gates, and owner
+judgment. Therefore: treat APPROVE as corroboration, never as the thing
+being waited on; when a verdict is stale, missing, or blocked by
+platform weather — and the deterministic evidence is complete (CI green,
+findings fixed AND threads resolved, AC met) — do not idle on re-arms:
+record an explicit owner-bypass with the evidence and proceed to merge.
+An owner-bypass with recorded rationale is a sanctioned close-out, not
+an exception to hide. Never re-arm repeatedly hoping a verdict flips:
+the gate refuses same-head re-dispatch (#567), and re-rolling a
+non-deterministic reviewer is gambling, not verification.
+
 The agent is not bound to these exact commands — they illustrate the
 dispatch. Raw per-platform forms and token env vars:
 [`references/platform-commands.md`](references/platform-commands.md).

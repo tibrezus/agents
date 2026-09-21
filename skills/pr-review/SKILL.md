@@ -242,13 +242,17 @@ trailer) — you write no prose.
 when replying to or closing threads, or debugging where a verdict landed.
 
 **Verdict sink — identity decides.** The deploy posts the verdict as a
-native review event under the runtime identity; where armed in branch
-protection, that native APPROVED/REQUEST_CHANGES **is** the binding
-approval (a reject physically blocks merge; a newer verdict from the same
-identity auto-dismisses the prior). When the runtime identity IS the PR
-author, Forgejo rejects self-verdicts server-side → the deploy falls back
-to COMMENT; enforcement rides gate-12's trailer — still posted, still
-merge currency (defense in depth).
+native review event under the runtime identity. **Doctrine (r18): the
+verdict is a testing signal, not merge authority — anywhere.** Its value
+is the FINDINGS it delivers and the corroboration it offers; the
+non-determinism of an LLM reviewer (a re-review of an unchanged diff can
+disagree — the rhesadox#2359 class) means no merge, in any repo, may
+stand on a verdict alone. Deterministic gates (CI, conformance,
+signatures) are the enforcement layer; a merge that must proceed without
+a guaranteed verdict carries a recorded owner-bypass with the
+deterministic evidence instead. Where branch protection arms on the
+review event, treat the native APPROVED/REQUEST_CHANGES as one input to
+the owner's judgment — never as a guarantee to lean on.
 
 **Later rounds — YOU (the reviewer) resolve prior threads by
 verification.** For every prior-round thread: locate the fix in the diff;
