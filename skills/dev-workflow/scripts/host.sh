@@ -203,16 +203,45 @@ dw_pr_number_from_branch() {
   esac
 }
 
+# dw_latest_verdict_sha "<pr#>"  → the head SHA recorded in the PR's newest
+# pr-review verdict trailer, or empty if none. Trailer contract (gate-12):
+# `<!-- pr-review: (APPROVE|REQUEST_CHANGES|COMMENT) @ <lowercase-hex> -->`.
+dw_latest_verdict_sha() {
+  local pr="$1" platform owner_repo
+  platform=$(dw_detect_platform); owner_repo=$(dw_owner_repo)
+  case "$platform" in
+    github)
+      gh api "repos/$owner_repo/issues/$pr/comments" --jq '.[] | [.created_at,.body] | @tsv' 2>/dev/null
+      gh api "repos/$owner_repo/pulls/$pr/reviews" --jq '.[] | select(.body != null and .body != "") | [.submitted_at,.body] | @tsv' 2>/dev/null
+      ;;
+    *)
+      local host token
+      host=$(dw_host); token=$(dw_token)
+      curl -fsSL -H "Authorization: token $token" \
+        "https://$host/api/v1/repos/$owner_repo/issues/$pr/comments" 2>/dev/null \
+        | jq -r '.[] | [.created_at,.body] | @tsv' 2>/dev/null
+      ;;
+  esac | grep -oE 'pr-review: *(APPROVE|REQUEST_CHANGES|COMMENT) @[ ]?[0-9a-f]{7,40}' \
+    | tail -1 | sed 's/.*@[ ]*//'
+}
+
 # dw_request_review "<pr#>" "[label]"  → guarded ingress to the adversarial review.
 #   REFUSES unless the full pipeline (fast tier when none is configured) is
 #   green at the PR's current head SHA — reviewing unvalidated code is
 #   pointless by contract (dev-workflow gates 11→12 handoff).
+#   REFUSES when a verdict trailer already stands at the current head (r18:
+#   one review per head, #567 — re-arming to re-roll a non-deterministic
+#   reviewer is gambling; push a fix commit or resolve threads instead).
 dw_request_review() {
   local pr="$1" label="${2:-needs-review}"
   local platform owner_repo
   platform=$(dw_detect_platform); owner_repo=$(dw_owner_repo)
   local head; head=$(dw_pr_head "$pr")
   [ -n "$head" ] || dw_die "cannot resolve head SHA of PR #$pr"
+  local vsha; vsha=$(dw_latest_verdict_sha "$pr")
+  if [ -n "$vsha" ] && [ "${#vsha}" -le "${#head}" ] && [ "${head:0:${#vsha}}" = "$vsha" ]; then
+    dw_die "refusing re-arm: verdict trailer already stands at head ${head:0:8} (r18: one review per head) — push a fix commit to request a fresh review, or resolve findings; re-rolling a non-deterministic reviewer is prohibited"
+  fi
   if [ -n "$(dw_full_pipeline_workflows)" ]; then
     dw_full_green "$head" \
       || dw_die "refusing review: full pipeline not green at head ${head:0:8} — declare ready first (dw_trigger_full_pipeline), or fix red CI on the branch"
