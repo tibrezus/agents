@@ -262,6 +262,18 @@ comments <PR> <REVIEW>`, resolved markers) — trusting the UI burns a full
 review round on findings already fixed (r12, live on #483). A downgrade is
 for exactly one thing: a prior finding NOT addressed in the diff.
 
+**Same head, same verdict — refuse in one line (r17, #567).** If the PR
+head equals the head an existing verdict was posted at, and the diff is
+unchanged since, do NOT run the phases: every phase re-derives a conclusion
+that already exists (the rhesadox#2359 class — six full reviews, one diff).
+Emit the verdict line stating the standing decision, SHA, and unresolved
+count, with the directive (push a fix, reply + resolve on the threads,
+re-arm), and stop. The kernel's gate enforces the same rule before
+dispatch; this is the reviewer-side backstop for older gates and manual
+dispatches. Determinism is the point: re-arm at an unchanged head must
+NEVER produce a different verdict — that non-determinism is exactly what
+made re-arm-as-retry rational for the dev.
+
 **Author side (dev agent) — mandatory before the pipeline resumes:** for
 every open thread — findings AND TODOs alike — the dev responds **on that
 same review thread** (the anchored code comment itself, via the host's
@@ -277,7 +289,32 @@ count — the answer lives where the finding lives, so the thread reads as
 one conversation. New anchored snippet comments per finding are
 FORBIDDEN — each starts a new thread instead of answering the finding's
 (anti-pattern observed live, rhesadox#2241: five `reply_to=None`
-comments, one per finding). Then
+comments, one per finding).
+
+**Transport failures register NOTHING (r17, live on rhesadox#2359).** The
+host silently accepts every wrong transport — a PR-conversation comment,
+a standalone COMMENT-type review, a new anchored snippet — with HTTP 201.
+Nothing errors, so "replied wrongly" and "replied and was heard" are
+indistinguishable from your side, and the only signal is the reviewer
+re-counting unresolved threads, which reads like rejection of your
+ARGUMENT when it is rejection of your TRANSPORT. On #2359 the dev spent
+five rounds posting "Thread resolution" COMMENT-reviews while thread
+#40268 never moved. Before concluding a reviewer is ignoring you, verify
+the state yourself: `fj review comments <PR> <REVIEW>` — resolved markers
+and `in_reply_to` are the only registration. If you believe a finding is
+WRONG, the registered path is an on-thread reply with evidence — never
+re-arm-as-retry.
+
+**Re-arm is refused over a standing verdict (#567, live on rhesadox
+#2359).** A head is reviewed exactly once: if a `pr-review:` verdict
+trailer stands at the CURRENT head SHA, the gate will not dispatch again —
+re-arming cannot change the verdict, it can only burn agent runs (six
+identical reviews of one SHA on #2359). Re-arm is meaningful only after a
+PUSH (new head) plus the thread close-out above. If you disagree with the
+verdict, the new head carrying your fix (or your on-thread rebuttal, which
+the next round's reviewer verifies) is the only lever.
+
+Then
 **request review from harmostes-bot
 natively** — the request is the re-arm signal (#488; the label stays the
 scope contract). post-review mechanically **downgrades an APPROVE issued
