@@ -255,16 +255,28 @@ review event, treat the native APPROVED/REQUEST_CHANGES as one input to
 the owner's judgment — never as a guarantee to lean on.
 
 **Later rounds — YOU (the reviewer) resolve prior threads by
-verification.** For every prior-round thread: locate the fix in the diff;
-when the solution is valid, the thread is CLOSED by your verification —
-post the verification **on that same thread** (the host's reply mechanism;
-`fj review reply` on Forgejo) and resolve it natively (`fj review resolve
-<PR> <COMMENT-ID>`).
+verification, FIRST, across ALL reviews (r40, live on rhesadox#2360: the
+reviewer re-posted its canonical findings as NEW threads each round while
+old review objects kept their stale threads — 3×5=15 unresolved
+duplicates accumulated monotonically and the gate downgraded verdicts
+over a fixed diff for eight rounds). The sweep precedes composing new
+findings: enumerate every review's unresolved threads — all rounds, not
+just the latest (`fj review comments <PR> <REVIEW>` per review) — verify
+each against the diff, and close valid fixes **on that same thread** (the
+host's reply mechanism; `fj review reply` on Forgejo) + resolve natively
+(`fj review resolve <PR> <COMMENT-ID>`). **Never mint a duplicate
+thread**: a finding that already has an open thread from ANY prior round
+is addressed BY REPLY on that thread — a new thread for the same finding
+is the defect that poisoned #2360. Only what is NEW or re-raised enters
+this round's `comments[]`.
 Do NOT downgrade an APPROVE because a thread shows unresolved in the host
 UI — UI state can lie both ways; query the threads instead (`fj review
 comments <PR> <REVIEW>`, resolved markers) — trusting the UI burns a full
 review round on findings already fixed (r12, live on #483). A downgrade is
-for exactly one thing: a prior finding NOT addressed in the diff.
+for exactly one thing: a prior finding NOT addressed in the diff — and
+the post-review gate now counts only the NEWEST prior round's open
+threads (#579), so verified closures are the merge currency, not the UI
+counter.
 
 **Same head, same verdict — refuse in one line (r17, #567).** If the PR
 head equals the head an existing verdict was posted at, and the diff is
@@ -278,12 +290,16 @@ dispatches. Determinism is the point: re-arm at an unchanged head must
 NEVER produce a different verdict — that non-determinism is exactly what
 made re-arm-as-retry rational for the dev.
 
-**Author side (dev agent) — mandatory before the pipeline resumes:** for
-every open thread — findings AND TODOs alike — the dev responds **on that
-same review thread** (the anchored code comment itself, via the host's
+**Author side (dev agent) — mandatory before the pipeline resumes:** run
+the reconciliation sweep across ALL reviews, not just the latest (r40,
+#2360): for every open thread on every prior review — findings AND TODOs
+alike — the dev responds **on that same review thread** (the anchored code comment itself, via the host's
 reply mechanism: `in_reply_to` on GitHub, discussion notes on GitLab,
 `fj review reply` on Forgejo), carrying the fix SHA + one-line rationale,
-then resolves it natively. **Forgejo close-out order (the standard):**
+then resolves it natively — **and resolves its own reply comments too**:
+the gate counts any comment with resolved=false, so a reply you leave
+unresolved is a new open thread by its accounting. **Forgejo close-out
+order (the standard):**
 as each fix lands, resolve the threads it addresses — `fj review resolve
 <PR> <COMMENT-ID>` — resolution IS the close-out, the fix is verified in
 the diff; the **actual replies** (`fj review reply`) come only when
@@ -322,8 +338,10 @@ Then
 **request review from harmostes-bot
 natively** — the request is the re-arm signal (#488; the label stays the
 scope contract). post-review mechanically **downgrades an APPROVE issued
-over prior-round threads whose findings are not addressed in the diff** —
+over unresolved threads on the newest prior round (#579) whose findings
+are not addressed in the diff** —
 unaddressed findings block the pipeline and the merge, whatever the
+findings block the full pipeline and the merge, no matter what the
 verdict text says.
 
 ## Output contract — threads are the review; the comment is one line
