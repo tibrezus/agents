@@ -18,7 +18,7 @@ UPSTREAM="${2:?Usage: generate-manifest.sh <our-branch> <upstream-ref>}"
 echo "# Fork Divergence Manifest"
 echo "# Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 echo "# Source: git diff ${BRANCH} ${UPSTREAM}"
-echo "# REGENERATE: platform/fork-maintenance/scripts/generate-manifest.sh"
+echo "# REGENERATE: platform/harmostes/fork-maintenance/scripts/generate-manifest.sh"
 echo ""
 
 WORKDIR=$(mktemp -d)
