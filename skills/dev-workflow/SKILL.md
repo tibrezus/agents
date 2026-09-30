@@ -33,32 +33,15 @@ A change may merge only after **all** gates pass, in order. Each gate is
 independently falsifiable.
 
 1. **Grounded in documented design — load architectural context before
-   implementing.** The purpose: insert the most compressed, accurate picture
-   of the project's architecture into context so the implementation follows
-   the project's structure and best practice. If the project has an
-   architecture graph (`rig.db` — via the [llm-wiki](/skill:llm-wiki)
-   pipeline, a wiki checkout, or committed in-repo), load in this order
-   (each item: mandatory if it exists):
-
-   1. **`rig overview`** — the whole graph in ~400 tokens: every build-target
-      component, its type, file count, dependency edges, symbol counts.
-      (pi `rig` tool, auto-discovers `raw/arch/<project>/rig.db`;
-      elsewhere: `python3 .llm-wiki/.github/actions/repo-map/rig-query.py
-      <rig.db> overview`.)
-   2. **Targeted drill-down into the area you're touching** —
-      `rig component <name>` (deps + files + doc comments),
-      `rig search '<term>*'` (FTS5 symbol search → exact `file:line`),
-      `rig deps <name> --reverse` (blast radius). Hundreds of tokens, not
-      thousands.
-   3. **project's own wiki `Architecture.md`** — the merged human page
-      (rendered views, source map, LikeC4 model, CI registry),
-      CI-regenerated on every push: **authoritative** for architecture.
-   4. relevant llm-wiki `wiki/` pages — decisions, trade-offs, the *why*.
-
-   Implementation without this context is invalid. **The graph is the
-   primary tool against code duplication**: before writing a new
-   function/type, `rig search` for the name/capability — if it already
-   exists as an export, extend it instead of duplicating.
+   implementing.** If the project has an architecture graph (`rig.db`), load
+   it in order (each mandatory if it exists): **`rig overview`** (the whole
+   graph in ~400 tokens), targeted drill-down (`rig component`, `rig
+   search`, `rig deps --reverse`), the project wiki's **`Architecture.md`**
+   (CI-regenerated, authoritative), and the relevant llm-wiki pages
+   (decisions, trade-offs, the why). Implementation without this context is
+   invalid. **The graph is the primary tool against code duplication**:
+   before writing a new function/type, `rig search` the capability — extend
+   what exists instead of duplicating.
 2. **Issue exists** — an open issue (found or created) describes the change.
 3. **Branch tied to the issue** — a branch whose name contains the issue
    number, created off the default branch. No work on the default branch.
@@ -98,7 +81,9 @@ independently falsifiable.
     the forge, so early scaffolding stays on the branch with the local
     loop.
 10. **Fast CI green on every push** — lint/build/unit/targeted tests. Red
-    is fixed on the branch, never merged red.
+    is fixed on the branch, never merged red. Silence is not green: a
+    conflicted (DIRTY) PR gets NO runs at all — treat "no checks" as a
+    rebase signal, prevented by gate 7's conflict probe.
 11. **Full pipeline green on the head SHA** — at ready declaration: rebase
     onto the default branch, then set the `full-pipeline` label on the PR
     (`dw_trigger_full_pipeline`), which runs the full pipeline on that head
@@ -113,15 +98,23 @@ independently falsifiable.
     push or default-branch move invalidates the run — re-rebase, then
     re-trigger (the helper toggles the label). Skipped when no full
     workflow is configured (the fast tier *is* the pipeline).
-12. **Adversarial review APPROVE on the head SHA** — `dw_request_review`
-    (guarded ingress: refuses heads without a green pipeline) triggers the
-    `pr-review` skill; APPROVE must land at the same head SHA. On repos
-    whose review runs as a harmostes workflow, monitor/trigger attempts
-    via the **`harmostes`** skill.
+12. **Adversarial review APPROVE on the head SHA — when armed.** Adversarial
+    review is **opt-in per PR**: `dw_request_review` (guarded ingress:
+    refuses heads without a green pipeline) arms it by setting the
+    `needs-review` label, which wakes the harmostes Review-Ready Gate and
+    runs the `pr-review` skill as the reviewer (`harmostes-bot`). Its
+    verdict is then binding: the bot's native APPROVED/REQUEST_CHANGES
+    review satisfies branch-protection approvals where armed, and APPROVE
+    lands only when every review thread — findings AND TODOs — is
+    resolved by the dev (open threads downgrade an APPROVE). When
+    adversarial review is NOT required, skip this gate: after gate 11 the
+    dev (admin) merges independently — the reviewer is never added
+    unrequested.
 13. **Merge-ready, then merged** — `dw_merge_readiness` verifies fast +
-    full + review + rebase at one frozen head SHA; only then `dw_merge_pr`.
-    Branch deleted; the merged PR (`Closes #n`) closes the issue and is the
-    implementation record — no separate issue comment required.
+    full + rebase at one frozen head SHA (plus the review verdict when
+    gate 12 was armed); only then `dw_merge_pr`. Branch deleted; the
+    merged PR (`Closes #n`) closes the issue and is the implementation
+    record — no separate issue comment required.
 
 **Two-phase readiness:** development pushes run the fast tier only; the
 full pipeline + adversarial review run **once, at ready declaration, on the
@@ -134,12 +127,20 @@ means back to developing, never into review. Depth:
 ## Hard rules
 
 0. **Review threads are the merge currency.** When an adversarial review
-   leaves inline comments (gh / fj / glab threads), the dev agent replies
-   on EVERY open thread — the fix SHA plus a one-line rationale — and
-   resolves it (native resolve on GitHub/GitLab; a closing reply on
-   Forgejo). The full pipeline resumes and a re-review can APPROVE only
-   when zero threads are unresolved; post-review downgrades APPROVEs
-   issued over open threads.
+   leaves inline comments (gh / fj / glab threads) — blocking findings AND
+   TODOs alike — the dev agent replies on EVERY open thread (the fix SHA
+   plus a one-line rationale) and resolves it (native resolve on
+   GitHub/GitLab; on Forgejo, where the thread API has no reply/resolve
+   yet, ONE follow-up review comment enumerating `path:line → fix SHA +
+   rationale` for every thread). The dev then **requests review from
+   harmostes-bot natively** — the request is the re-arm signal (#488; the
+   `needs-review` label stays as the scope contract). The REVIEWER — not
+   the dev — closes threads on the next round: it verifies each fix in the
+   diff and resolves/counts the thread as addressed; it never downgrades
+   for host-UI thread state on Forgejo (the resolve API does not exist
+   there). The full pipeline resumes and a re-review can APPROVE only when
+   every finding is verifiably addressed in the diff; post-review
+   downgrades APPROVEs issued over findings that are not.
 1. A direct commit/push to the default branch is forbidden unless the user
    gave an explicit instruction that is recorded on the issue. When in doubt,
    branch.
@@ -179,20 +180,15 @@ once at ready declaration — gate 11) as reusable jobs. A throwaway script
 leaves CI frozen while the code moves on — it looks like coverage but
 protects nothing. Depth: [`references/ci-concepts.md`](references/ci-concepts.md) §1.
 
-**CI code is expensive — a check's purpose is never duplicated.** Every line
-of CI is paid for three times, forever: runner minutes on every future push,
-a second place to keep in sync, and a second red light nobody can trust.
-Before adding any CI logic — a test, a job, a step, a tool — audit the
-**entire** CI surface (all workflow files **plus** the repo runners CI
-invokes: `scripts/test`, Makefile targets) and map every existing check to
-its **purpose** — the defect it exists to catch — not its literal commands.
-If the purpose is already achieved anywhere, the logic **moves** into the
-right form and is never added a second time: manual → always-on in CI,
-local-only → wired into CI, fast → slow tier, wrong trigger → right one.
-Extending an existing check beats opening a parallel one; a genuinely new
-purpose is added once, in the tier its runtime belongs in. The audit runs
-before the first line of CI code is written, and its result is stated on
-the PR. Depth: [`references/ci-concepts.md`](references/ci-concepts.md) §3.
+**CI code is expensive — a check's purpose is never duplicated.** Every
+line of CI is paid three times, forever: runner minutes, a second place to
+sync, a second red light nobody trusts. Before adding any CI logic, audit
+the entire CI surface and map each existing check to its **purpose** — if
+the purpose exists anywhere, the logic moves into the right form and is
+never added twice; a genuinely new purpose is added once, in the tier its
+runtime belongs in. The audit runs before the first line of CI code is
+written, and its result is stated on the PR.
+Depth: [`references/ci-concepts.md`](references/ci-concepts.md) §3.
 
 **Safety-critical boolean logic requires MC/DC.** When the project declares
 `SAFETY_LEVEL: mcdc`, every boolean decision in changed code must achieve
@@ -373,8 +369,14 @@ source "$(dirname "$(readlink -f "$0")")/scripts/host.sh"   # or source the abso
    Run the project's fast-tier workloads locally (build + lint +
    `dw_run_tests`) until green and the simplification pass (gate 8) is
    done. Opening a PR consumes CI on the forge — push and open it **once**,
-   when the local mirror is green:
+   when the local mirror is green. Probe the conflict state BEFORE pushing:
+   a branch that conflicts with the default branch is DIRTY, and GitHub
+   creates no merge ref for a DIRTY PR — `pull_request` workflows silently
+   never run, which reads as "CI is slow" but is actually "CI is absent":
    ```bash
+   git fetch origin "$(dw_default_branch)" -q
+   git merge-tree --write-tree "HEAD" "origin/$(dw_default_branch)" >/dev/null 2>&1 \
+     || { echo "branch conflicts with $(dw_default_branch) — rebase BEFORE pushing (CI will not run otherwise)"; exit 1; }
    git push -u origin "$BRANCH"
    dw_open_pr "$BRANCH" "$(dw_default_branch)" "<title>" "Closes #$ISSUE"
    ```
@@ -383,23 +385,32 @@ source "$(dirname "$(readlink -f "$0")")/scripts/host.sh"   # or source the abso
    ```bash
    dw_watch_ci "$BRANCH" || { echo "fast CI red — fix on the branch and re-push"; exit 1; }
    ```
+   **"No checks reported" is a STATE, not slowness.** On GitHub, check
+   `gh pr view --json mergeStateStatus` first: `DIRTY`/`CONFLICTING` means
+   the merge ref could not be created, so **no workflow will ever run for
+   this PR** — no amount of waiting or reopen cycles helps. Rebase onto the
+   default branch (carrying only this branch's changes) and force-push the
+   branch; runs appear within a minute. On Forgejo the same state is the
+   PR's `mergeable == false`.
    If the change touched workflow files, CI conformance must hold:
    ```bash
    dw_ci_conformance "origin/$(dw_default_branch)" \
      || { echo "CI conformance red — satisfy I1–I5 (shift checks, never delete)"; exit 1; }
    ```
-9. **Declare ready — full pipeline, review, merge:**
+9. **Declare ready — full pipeline, review (when armed), merge:**
    ```bash
    PR=$(dw_pr_number_from_branch "$BRANCH")
    dw_rebase_onto_default "$BRANCH"        # hard rule 3 — BEFORE triggering
    dw_trigger_full_pipeline "$PR"          # gate 11: sets the full-pipeline label; REFUSES unrebased heads (no-op if none configured)
    dw_watch_full_pipeline "$BRANCH" || { echo "full pipeline red — fix, re-push, re-declare"; exit 1; }
-   dw_request_review "$PR"                 # gate 12 — refuses unvalidated heads
-   dw_wait_review "$PR"                    # blocks for the verdict trailer
+   dw_request_review "$PR"                 # gate 12 — ONLY when adversarial review is required (opt-in)
+   dw_wait_review "$PR"                    # blocks for the verdict trailer — skip when not armed
    dw_merge_pr "$PR" squash                # gate 13 — refuses unless merge-ready
    ```
-   A REQUEST_CHANGES verdict means: address the findings, then re-run this
-   step — the new head SHA re-opens gates 11 and 12.
+   A REQUEST_CHANGES verdict means: address the findings, resolve every
+   thread (TODOs too), then re-run this step — the new head SHA re-opens
+   gates 11 and 12. When adversarial review was not armed, gate 11 green
+   is enough — merge.
 
 The agent is not bound to these exact commands — they illustrate the dispatch.
 Load [`references/platform-commands.md`](references/platform-commands.md) for

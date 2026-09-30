@@ -36,7 +36,7 @@ spend it where findings come from:
 |---|---|---|
 | Orient (context + diff + RIG component of touched nodes) | 3 min | The diff is the artifact under review — read IT, not the codebase around it. Follow a symbol out of the diff only when the finding hinges on it. |
 | Investigate (the pillars the diff's triggers select) | 7 min | Targeted source reads. A trace across packages earns its keep only when a finding names the seam. |
-| Deterministic proof | 3 min | ONE warm build (`go build ./...` or equivalent) + tests for the TOUCHED packages only (`go test ./internal/worker/ ./api/...`) — never the full battery; pipeline CI owns that and it is green by ingress. Mutation probes: batch ALL candidate edits into ONE edit→test→revert cycle. Probes are for load-bearing pin claims, not decoration — a probe that cannot change a verdict is skipped. |
+| Deterministic proof | 3 min | ONE warm build + tests for the TOUCHED packages only — never the full battery (pipeline CI is green by ingress). Mutation probes batch into one edit→test→revert cycle, and only for load-bearing claims. |
 | Judge + write | 2 min | The verdict is the payload. Write it, post it, done. |
 
 If the budget runs out mid-investigation, post what the evidence already
@@ -46,27 +46,22 @@ unposted. Never spend budget re-deriving what the diff itself shows.
 
 ## Ingress contract — validated SHAs only
 
-**This skill owns the review contract**: the two-stance methodology below,
-the verdict vocabulary (APPROVE / REQUEST_CHANGES / COMMENT), the trailer
-format `<!-- pr-review: DECISION @ sha -->`, the `reviewed_sha` currency
-rule, and the label lifecycle (set by the requester; consumed ONLY by a
-verdict posted at the exact reviewed SHA). `dev-workflow` requests and
-consumes verdicts; it never re-states these rules.
+**This skill owns the review process**: the two-stance methodology, the
+verdict vocabulary (APPROVE / REQUEST_CHANGES), the `reviewed_sha`
+currency rule, and the label lifecycle (set by the requester; consumed
+only by a verdict at the exact reviewed SHA). The output contract's
+canonical home is `verdictTrailer` in the harmostes tree
+(internal/review/review.go); `dev-workflow` requests and consumes
+verdicts — it never re-states these rules.
 
-Two ingress points, one contract:
-- **harmostes (automated):** the event-armed Review-Ready Gate (ADR-0006)
-  proceeds only when the label is present ∧ every merge-rule required
-  context is green at the head SHA; the workspace plugin provisions the
-  knowns (clone at head, PR context, tools); the agent runs this skill.
-- **manual:** `dw_request_review` guards greenness requester-side, then
-  sets the same label — human-ticking the label in the UI is equivalent.
-
-Invoked **only on a pipeline-green SHA**: the harmostes gate pins the
-validated SHA, or `dw_request_review` refuses
-unvalidated heads. CI evidence in `pr-context.json` is green by contract —
-red CI is fixed on the branch, never reviewed; this pass exists for what CI
-*cannot* see. Phase-0 deterministic proof (local build/test of the delta)
-remains — it catches nondeterminism and drift, not CI status.
+Two ingress points, one contract: the **harmostes Review-Ready Gate**
+(ADR-0006, armed per PR by the `needs-review` label) proceeds only when
+the label is present ∧ the merge-rule context is green at the head SHA;
+or **manual** via `dw_request_review`, which refuses unvalidated heads.
+Invoked **only on a pipeline-green SHA** — red CI is fixed on the branch,
+never reviewed; this pass exists for what CI cannot see. Phase-0
+deterministic proof remains: it catches nondeterminism and drift, not CI
+status.
 
 ## Context you have (assembled by pr-fetch)
 
@@ -157,71 +152,48 @@ investigation to the risk of the change, not to the number of pillars.
 
 Investigate the relevant structural pillars:
 
-- **Coupling**: does the diff add imports/calls across components? If a RIG
-  exists, check whether each new dependency is an edge in the graph. If not,
-  is the coupling documented in the wiki/ADR? Undocumented cross-component
-  edges are findings. Then check **architecture decay** against a
-  deterministic baseline, not by eyeball: fetch the base graph — the
-  project's arch package at the merge-base SHA (package versions are the
-  SHA series; `fj`/token auth) or the kb `raw/arch/<proj>/rig.db` at the
-  base commit — run `rig-fitness.py <db> --json` (module repo-map) on base
-  and head, and diff: new cycles, fan-in growth on touched components,
-  size growth concentrated in the largest component, new duplicated
-  symbols. Findings even when each edge is individually documented —
-  scalability is a graph *shape* property, not an edge property. The
-  Phase-0 `brief` result is the fine-grained complement: its risk
-  lines name the exact touched symbols, their fan-in, and cross-component
-  hops — cite a HIGH line rather than re-deriving it.
-  **Evidence**: cite the delta (e.g. `fan-in 3→9 on decode`), the RIG edge,
-  the `rig impact` risk line, or the import line.
-- **Design Intent**: does the change align with the wiki's documented
-  decisions? Read the relevant entity/concept/ADR pages for the touched
-  components. **Also (DRY)**: for every new exported function/type, `rig
-  search` the graph for its name and capability keywords — a matching export
-  in **any** component (not only the touched ones) is a finding: extend the
-  existing symbol instead of adding a near-duplicate. When the exact search
-  misses but the capability smells duplicated, `rig clones <symbol>` checks
-  the near-clone edges (MinHash+LSH over bodies — catches paraphrased
-  copies the FTS index cannot see). And `rig dead [component]` flags new
-  exports zero callers reach: adding an export nobody calls is a finding
-  (dead API surface), not a neutral fact. Without a rig.db, fall back to
-  model.c4 `// Exports:` + `grep`. **Evidence**: cite the rig
-  search hit (symbol + file:line), the `rig clones` edge (jaccard +
-  scope), the `rig dead` line, the wiki page/ADR, or the export line
-  being duplicated.
+- **Coupling**: does the diff add imports/calls across components? Each new
+  dependency must be a graph edge or documented in the wiki/ADR —
+  undocumented cross-component edges are findings. Then check **architecture
+  decay** against a deterministic baseline, not by eyeball: run
+  `rig-fitness.py <db> --json` on the base graph (merge-base SHA or the kb's
+  `raw/arch/<proj>/rig.db`) and the head graph, and diff — new cycles,
+  fan-in growth on touched components, size growth in the largest component.
+  Scalability is a graph *shape* property; findings stand even when each
+  edge is individually documented. The Phase-0 `brief` risk lines are the
+  fine-grained complement — cite a HIGH line rather than re-deriving it.
+  **Evidence**: the delta (`fan-in 3→9 on decode`), the RIG edge, or the
+  `rig impact` risk line.
+- **Design Intent**: aligned with the wiki's documented decisions (read the
+  entity/concept/ADR pages for the touched components)? **And DRY**: for
+  every new exported symbol, `rig search` its name and capability keywords —
+  a matching export anywhere is a finding (extend, don't duplicate);
+  `rig clones <symbol>` catches paraphrased copies; `rig dead` flags new
+  exports zero callers reach (dead API surface is a finding, not a neutral
+  fact). Without a rig.db: model.c4 `// Exports:` + `grep`. **Evidence**:
+  the search hit, the `rig clones` edge, the `rig dead` line, or the ADR.
 - **Interface Stability**: does the diff modify exported/public symbols, API
   contracts, or schema? `grep` for usages of changed symbols across the repo.
   Breaking changes without versioning/migration are findings. **Evidence**:
   cite the symbol and its usages.
-- **CI Economy**: CI is fundamental — every merge passes through it — and it
-  is the most expensive asset in the repository: every check is paid again on
-  every future push, forever. When the diff adds or moves CI work, re-run the
-  author's purpose audit independently: enumerate the **entire** CI surface
-  (all workflow files **plus** what CI invokes — Makefile targets,
-  `scripts/test`, composite/reusable actions), reduce each existing check to
-  its **purpose** (the defect it exists to catch, not its literal command — a
-  `tidy` Makefile target *is* a dependency-drift check once CI calls it), and
-  compare the diff's additions against that map. Findings:
-  - a new check whose purpose an existing check already achieves — in any
-    file, any form — **MAJOR**: the logic must move (extend or re-home the
-    existing check), never clone. Tests count: Test Quality hunts *missing*
-    coverage; CI Economy hunts *redundant* coverage — together they bound the
-    test delta from both sides.
-  - an existing check re-homed by copy-paste instead of moved (the purpose
-    now has two homes) → **MAJOR**.
-  - a genuinely new purpose placed wrongly — slow-tier runtime in the fast
-    tier, always-on where a merge-time dispatch belongs, or a manual-only
-    check guarding a merge-relevant invariant — **MAJOR** if the waste or
-    gap recurs on every push, **MINOR** otherwise.
-  - inefficiency inside a legitimate check (no caching where the platform
-    offers it, unbounded matrix legs, missing `concurrency` cancellation,
-    repeated work that a composite/reusable action should share) →
-    **MINOR**.
-  Also verify the converse held: existing checks were **moved, not removed**
-  — run `dw_ci_conformance "origin/<default>"` when workflow files changed;
-  its findings are findings here too. **Evidence**: cite the colliding
-  existing check (file:line), the duplicated purpose, or the tier/trigger
-  mismatch.
+- **CI Economy**: every check is paid on every future push, forever. When the
+  diff adds or moves CI work, re-run the author's purpose audit
+  independently: enumerate the entire CI surface (workflow files plus what
+  CI invokes — Makefile targets, `scripts/test`, reusable actions), reduce
+  each check to its **purpose** (the defect it catches, not its commands),
+  and compare the diff's additions against that map. Findings:
+  - a new check whose purpose an existing check already achieves —
+    **MAJOR**: the logic moves (extend or re-home), never clones.
+  - a purpose re-homed by copy-paste (two homes) → **MAJOR**.
+  - a new purpose in the wrong tier/trigger → **MAJOR** if the waste
+    recurs on every push, **MINOR** otherwise.
+  - inefficiency inside a legitimate check (no caching, unbounded matrix,
+    missing `concurrency` cancellation) → **MINOR**.
+  Test Quality hunts *missing* coverage; CI Economy hunts *redundant*
+  coverage — together they bound the test delta from both sides. When
+  workflow files changed, run `dw_ci_conformance "origin/<default>"`; its
+  findings are findings here too. **Evidence**: the colliding check
+  (file:line), the duplicated purpose, or the tier/trigger mismatch.
 
 ### Phase 2: Adversary — behavioral soundness
 
@@ -276,14 +248,28 @@ there is no risk.
 | Any CRITICAL or verified MAJOR finding | REQUEST_CHANGES (each becomes a thread) |
 | Only MINOR/NIT, or all clean + CI green + deterministic proof passes | APPROVE (MINOR/NIT are dropped, not posted) |
 
+5. **Completely missing, not wrong?** A missing piece — absent test scope,
+   an unwired tool, a doc that should exist — that is not a defect in what
+   the diff contains is a **TODO**, not a finding: record it in
+   `todos[]` (same shape as `comments[]`). TODOs anchor as non-blocking
+   threads the dev must address (reply with the follow-up, then resolve);
+   they never change THIS decision, but unresolved TODO threads downgrade
+   the NEXT round's APPROVE. Anything that makes the change incorrect or
+   unmergeable is a finding, never a TODO.
+
 "Deterministic proof" here is the reviewer's independent local run of the
 checked-out delta — pipeline CI is green by ingress contract.
 
 ## The inline review protocol — threads are the merge currency
 
-A bullet list is not a review. **Every finding goes in as a real inline
-review comment anchored to the code**, posted by you with the
-already-authenticated forge CLI:
+A bullet list is not a review — but under the r7 output contract the
+threads are NOT yours to post. **Every NEW blocking finding rides
+`review.json`'s `comments[]`** (path, line, body); the deploy node
+publishes them as native anchored threads and composes the one-line
+verdict. NEVER post NEW findings via the forge CLI yourself — a
+self-post duplicates the deploy's publish and the verdict line lies
+about the count. The CLI protocol below is for the AUTHOR-side replies
+and resolutions that close a thread:
 
 - **GitHub (`gh`)**: `gh api repos/{o}/{r}/pulls/$N/comments -f commit_id=$SHA -f path=F -F line=N -f body="…"`.
   Reply: `gh api repos/{o}/{r}/pulls/$N/comments -f body="…" -F
@@ -298,56 +284,67 @@ already-authenticated forge CLI:
   ships, a thread is addressed by a follow-up create-pull-review whose
   comment body leads with `path:line` + the resolution and the original
   comment id; native reply/resolve lands with the fork API extension.
-- **Verdict sink — identity decides.** Forgejo rejects self-approve and
-  self-reject server-side (`pull_review.go`: “reject your own pull is not
-  allowed”); only COMMENT is unrestricted. So the posting identity picks the
-  mode:
-  - **runtime identity ≠ PR author** (git.rezus.cloud: `harmostes-bot`, BSM
-    key `HARMOSTES_FORGEJO_TOKEN`): post the DECISION as the review event —
-    `{"event":"REQUEST_CHANGES"|"APPROVED","body":"N blocking","commit_id":"<sha>","comments":[…]}`.
-    Branch protection (e.g. rhesadox `main`: `block_on_rejected_reviews` + `dismiss_stale_approvals` +
-    `apply_to_admins` — any verdict that lands is binding. Adversarial review
-    is OPT-IN per PR (arm the Review-Ready Gate): enforcement then rides the
-    dev-workflow merge chain (gate-12 requires the bot APPROVE trailer), not a
-    static approval requirement; the approvals whitelist
-    (`[harmostes-bot, tibrez]`) is staged for re-enforcement.) then enforces
-    the verdict at the platform level: a reject physically blocks merge, a
-    re-review from the same user auto-dismisses its prior verdict, fresh
-    pushes invalidate stale approvals. Still post the trailer comment —
-    gate-12 consumes it as merge currency (defense in depth).
-  - **runtime identity = PR author** (no bot account available): the server
-    422s verdict events → fall back to `{"event":"COMMENT"}` carrying the
-    full payload + the trailer comment; enforcement rides gate-12 alone.
-  The polished `fj review` surface mirrors this: `fj review create <PR>
-  --event REQUEST_CHANGES` (positional args fixed in v16.0.3-rezus.3 — the
-  rezus.2 binary bound both path params from args[0], #113).
+- **Verdict sink — identity decides.** The deploy posts the verdict as a
+  native review event under the runtime identity. On repos where the
+  adversarial review is armed in branch protection (rhesadox `main`:
+  `required_approvals=1` + `block_on_rejected_reviews` +
+  `dismiss_stale_approvals` + `apply_to_admins`, whitelist
+  `[harmostes-bot, tibrez]`), that native APPROVED/REQUEST_CHANGES **is**
+  the binding approval: a reject physically blocks merge, a newer verdict
+  from the same identity auto-dismisses the prior one, fresh pushes
+  invalidate stale approvals. When the runtime identity IS the PR author,
+  Forgejo rejects self-verdicts server-side → the deploy falls back to
+  COMMENT; enforcement rides gate-12's trailer alone. Still post the
+  trailer comment — gate-12 consumes it as merge currency (defense in
+  depth).
 - **GitLab (`glab`)**: positioned discussions —
   `glab api projects/:id/merge_requests/$N/discussions -X POST …`;
   reply via `…/discussions/$ID/notes`; resolve via `PUT … {"resolved":true}`.
 
-One thread per finding; the verdict body only **summarizes** (with thread
-ids). On a later round: verify each fix in the diff, **reply on the thread
-with the fixing SHA**, then **resolve it**.
+One thread per finding (and per TODO); the verdict is a deploy-composed
+ONE-LINE comment (decision + SHA + blocking count + trailer) — review.json
+has NO body field and you write no prose.
+
+**Later rounds — YOU (the reviewer) resolve prior threads by verification.**
+On a re-review, for every prior-round thread: locate the fix in the diff,
+and when the solution is valid, the thread is CLOSED by your verification —
+post the verification (follow-up review comment leading with `path:line` +
+the original comment id where the host supports replies) and count the
+thread as resolved for this decision. Do NOT downgrade an APPROVE because a
+thread shows unresolved in the host UI — on Forgejo the resolve API does not
+exist yet, so UI state can never show resolved and trusting it burns a full
+review round on findings that are already fixed (r12, live on #483). A
+downgrade is for exactly one thing: a prior finding that is NOT addressed
+in the diff.
 
 **Author side (dev agent) — mandatory before the pipeline resumes:** reply
-to every open review thread with the fix SHA + one-line rationale, resolve
-it (native where the host has it, a closing reply on Forgejo), and only
-then re-arm. post-review mechanically **downgrades an APPROVE issued over
-open prior-round threads** — unresolved threads block the full pipeline
-and the merge, no matter what the verdict text says.
+to every open thread — findings AND TODOs — with the fix SHA + one-line
+rationale, and mark it resolved (native where the host has it; on Forgejo
+post the follow-up review comment enumerating `path:line → fix SHA +
+rationale` for every thread in ONE pass). Then **request review from
+harmostes-bot natively** — that request is the re-arm signal (#488; the
+label stays as the scope contract). post-review mechanically **downgrades
+an APPROVE issued over prior-round threads whose findings you have not
+addressed in the diff** — unaddressed findings block the full pipeline and
+the merge, no matter what the verdict text says.
 
 ## Output contract — threads are the review; the comment is one line
 
 The posted output is SMALL by design. The pillar analysis (Phases 0-3)
 happens in your head and in your tool calls — it is never posted as prose.
-Exactly two things leave this review:
+Exactly three things leave this review:
 
 1. **Blocking findings** — each CRITICAL or verified MAJOR finding becomes
-   ONE entry in `comments[]`. The deploy step posts them as native inline
-   review threads anchored to the code; each must be closed before the PR
-   can merge. MINOR and NIT findings are NOT posted — they do not block
-   merges and a review is not the place for style notes.
-2. **A one-line verdict** — written by the deploy step, not by you. It
+   ONE entry in `comments[]`. The deploy posts them as native inline
+   review threads anchored to the code; each must be independently
+   resolved by the dev before the PR can merge. MINOR and NIT findings are
+   NOT posted — they do not block merges and a review is not the place for
+   style notes.
+2. **TODOs** — each completely-missing piece becomes ONE entry in
+   `todos[]`, anchored as a non-blocking thread the dev must address.
+   TODOs never change the decision; unresolved ones downgrade the next
+   round.
+3. **A one-line verdict** — written by the deploy step, not by you. It
    states the decision, the SHA, and the blocking-finding count. Nothing
    else. There is no pillar-structured body, no summary section, no
    coverage essay.
@@ -362,7 +359,11 @@ review = {
     "reviewed_sha": "<head SHA of /workspace/repo>",
     "comments": [
         {"path": "src/foo.zig", "line": 42,
-         "body": "Blocking: <what is wrong> <evidence> <what to do>. "}
+         "body": "Blocking: <what is wrong> <evidence> <what to do>."}
+    ],
+    "todos": [
+        {"path": "src/bar.zig", "line": 7,
+         "body": "<what is completely missing> <where it belongs>."}
     ]
 }
 json.dump(review, open("/workspace/review.json", "w"), indent=2)
@@ -370,18 +371,20 @@ json.dump(review, open("/workspace/review.json", "w"), indent=2)
 
 - `decision` — `APPROVE` (no blocking findings) or `REQUEST_CHANGES`
   (≥1 blocking finding). There is no COMMENT middle ground: MINOR/NIT
-  findings are dropped, not posted.
+  findings are dropped, not posted. TODOs do not affect the decision.
 - `reviewed_sha` — the head SHA of `/workspace/repo` (full 40 hex). The
-  deploy step embeds it in the verdict line and anchors every thread to it.
+  deploy embeds it in the verdict line and anchors every thread to it.
 - `comments` — ONLY blocking findings (empty `[]` when approving). Each
   is one self-contained thread: what is wrong, the evidence, what to do.
-  The deploy step deduplicates and publishes them; do not post them
-  yourself.
+  The deploy deduplicates and publishes them; do not post them yourself.
+- `todos` — optional; ONLY completely-missing pieces (empty `[]` or omit
+  the key). Same self-contained-thread rule: what is missing, where it
+  belongs.
 
 **Coverage** stays your discipline: every pillar investigated per the
-phases above. But coverage is reported by the deploy step's one-line
-verdict ("pillars clean" vs "N blocking"), not by an N/A essay — a pillar
-with no blocking finding simply produces nothing.
+phases above. But coverage is reported by the deploy's one-line verdict
+("pillars clean" vs "N blocking"), not by an N/A essay — a pillar with no
+blocking finding simply produces nothing.
 
 ## Do NOT
 
