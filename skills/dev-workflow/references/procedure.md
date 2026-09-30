@@ -87,7 +87,7 @@ source "$(dirname "$(readlink -f "$0")")/scripts/host.sh"   # or source the abso
    PR=$(dw_pr_number_from_branch "$BRANCH")
    dw_rebase_onto_default "$BRANCH"        # hard rule 3 — BEFORE triggering
    dw_trigger_full_pipeline "$PR"          # gate 11: sets the full-pipeline label; REFUSES unrebased heads (no-op if none configured)
-   dw_watch_full_pipeline "$BRANCH" || { echo "full pipeline red — fix, re-push, re-declare"; exit 1; }
+   dw_watch_full_pipeline "$BRANCH" || { echo "full pipeline red — fix, preflight, re-push, re-declare"; exit 1; }
    dw_request_review "$PR"                 # gate 12 — ONLY when adversarial review is required (opt-in)
    dw_wait_review "$PR"                    # blocks for the verdict trailer — skip when not armed
    dw_merge_pr "$PR" squash                # gate 13 — refuses unless merge-ready
@@ -96,13 +96,27 @@ source "$(dirname "$(readlink -f "$0")")/scripts/host.sh"   # or source the abso
    for the class first (hard rule 6): an isolated mistake is fixed at its
    instance; a repeated pattern takes the structural fix (every instance +
    root cause: component refactor, or an architectural-change proposal when
-   it exceeds this PR). Resolve every thread as its fix lands — on Forgejo
-   `fj review resolve <PR> <COMMENT-ID>` is the standard close-out — then,
-   when everything is done, the actual replies (`fj review reply`,
-   `in_reply_to`, discussion notes) carry `path:line → fix SHA + rationale`
-   as the round record (TODOs too). Re-run this step — the new head SHA
+   it exceeds this PR). Thread close-out per
+   [`review-threads.md`](review-threads.md) (resolve as fixes land; replies
+   at the end, one per thread). Re-run this step — the new head SHA
    re-opens gates 11 and 12. When adversarial review was not armed, gate
    11 green is enough — merge.
+
+   **Verdict doctrine (r18) — verdicts are testing signals, not merge
+   authority.** The adversarial review is a TESTING pass: it finds what
+   deterministic gates cannot, but its verdict is a non-deterministic LLM
+   output (rhesadox#2359: re-arm-as-retry was rational precisely because a
+   verdict can change without the diff changing). Production merge
+   authority is DETERMINISTIC: green CI, conformance gates, and owner
+   judgment. Therefore: treat APPROVE as corroboration, never as the thing
+   being waited on; when a verdict is stale, missing, or blocked by
+   platform weather — and the deterministic evidence is complete (CI green,
+   findings fixed AND threads resolved, AC met) — do not idle on re-arms:
+   record an explicit owner-bypass with the evidence and proceed to merge.
+   An owner-bypass with recorded rationale is a sanctioned close-out, not
+   an exception to hide. Never re-arm repeatedly hoping a verdict flips:
+   the gate refuses same-head re-dispatch (#567), and re-rolling a
+   non-deterministic reviewer is gambling, not verification.
 
 The agent is not bound to these exact commands — they illustrate the dispatch.
 Load [`platform-commands.md`](platform-commands.md) for the raw per-platform

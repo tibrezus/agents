@@ -59,22 +59,17 @@ independently falsifiable. (Numbers are stable identifiers —
    simpler?", remove dead code / redundant abstractions / speculative
    generality (hard rule 5). Before pushing to CI, re-checked before merge.
 9. **No push is red locally — the local CI mirror precedes every push.**
-   Everything the fast tier runs that a dev machine can also run — lint,
-   build, unit tests — is green locally BEFORE any `git push`, the first
-   push and every later re-push alike (`dw_preflight` runs all three in
-   one shot; a step it cannot detect is run by hand). Fast CI on the forge
-   exists to re-confirm the mirror on a clean runner, not to discover
-   basic breakage. Only checks that genuinely cannot run locally
-   (external-service integration, GPU/infra matrices, runner-class
-   benchmarks) are first executed by CI. The PR opens **once** — it
-   triggers CI on the forge, so scaffolding stays on the branch. Probe
-   conflicts BEFORE pushing: a DIRTY PR gets no runs at all (procedure
-   step 7).
+   Lint, build, and unit tests run on a dev machine, so they are green
+   locally BEFORE any `git push` — first push and every re-push alike
+   (`dw_preflight`; undetected steps by hand). Fast CI re-confirms the
+   mirror on a clean runner; it does not discover basic breakage — only
+   genuinely non-local checks are first executed by CI. The PR opens
+   **once**, locally green; probe conflicts BEFORE pushing — a DIRTY PR
+   gets no runs at all (procedure step 7).
 10. **Fast CI green on every push** — lint/build/unit/targeted tests; red
     fixed on the branch. Silence is not green: "no checks" is a rebase
-    signal (procedure step 8). Fast CI **confirms** what already ran
-    locally (gate 9) — a red fast check that a laptop could have caught is
-    wasted CI budget and a process failure, not bad luck.
+    signal (procedure step 8). Fast CI **confirms** the local mirror — a
+    red fast check a laptop could have caught is wasted CI budget.
 11. **Full pipeline green on the head SHA** — at ready declaration: rebase
     onto default, then `dw_trigger_full_pipeline` (the helper **refuses
     unrebased heads** — first trigger and re-triggers alike; the full
@@ -94,8 +89,8 @@ independently falsifiable. (Numbers are stable identifiers —
     armed); then `dw_merge_pr`. Branch deleted; the merged PR
     (`Closes #n`) closes the issue and is the implementation record.
 
-**Two-phase readiness:** development pushes run the fast tier only — each
-push preceded by its local mirror (gate 9); the full pipeline + adversarial
+**Two-phase readiness:** development pushes run the fast tier only (each
+preceded by its local mirror, gate 9); the full pipeline + adversarial
 review run **once, at ready declaration, on the final head SHA** (rebase *before* triggering). Statuses bind to SHAs,
 so any push after declaration — source or docs — re-opens the path; red
 pipeline means back to developing, never into review (depth:
@@ -103,31 +98,17 @@ pipeline means back to developing, never into review (depth:
 
 ## Hard rules
 
-0. **Review threads are the merge currency.** When an adversarial review
-   leaves inline comments (gh / fj / glab threads) — blocking findings AND
-   TODOs alike — the dev agent addresses EVERY open thread, and each
-   response lands **on that same anchored review comment** (the host's
-   reply mechanism: `in_reply_to` on GitHub, discussion notes on GitLab,
-   `fj review reply` on Forgejo — native since #115 shipped), never in a
-   separate comment — carrying the fix SHA plus a one-line rationale.
-   **Forgejo close-out order (standard):** as each fix lands, resolve the
-   threads it addresses — `fj review resolve <PR> <COMMENT-ID>` — the
-   resolved marker IS the close-out, the reviewer verifies the fix in the
-   diff; the **actual replies** (`fj review reply`) come only when
-   everything is done — one per thread, carrying `path:line → fix SHA +
-   rationale`, as the round record. NEVER create new anchored snippet
-   comments per finding — each starts a NEW thread instead of answering
-   the finding's (anti-pattern observed live, rhesadox#2241: five
-   `reply_to=None` comments, one per finding). The dev then **requests
-   review from harmostes-bot natively** — the request is the re-arm
-   signal (#488; the `needs-review` label stays as the scope contract).
-   The REVIEWER — not the dev — closes threads it did not author: it
-   verifies each fix in the diff and resolves/counts the thread as
-   addressed (`fj review resolve`); it never downgrades for host-UI
-   thread state — query `fj review comments <PR> <REVIEW>` (resolved
-   markers) instead. The full pipeline resumes and a re-review can
-   APPROVE only when every finding is verifiably addressed in the diff;
-   post-review downgrades APPROVEs issued over findings that are not.
+0. **Review threads are the merge currency.** Every inline thread a
+   review leaves — blocking findings AND TODOs alike — is answered **on
+   that same thread** (the host's reply mechanism, never a new comment),
+   carrying the fix SHA + one-line rationale; Forgejo close-out: resolve
+   as fixes land (`fj review resolve`), actual replies (`fj review reply`)
+   once at the end — one per thread, the round record; never mint
+   duplicate threads (rhesadox#2241). The REVIEWER — not the dev — closes
+   threads it did not author, after verifying the diff. Full protocol —
+   the all-rounds reconciliation sweep (r40, #2360), transport
+   registration (r17, #2359), re-arm mechanics (#567):
+   [`references/review-threads.md`](references/review-threads.md).
 1. A direct commit/push to the default branch is forbidden unless the user
    gave an explicit instruction that is recorded on the issue. When in
    doubt, branch.
@@ -165,15 +146,10 @@ pipeline means back to developing, never into review (depth:
 rule's depth lives in its reference page:
 
 - **Local-first: CI is not where you find out your code doesn't lint.**
-  The fast tier is a **local mirror** — lint, build, and unit tests all run
-  on a dev machine, so they run there first, green, before **every** push
-  (`dw_preflight`; gate 9, first push and re-pushes alike). CI re-runs them
+  The fast tier is a **local mirror** — lint, build, and unit tests green
+  locally before **every** push (`dw_preflight`; gate 9). CI re-runs them
   on a clean runner to catch environment drift, not to discover basic
-  breakage; a red fast check that a laptop could have caught is wasted CI
-  budget. A check may be *first executed* by CI only when it genuinely
-  cannot run locally: integration against external services, GPU/infra
-  matrices, benchmarks on runner-class hardware. Depth:
-  [`test-policy.md`](references/test-policy.md).
+  breakage. Depth: [`test-policy.md`](references/test-policy.md).
 - **CI instrumentation evolves with the project — there is no throwaway
   test.** Run the project's own runner locally (`make test`, `npm test`,
   `scripts/test`) and wire every new test or tool into CI; before creating
@@ -256,20 +232,13 @@ recreates drift. Update it here, then re-run `adopt` to propagate.
    re-run this step.
 
 **Verdict doctrine (r18) — verdicts are testing signals, not merge
-authority.** The adversarial review is a TESTING pass: it finds what
-deterministic gates cannot, but its verdict is a non-deterministic LLM
-output (rhesadox#2359: re-arm-as-retry was rational precisely because a
-verdict can change without the diff changing). Production merge
-authority is DETERMINISTIC: green CI, conformance gates, and owner
-judgment. Therefore: treat APPROVE as corroboration, never as the thing
-being waited on; when a verdict is stale, missing, or blocked by
-platform weather — and the deterministic evidence is complete (CI green,
-findings fixed AND threads resolved, AC met) — do not idle on re-arms:
-record an explicit owner-bypass with the evidence and proceed to merge.
-An owner-bypass with recorded rationale is a sanctioned close-out, not
-an exception to hide. Never re-arm repeatedly hoping a verdict flips:
-the gate refuses same-head re-dispatch (#567), and re-rolling a
-non-deterministic reviewer is gambling, not verification.
+authority.** Production merge authority is DETERMINISTIC: green CI,
+conformance gates, and owner judgment; a verdict is corroboration. When a
+verdict is stale, missing, or blocked by platform weather — and the
+deterministic evidence is complete — record an explicit owner-bypass with
+the evidence and proceed to merge; never re-arm repeatedly hoping a
+verdict flips (the gate refuses same-head re-dispatch, #567). Full
+doctrine: [`references/procedure.md`](references/procedure.md).
 
 The agent is not bound to these exact commands — they illustrate the
 dispatch. Raw per-platform forms and token env vars:
