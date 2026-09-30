@@ -58,13 +58,21 @@ ci_watch() {
   esac
 }
 
-# Best-effort detection of the project's test command (CI must run the same).
-# Delegates to the shared detector so precedence + the language/runner list
-# live in one place (detect-test-command.sh). Never returns empty so the
+# Best-effort detection of the project's fast-tier commands (CI must run the
+# same). Delegates to the shared detectors so precedence + the language/runner
+# lists live in one place (detect-test-command.sh). Never returns empty so the
 # template always has a value to show; the human confirms or overrides it.
 test_command() {
   local cmd; cmd=$(dw_detect_test_command)
   echo "${cmd:-(project-specific — commit scripts/test or set CI_TEST_COMMAND)}"
+}
+lint_command() {
+  local cmd; cmd=$(dw_detect_lint_command)
+  echo "${cmd:-(none detected — commit scripts/lint or set CI_LINT_COMMAND if the project lints)}"
+}
+build_command() {
+  local cmd; cmd=$(dw_detect_build_command)
+  echo "${cmd:-(none detected — commit scripts/build or set CI_BUILD_COMMAND if separate from test)}"
 }
 
 # Full-pipeline workflow(s) for the merge-gated tier. Precedence mirrors
@@ -95,6 +103,8 @@ render() {
   DEFAULT_BRANCH=$(default_branch)
   CI_WATCH=$(ci_watch)
   TEST_CMD=$(_dw_sed_repl "$(test_command)")
+  LINT_CMD=$(_dw_sed_repl "$(lint_command)")
+  BUILD_CMD=$(_dw_sed_repl "$(build_command)")
   FULL_PIPELINE=$(_dw_sed_repl "$(full_pipeline)")
   sed \
     -e "s|{{PLATFORM}}|$PLATFORM|g" \
@@ -103,6 +113,8 @@ render() {
     -e "s|{{MILESTONE_CONVENTION}}|current|g" \
     -e "s|{{CI_WATCH}}|$CI_WATCH|g" \
     -e "s|{{TEST_COMMAND}}|$TEST_CMD|g" \
+    -e "s|{{LINT_COMMAND}}|$LINT_CMD|g" \
+    -e "s|{{BUILD_COMMAND}}|$BUILD_CMD|g" \
     -e "s|{{COUPLING_POLICY}}|strict|g" \
     -e "s|{{SAFETY_LEVEL}}|none|g" \
     -e "s|{{MERGE_METHOD}}|squash|g" \

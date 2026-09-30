@@ -290,59 +290,16 @@ dispatches. Determinism is the point: re-arm at an unchanged head must
 NEVER produce a different verdict — that non-determinism is exactly what
 made re-arm-as-retry rational for the dev.
 
-**Author side (dev agent) — mandatory before the pipeline resumes:** run
-the reconciliation sweep across ALL reviews, not just the latest (r40,
-#2360): for every open thread on every prior review — findings AND TODOs
-alike — the dev responds **on that same review thread** (the anchored code comment itself, via the host's
-reply mechanism: `in_reply_to` on GitHub, discussion notes on GitLab,
-`fj review reply` on Forgejo), carrying the fix SHA + one-line rationale,
-then resolves it natively — **and resolves its own reply comments too**:
-the gate counts any comment with resolved=false, so a reply you leave
-unresolved is a new open thread by its accounting. **Forgejo close-out
-order (the standard):**
-as each fix lands, resolve the threads it addresses — `fj review resolve
-<PR> <COMMENT-ID>` — resolution IS the close-out, the fix is verified in
-the diff; the **actual replies** (`fj review reply`) come only when
-everything is done — one per thread, `path:line → fix SHA + rationale`,
-the round record. A reply posted as a separate/new comment does NOT
-count — the answer lives where the finding lives, so the thread reads as
-one conversation. New anchored snippet comments per finding are
-FORBIDDEN — each starts a new thread instead of answering the finding's
-(anti-pattern observed live, rhesadox#2241: five `reply_to=None`
-comments, one per finding).
-
-**Transport failures register NOTHING (r17, live on rhesadox#2359).** The
-host silently accepts every wrong transport — a PR-conversation comment,
-a standalone COMMENT-type review, a new anchored snippet — with HTTP 201.
-Nothing errors, so "replied wrongly" and "replied and was heard" are
-indistinguishable from your side, and the only signal is the reviewer
-re-counting unresolved threads, which reads like rejection of your
-ARGUMENT when it is rejection of your TRANSPORT. On #2359 the dev spent
-five rounds posting "Thread resolution" COMMENT-reviews while thread
-#40268 never moved. Before concluding a reviewer is ignoring you, verify
-the state yourself: `fj review comments <PR> <REVIEW>` — resolved markers
-and `in_reply_to` are the only registration. If you believe a finding is
-WRONG, the registered path is an on-thread reply with evidence — never
-re-arm-as-retry.
-
-**Re-arm is refused over a standing verdict (#567, live on rhesadox
-#2359).** A head is reviewed exactly once: if a `pr-review:` verdict
-trailer stands at the CURRENT head SHA, the gate will not dispatch again —
-re-arming cannot change the verdict, it can only burn agent runs (six
-identical reviews of one SHA on #2359). Re-arm is meaningful only after a
-PUSH (new head) plus the thread close-out above. If you disagree with the
-verdict, the new head carrying your fix (or your on-thread rebuttal, which
-the next round's reviewer verifies) is the only lever.
-
-Then
-**request review from harmostes-bot
-natively** — the request is the re-arm signal (#488; the label stays the
-scope contract). post-review mechanically **downgrades an APPROVE issued
-over unresolved threads on the newest prior round (#579) whose findings
-are not addressed in the diff** —
-unaddressed findings block the pipeline and the merge, whatever the
-findings block the full pipeline and the merge, no matter what the
-verdict text says.
+**Author side (dev agent).** The dev's half of this protocol — the
+all-rounds reconciliation sweep (r40, #2360), on-thread replies carrying
+fix SHAs, the Forgejo close-out order, transport registration (r17,
+#2359), and re-arm mechanics (#567 standing verdicts, #488
+request-as-signal, #579 post-review downgrade) — is owned by dev-workflow:
+[`dev-workflow/references/review-threads.md`](dev-workflow/references/review-threads.md).
+Load it when acting as the author; the reviewer verifies against the same
+contract. Reviewer-side, the sweep rule mirrors it: enumerate every
+review's unresolved threads — all rounds — verify against the diff, close
+valid fixes on that same thread, never mint duplicates.
 
 ## Output contract — threads are the review; the comment is one line
 
