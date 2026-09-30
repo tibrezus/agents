@@ -203,16 +203,45 @@ dw_pr_number_from_branch() {
   esac
 }
 
+# dw_latest_verdict_sha "<pr#>"  → the head SHA recorded in the PR's newest
+# pr-review verdict trailer, or empty if none. Trailer contract (gate-12):
+# `<!-- pr-review: (APPROVE|REQUEST_CHANGES|COMMENT) @ <lowercase-hex> -->`.
+dw_latest_verdict_sha() {
+  local pr="$1" platform owner_repo
+  platform=$(dw_detect_platform); owner_repo=$(dw_owner_repo)
+  case "$platform" in
+    github)
+      gh api "repos/$owner_repo/issues/$pr/comments" --jq '.[] | [.created_at,.body] | @tsv' 2>/dev/null
+      gh api "repos/$owner_repo/pulls/$pr/reviews" --jq '.[] | select(.body != null and .body != "") | [.submitted_at,.body] | @tsv' 2>/dev/null
+      ;;
+    *)
+      local host token
+      host=$(dw_host); token=$(dw_token)
+      curl -fsSL -H "Authorization: token $token" \
+        "https://$host/api/v1/repos/$owner_repo/issues/$pr/comments" 2>/dev/null \
+        | jq -r '.[] | [.created_at,.body] | @tsv' 2>/dev/null
+      ;;
+  esac | grep -oE 'pr-review: *(APPROVE|REQUEST_CHANGES|COMMENT) @[ ]?[0-9a-f]{7,40}' \
+    | tail -1 | sed 's/.*@[ ]*//'
+}
+
 # dw_request_review "<pr#>" "[label]"  → guarded ingress to the adversarial review.
 #   REFUSES unless the full pipeline (fast tier when none is configured) is
 #   green at the PR's current head SHA — reviewing unvalidated code is
 #   pointless by contract (dev-workflow gates 11→12 handoff).
+#   REFUSES when a verdict trailer already stands at the current head (r18:
+#   one review per head, #567 — re-arming to re-roll a non-deterministic
+#   reviewer is gambling; push a fix commit or resolve threads instead).
 dw_request_review() {
   local pr="$1" label="${2:-needs-review}"
   local platform owner_repo
   platform=$(dw_detect_platform); owner_repo=$(dw_owner_repo)
   local head; head=$(dw_pr_head "$pr")
   [ -n "$head" ] || dw_die "cannot resolve head SHA of PR #$pr"
+  local vsha; vsha=$(dw_latest_verdict_sha "$pr")
+  if [ -n "$vsha" ] && [ "${#vsha}" -le "${#head}" ] && [ "${head:0:${#vsha}}" = "$vsha" ]; then
+    dw_die "refusing re-arm: verdict trailer already stands at head ${head:0:8} (r18: one review per head) — push a fix commit to request a fresh review, or resolve findings; re-rolling a non-deterministic reviewer is prohibited"
+  fi
   if [ -n "$(dw_full_pipeline_workflows)" ]; then
     dw_full_green "$head" \
       || dw_die "refusing review: full pipeline not green at head ${head:0:8} — declare ready first (dw_trigger_full_pipeline), or fix red CI on the branch"
@@ -565,21 +594,61 @@ dw_watch_full_pipeline() {
 #
 # These run the SAME suite CI runs, locally, for a fast feedback loop — the
 # local half of the test gate; CI is the authoritative half (see the skill's
-# references/ci-concepts.md §1). Detection lives in detect-test-command.sh
+# references/test-policy.md + ci-wiring.md). Detection lives in detect-test-command.sh
 # (shared with adopt.sh) so the precedence + language list are defined once.
 
 # dw_test_command  → echoes the project's test command, or empty.
-#   Thin alias over dw_detect_test_command (see detect-test-command.sh for the
-#   full precedence: CI_TEST_COMMAND env → committed runner → language heuristic).
-dw_test_command() { dw_detect_test_command; }
+# dw_build_command  → echoes the project's build command, or empty.
+# dw_lint_command   → echoes the project's lint command, or empty.
+#   Thin aliases over the detectors in detect-test-command.sh (see there for
+#   the full precedence: CI_*_COMMAND env → committed runner → language
+#   heuristic).
+dw_test_command()  { dw_detect_test_command; }
+dw_build_command() { dw_detect_build_command; }
+dw_lint_command()  { dw_detect_lint_command; }
 
 # dw_run_tests  → run the project's tests locally; exit code is the suite's.
 #   Dies with guidance if no command can be determined.
 dw_run_tests() {
   local cmd; cmd=$(dw_test_command)
-  [ -n "$cmd" ] || dw_die "no test command detected — commit scripts/test, set CI_TEST_COMMAND, or add a 'Test command' in the project's AGENTS.md (see references/ci-concepts.md)"
+  [ -n "$cmd" ] || dw_die "no test command detected — commit scripts/test, set CI_TEST_COMMAND, or add a 'Test command' in the project's AGENTS.md (see references/ci-wiring.md)"
   echo "dev-workflow: running tests: $cmd" >&2
   sh -c "$cmd"
+}
+
+# dw_preflight → run the LOCAL CI MIRROR — lint + build + tests, the fast-tier
+#   checks every dev machine can run — in one shot, and report a summary.
+#   Exit 0 only when every detected step is green. Run before EVERY push
+#   (gate 9: first push and every re-push alike): fast CI on the forge re-runs
+#   exactly these, so finding them red there is wasted CI budget. Tests are
+#   mandatory (undetectable → red, same guidance as dw_run_tests); lint and
+#   build are best-effort — a step reported "not detected" is run by hand if
+#   the project has one. All steps run even when one is red, so a single pass
+#   surfaces every failure. Checks that CANNOT run locally (external-service
+#   integration, GPU/infra matrices, runner-class benchmarks) are the only
+#   ones legitimately left to CI alone — see references/test-policy.md.
+dw_preflight() {
+  local fail=0 name cmd step
+  local tests; tests=$(dw_test_command)
+  [ -n "$tests" ] || { echo "dev-workflow: preflight test: no test command detected — commit scripts/test, set CI_TEST_COMMAND, or fix AGENTS.md (references/ci-wiring.md)" >&2; fail=1; }
+  local steps=("lint:$(dw_lint_command)" "build:$(dw_build_command)" "test:$tests")
+  for step in "${steps[@]}"; do
+    name="${step%%:*}"; cmd="${step#*:}"
+    if [ -z "$cmd" ]; then
+      # the mandatory test step already reported its guidance above — only
+      # optional steps announce themselves as skipped
+      [ "$name" = test ] || echo "dev-workflow: preflight $name: not detected — skipped (run it by hand before pushing if the project has one)" >&2
+      continue
+    fi
+    echo "dev-workflow: preflight $name: $cmd" >&2
+    sh -c "$cmd" || { echo "dev-workflow: preflight $name RED — fix before pushing (fast CI runs this too; finding it red there wastes CI budget)" >&2; fail=1; }
+  done
+  if [ "$fail" -eq 0 ]; then
+    echo "dev-workflow: preflight green — local CI mirror passed, safe to push" >&2
+  else
+    echo "dev-workflow: preflight RED — gate 9: no push until the local mirror is green" >&2
+  fi
+  return "$fail"
 }
 
 # ── merge ───────────────────────────────────────────────────────────────────
@@ -616,17 +685,33 @@ dw_merge_readiness() {
   if [ -n "$(dw_full_pipeline_workflows)" ]; then
     if dw_full_green "$head"; then echo "  ✔ full pipeline green @ ${head:0:8}"; else echo "  ✘ full pipeline not green @ ${head:0:8}"; fail=1; fi
   else echo "  – full pipeline: none configured (fast tier is the pipeline)"; fi
-  # 4. review verdict trailer bound to head
-  local bodies=""
+  # 4. review verdict trailer bound to head — REQUIRED only when armed.
+  #    The `needs-review` label is the armed marker (set by dw_request_review,
+  #    gate 12 opt-in). Without it the r18 verdict doctrine applies: verdicts
+  #    are testing signals, not merge authority — the owner merges on the
+  #    deterministic evidence (CI green + conformance above), optionally
+  #    recording an owner-bypass comment when a verdict was expected.
+  local armed=0
+  local labels=""
   case "$platform" in
-    github) bodies=$(gh api "repos/$owner_repo/issues/$pr/comments" --jq '.[].body' 2>/dev/null) ;;
-    *) local host token; host=$(dw_host); token=$(dw_token)
-       bodies=$(curl -fsSL -H "Authorization: token $token" \
-         "https://$host/api/v1/repos/$owner_repo/issues/$pr/comments" 2>/dev/null | jq -r '.[].body // empty') ;;
+    github) labels=$(gh api "repos/$owner_repo/issues/$pr/labels" --jq '.[].name' 2>/dev/null) ;;
+    *) local lhost ltoken; lhost=$(dw_host); ltoken=$(dw_token)
+       labels=$(curl -fsSL -H "Authorization: token $ltoken" \
+         "https://$lhost/api/v1/repos/$owner_repo/issues/$pr/labels" 2>/dev/null | jq -r '.[].name // empty') ;;
   esac
-  if echo "$bodies" | grep -qF "<!-- pr-review: APPROVE @ $head -->"; then
-    echo "  ✔ adversarial review APPROVE @ ${head:0:8}"
-  else echo "  ✘ no APPROVE verdict for ${head:0:8} (stale or missing — re-declare ready)"; fail=1; fi
+  echo "$labels" | grep -qx 'needs-review' && armed=1
+  local bodies=""
+  if [ "$armed" = 1 ]; then
+    case "$platform" in
+      github) bodies=$(gh api "repos/$owner_repo/issues/$pr/comments" --jq '.[].body' 2>/dev/null) ;;
+      *) local host token; host=$(dw_host); token=$(dw_token)
+         bodies=$(curl -fsSL -H "Authorization: token $token" \
+           "https://$host/api/v1/repos/$owner_repo/issues/$pr/comments" 2>/dev/null | jq -r '.[].body // empty') ;;
+    esac
+    if echo "$bodies" | grep -qF "<!-- pr-review: APPROVE @ $head -->"; then
+      echo "  ✔ adversarial review APPROVE @ ${head:0:8}"
+    else echo "  ✘ no APPROVE verdict for ${head:0:8} (stale or missing — re-declare ready)"; fail=1; fi
+  else echo "  – adversarial review: not armed (no needs-review label) — r18: owner merges on deterministic evidence"; fi
   # 5. rebase-clean against default
   local default dbase dhead
   default=$(dw_default_branch)

@@ -5,210 +5,114 @@ description: "Operate on an LLM Wiki knowledge base — a persistent, compoundin
 
 # LLM Wiki Skill
 
-An LLM Wiki is a **persistent, compounding knowledge base** — not a RAG index.
-Knowledge is compiled once and kept current by LLM agents. The human curates
-sources and asks questions; the agent does the writing, cross-referencing,
-filing, and bookkeeping.
+An LLM Wiki is a **persistent, compounding knowledge base** — not a RAG
+index. Knowledge is compiled once and kept current by LLM agents; the
+human curates sources and asks questions, the agent does the writing,
+cross-referencing, filing, and bookkeeping. Command procedures:
+[`references/commands.md`](references/commands.md); project promotion:
+[`references/consult.md`](references/consult.md).
 
 ## Documentation Hierarchy — where documentation lives
 
-Documentation sits **as close to the source code as possible**. The wiki
-system is three layers; each layer documents only the **interactions**
-between the elements of the layer below it:
+Documentation sits **as close to the source code as possible**. Three
+layers; each documents only the **interactions** between the elements of
+the layer below:
 
 | Layer | Lives in | Documents |
 |---|---|---|
 | **0 — Code** | doc comments next to the source (`///`, `//!`, docstrings) | one **component**: behavior, invariants, usage |
-| **1 — Repository wiki** | the project's own platform wiki (`<repo>.wiki.git`, GitHub/Forgejo) | **interactions inside one repo**: how components and entities relate, design choices, architecture, ADRs |
+| **1 — Repository wiki** | the project's own platform wiki (`<repo>.wiki.git`) | **interactions inside one repo**: components/entities relations, design choices, ADRs |
 | **2 — LLM-wiki** | the wiki instance | **interactions between repositories**: cross-repo flows, system-level design |
 
 Placement rules (hard):
 
 1. **A single component is documented in code only.** Never in a repo
-   wiki, never in the llm-wiki — those layers document *interactions*, not
+   wiki or the llm-wiki — those layers document *interactions*, not
    members.
 2. **A single project is documented in its repo wiki only.** The llm-wiki
-   never carries one repo's internals; it documents how repositories
-   interact with each other.
+   never carries one repo's internals.
 3. **Temporary admission, mandatory migration.** While a project has no
-   repo wiki, its pages may live in the llm-wiki as placeholders. The
-   moment the repo wiki is created, that content **moves** into it; the
+   repo wiki, its pages may live in the llm-wiki as placeholders; the
+   moment the repo wiki is created, that content **moves** into it — the
    llm-wiki keeps only the cross-repo view plus a link. Same one layer
    down: component notes parked in a repo wiki move into code comments
    when the code is next touched.
-4. **No duplication across layers — link instead.** When content exists at
-   two layers, the **lower layer is authoritative**; the upper copy becomes
-   a link. Never copy content upward for visibility — the link graph
-   provides visibility.
-5. **The boundary is the subject, not the name.** A page about an external
-   technology (Forgejo, Flux, …) is layer 2 when it describes how *your
-   repositories* interact with it; a page confined to what one of your
-   repos does internally is layer 1 even if it names many technologies.
-
-### Maintaining the hierarchy
+4. **No duplication across layers — link instead.** When content exists
+   at two layers, the **lower layer is authoritative**; the upper copy
+   becomes a link. Never copy content upward for visibility.
+5. **The boundary is the subject, not the name.** A page about an
+   external technology is layer 2 when it describes how *your
+   repositories* interact with it; a page confined to one repo's internals
+   is layer 1 even if it names many technologies.
 
 Placement is audited on every write — `update`, `create`, `arch-sync` all
 begin by asking *which layer owns this content*; misplaced content is
-**moved down**, never copied or summarized into place. The closer
-documentation sits to the code it describes, the more likely it is to be
-maintained when that code changes — that is the whole point.
+**moved down**, never copied or summarized into place. Migration steps
+(project repo wiki created → move single-project pages there, keep the
+thin cross-repo page, prune leftovers, fix links, update `index.md`,
+append `log.md`, push, watch CI green) follow the same one-layer-down
+pattern as folding a repo-wiki section into code comments.
 
-**Migration trigger — a project's repo wiki is created:**
-
-1. Move the project's single-project pages into the repo wiki (adapt
-   format: platform wikis are flat — kebab-case filenames, no directories).
-2. Keep in the llm-wiki only the cross-repo remainder — a thin page linking
-   to the repo wiki and holding its interactions with other repositories.
-3. Prune pure-internal leftovers (`wiki prune`), fix inbound links, update
-   `index.md`, append `log.md`, push, watch CI green.
-
-**Layer 1 → 0 works the same:** when a repo-wiki section describes a single
-component, fold its content into that component's doc comments and leave a
-link behind.
-
-## Before You Start
-
-**Pull the latest changes.** The llm-wiki repo is a git repo — agents and
-workflows may have updated it since your last operation. Before any
-`read`/`consult`/`update`/`arch-sync`, pull the default branch:
-```bash
-git pull --ff-only
-```
-
-**Query the graph first if it exists** (`raw/arch/<project>/rig.db`) —
-the fastest way to understand structure, at ~200 tokens per question instead
-of reading source trees. In pi, use the `rig` tool (registered by the
-extension in this skill's `extensions/rig-query.ts`, installed at
-`~/.pi/agent/extensions/`):
-
-    rig overview                  # whole architecture, ~400 tokens
-    rig component <name>          # deps + files + doc comments
-    rig search 'symbol*'          # FTS5 symbol search → file:line
-    rig deps <name> --reverse     # who depends on it
-    rig brief diff=<patch>        # ONE-call review orientation: provenance, risk, orphans, clones
-    rig dead [component]          # zero-caller exports (two-tier; needs call data)
-    rig clones [symbol]           # near-clone pairs (MinHash+LSH, similar table)
-    rig impact diff=<patch>       # diff → touched symbols, blast radius, risk
-    rig trace '<a> <b>'           # shortest call paths between two symbols
-
-Outside pi, the same commands exist as the module CLI:
-
-    Q=.llm-wiki/.github/actions/repo-map/rig-query.py
-    python3 "$Q" raw/arch/<project>/rig.db overview
-The routing table below shows the minimal source per need.
-
-**C4 architecture: project wiki is authoritative.** When a project has
-its own wiki with `Architecture.md` (the single merged page: diagrams +
-LikeC4 model + CI registry), that is the **source of truth** — it is
-regenerated by CI on every push to the default branch. The llm-wiki
-instance's `raw/arch/<project>/` (rig.db, model.c4) is a **fallback** that
-may be stale. Always read the project wiki first; use `raw/arch/` only when
-the project wiki has no architecture content.
-
-To access the project wiki: if already cloned locally, pull first
-(`git pull --ff-only`) — CI regenerates it on every push, so a stale clone
-gives outdated diagrams. Otherwise: `git clone <remote>.wiki.git`. Look for
-`Architecture.md` and `C4-Model.md`. Raw artifacts may also live on a
-dedicated branch (e.g. `arch-rig`).
-
-1. **Read `wiki.config.yml`** at the repo root — defines the project domain,
-   QMD search contexts, and whether any architecture projects are declared.
-2. **Read `AGENTS.md`** (copied from `.llm-wiki/instance/AGENTS.md`) for the full
-   schema: page format, frontmatter rules, entity types, naming conventions,
-   cross-referencing rules, and the two documentation workflows.
-
-Never skip these files. They define the wiki's structure.
-
-> **How the docs pipeline is built & run** (RIG controller, KEDA/Dapr,
-> PVC cache, deterministic RIG→C4→Mermaid generation) lives in the module's
-> `AGENTS.md` / `README.md` (the `.llm-wiki` submodule). This skill covers
-> *operations*; consult it only if asked how the system itself works.
->
-> **Diagrams are generated deterministically by CI.** Do NOT invent or
-> manually generate architecture diagrams — the CI pipeline (`rig-to-c4.py` →
-> `likec4 gen mermaid`) produces them from the RIG. Your job: update wiki
-> pages with the generated output, preserve manual content.
-
-## Documentation Home
-
-Corollaries of the hierarchy above:
+**Corollaries:**
 
 - **C4 boundary:** the llm-wiki carries context/container-level and
   cross-repo reasoning; code-level detail (file paths, signatures,
-  implementation specifics) belongs to layer 1 (repo wiki) or layer 0
-  (code). If a `wiki/` page states something knowable only by reading one
-  repo's source, it belongs in that repo's wiki or its code — not here.
-- **No in-repo `docs/` folders.** Move `docs/`, ADRs, or design docs down
-  the hierarchy: repo wiki for structure + reasoning + ADRs, code comments
-  for component behavior. Root files (`README.md`, `AGENTS.md`,
-  `CONTEXT.md`) are **indexes** — link to real docs, don't duplicate them.
+  implementation specifics) belongs at layer 1 or 0.
+- **No in-repo `docs/` folders.** Move `docs/`, ADRs, design docs down
+  the hierarchy; root files (`README.md`, `AGENTS.md`, `CONTEXT.md`) are
+  **indexes** — link to real docs, don't duplicate them.
 - **Platform wikis are layer 1 — first-class.** They hold a project's
-  low-level details and important ADRs. Some projects also push
-  **auto-generated C4 architecture** to them (`Architecture.md`,
-  `C4-Model.md`, `Component---*.md`) via CI — check both when reading a
-  project.
+  low-level details and important ADRs; some also push auto-generated C4
+  architecture (`Architecture.md`, `C4-Model.md`,
+  `Component---*.md`) via CI — check both when reading a project.
+
+## Before you start
+
+1. **Pull the latest default branch** (`git pull --ff-only`) — agents and
+   workflows may have updated the repo since your last operation.
+2. **Read `wiki.config.yml`** (project domain, QMD search contexts,
+   declared architecture projects) and **`AGENTS.md`** (the full schema:
+   page format, frontmatter rules, entity types, naming, cross-referencing,
+   the two workflows). Never skip these files.
+3. **Query the graph if it exists** (`raw/arch/<project>/rig.db`) — the
+   `rig` tool, the module-CLI fallback, and the gate-1 load protocol live
+   in [`references/graph-queries.md`](references/graph-queries.md).
+   **Diagrams are generated deterministically by CI** — never invent or
+   manually generate architecture diagrams ([`references/diagrams.md`](references/diagrams.md)).
 
 ## How to absorb this wiki (least-context routing)
 
-The wiki is layered so you answer most questions from the **smallest** source,
-not by reading the whole repo. Route by need:
+Answer most questions from the **smallest** source, never by reading the
+whole repo:
 
-| You need to… | Read this | Why it's the minimal source |
+| You need… | Read | Why minimal |
 |---|---|---|
-| Catch a project's **structure** fast | pi `rig` tool, else `rig-query.py raw/arch/<project>/rig.db overview` (+ `component`/`deps`/`search`) | targeted SQL — ~200 tokens per question |
-| Orient a **review** of a diff | pi `rig` tool `brief diff=<patch>` (or `rig-query.py <db> brief --diff <patch>`) | provenance + risk + orphans + clones in ONE capped call — orientation is one call; drill down only where it flags |
-| Understand the **architecture views** | project's own wiki `Architecture.md` (single merged page: diagrams + LikeC4 model + CI registry) | CI-generated, renders natively; always current |
-| Understand a **decision + its reasoning** | the matching `wiki/` page(s) | the *why*, captured live at decision time |
-| Find **what pages exist** | `index.md` | catalog, not a dir walk |
-| See **what changed recently** | `log.md` | append-only activity |
-| Move between related pages | a page's `## See Also` | the bidirectional link graph |
+| A project's **structure** fast | pi `rig` tool (`overview`/`component`/`deps`/`search`) | targeted SQL, ~200 tokens/question |
+| Review orientation on a diff | `rig brief diff=<patch>` | provenance + risk + orphans + clones in ONE capped call |
+| The **architecture views** | project wiki's `Architecture.md` | CI-generated, renders natively, always current |
+| A **decision + its reasoning** | the matching `wiki/` pages | the *why*, captured at decision time |
+| What pages exist | `index.md` | catalog, not a dir walk |
+| Recent changes | `log.md` | append-only activity |
+| Related pages | a page's `## See Also` | the link graph |
 
-### Serving implementation context (dev-workflow gate 1)
-
-The wiki's core purpose is to make implementation follow the project's
-architecture: **when you are about to write code in a graph-covered project
-(dev-workflow gate 1), the wiki provides the most compressed accurate picture
-of the architecture for your context.** The load protocol, in order:
-
-1. `rig overview` — every component, edge, and file count (~400 tokens).
-2. `rig component <name>` + `rig search '<term>*'` for the area being
-   changed — doc comments, exported symbols, exact `file:line` anchors.
-3. The project wiki's merged `Architecture.md` for rendered views + the
-   LikeC4 model (component descriptions verbatim from source doc comments).
-4. Matching `wiki/` pages for the *why* (decisions, trade-offs).
-
-**Deduplication rule:** before writing a new function/type, `rig search` the
-capability — if it is already exported, extend it. This is the single highest
-value the graph provides to code work.
-
-**Two layers, distinct jobs:** `raw/` = structure (RIG, deterministic,
-evidence-backed); `wiki/` = reasoning (decisions, trade-offs, recorded live).
-Automated arch-sync (RIG → LikeC4 → Mermaid) regenerates *structure*; the
-wiki records *intent* — it captures what the pipeline cannot.
-
-> **Never read the whole repo to answer a wiki question.** Route to the
-> minimal source above. `wiki read` and `wiki update` load only the pages that
-> match the topic — not the whole tree.
+**Serving implementation context (dev-workflow gate 1):** load `rig
+overview` → targeted `component`/`search` → the project wiki's
+`Architecture.md` → matching `wiki/` pages for the *why*; before writing
+a new function/type, `rig search` the capability — extend what exists.
+Full protocol: [`references/graph-queries.md`](references/graph-queries.md).
+`wiki read` and `wiki update` load only the pages that match the topic —
+never the whole tree.
 
 ## Page-size discipline
 
-A page you can absorb in one glance is one that needs minimal context — that
-is the wiki's whole point. wiki CI enforces a deterministic **line limit per
-page** (`pages.size_limit`, default **400**) so no page grows past a single
-glance.
-
-- **Default: warning.** An over-limit page emits a CI annotation naming the
-  page and its line count. CI stays green; the annotation is the nudge.
-- **Strict: `pages.size_strict: true`** makes an over-limit page fail CI.
-- **When flagged, do one of:**
-  - **Shrink** — tighten prose, collapse repetition, push raw detail into
-    `raw/` and link to it.
-  - **Split** — extract a sub-topic into its own page, cross-link both ways,
-    and update `index.md`.
-
-Treat an over-limit page as a signal to act on the next time you touch it —
-not a verdict that blocks everything. Keep new pages focused from the start
-(see `wiki create`).
+Wiki CI enforces a deterministic **line limit per page**
+(`pages.size_limit`, default **400**) so no page grows past a single
+glance. Default: warning (CI annotation names the page; CI stays green);
+`pages.size_strict: true` makes it fail. When flagged: **shrink**
+(tighten prose, push raw detail into `raw/` and link) or **split**
+(extract a sub-topic page, cross-link both ways, update `index.md`).
+Treat it as a signal to act next touch, not a blocker; keep new pages
+focused from the start.
 
 ## Repository Layout
 
@@ -229,338 +133,50 @@ wiki/
 
 ## Two Documentation Workflows
 
-The wiki supports distinct workflows. Each has its own inputs, diagram tool,
-and CI validation. A project can use one or both.
-
-### Workflow 1: Generic Documentation
-
-For documenting anything that is NOT driven by a code graph — entities,
-concepts, guides, reference material. Written from raw sources (articles,
-READMEs, conversations, design docs).
-
-- **Inputs**: raw sources in `raw/` (anything the human curates).
-- **Diagrams**: **Mermaid only**. Renders natively on GitHub and Obsidian.
-  Many types: `sequenceDiagram`, `flowchart TD/LR` + `subgraph`,
-  `stateDiagram-v2`, `erDiagram`, `gantt`, etc. Pick the type that matches the
-  content.
-- **CI validation**: wiki CI validates markdown + mermaid syntax.
-
-### Workflow 2: Architecture Documentation (LC4)
-
-> **⚠ CRITICAL: Architecture diagrams are generated by CI. Do NOT write them. ⚠**
->
-> CI runs `rig-to-c4.py` → `likec4 gen mermaid` to produce `model.c4` and Mermaid diagrams from `raw/arch/<project>/rig.db`. Your job: query the graph (`rig` tool), then update wiki pages with the generated diagrams. Do NOT invent architecture from memory.
-
-For documenting a project's architecture from its code. CI generates the diagrams; you update the wiki pages.
-
-**Prerequisite:** `raw/arch/<project>/rig.db` must exist. If missing → STOP.
-
-- **Inputs**: `raw/arch/<project>/rig.db` — query it (`rig overview` / `component` / `search`), never read it whole.
-- **Diagrams**: CI generates them (don't write `model.c4` or run `likec4 gen mermaid` yourself).
-- **Your job**: Update wiki pages with CI-generated diagrams, preserve manual content.
-
----
+- **Generic** (anything not code-graph-driven): inputs are raw sources in
+  `raw/`; diagrams are **Mermaid only** (type guide:
+  [`references/diagrams.md`](references/diagrams.md)); CI validates
+  markdown + mermaid.
+- **Architecture / LC4**: prerequisite `raw/arch/<project>/rig.db` (if
+  missing → STOP); CI generates model.c4 + Mermaid deterministically —
+  your job is prose and routing only. Never write `model.c4` or run
+  likec4 yourself.
 
 ## Commands
 
-### `wiki read <topic>`
-
-Search the wiki for information about a topic.
-
-1. Search with qmd (if available):
-
-   ```bash
-   qmd query "topic" --json -n 10
-   ```
-
-2. Search with grep:
-
-   ```bash
-   grep -rl "topic" wiki/ index.md
-   ```
-
-3. Read every matching page **in full**.
-4. Synthesize an answer with citations.
-5. If substantial and not yet a page, offer to create one.
-
-### `wiki update`
-
-Ingest new information into the wiki (Generic workflow).
-
-1. **Understand the change.** Read relevant existing pages, then run the
-   **placement audit** (Documentation Hierarchy): content about a single
-   component belongs in code comments; a single project's internals belong
-   in that project's repo wiki. Route misplaced content to its layer —
-   moved, not copied — instead of writing it here.
-2. **Save source** to `raw/` (e.g. `2026-06-26-topic-name.md`). **Never modify
-   `raw/`** after saving.
-3. **Update existing pages**: add information, add Markdown cross-references, update
-   `sources: []` and `updated:` in frontmatter.
-4. **Create new pages** for uncovered topics (correct entity-type directory).
-5. **Add diagrams** as ` ```mermaid ` blocks where they help. Pick the type that
-   matches the content (sequence for time-ordered, flowchart+subgraph for
-   containment, etc.).
-6. **Update `index.md`** and **append to `log.md`**.
-7. **Validate**: `npm run check`.
-
-### `wiki create <topic>`
-
-Create a new wiki page.
-
-1. **Placement gate** (Documentation Hierarchy) — decide the layer before
-   writing anything:
-   - one component → **code comments** (do it in the code, not a page);
-   - one project's internals → that **project's repo wiki** (temporary
-     admission in the llm-wiki only while its repo wiki does not exist);
-   - cross-repo / system-level → proceed below.
-2. Classify the entity type:
-   - Specific technology/product → **entity**
-   - Cross-cutting idea/pattern → **concept**
-   - Step-by-step procedure → **guide**
-   - Catalog/comparison/lookup → **reference**
-3. Check for overlap — search `index.md` and `qmd query`.
-4. Write the page:
-
-   ```markdown
-   ---
-   title: Descriptive Specific Title
-   type: entity|concept|guide|reference
-   created: YYYY-MM-DD
-   updated: YYYY-MM-DD
-   sources: []
-   tags: [type-tag, tag2, tag3]
-   ---
-
-   # Descriptive Specific Title
-
-   Dense keyword-rich summary (2-3 sentences).
-
-   ## Section Title
-
-   Body with [Markdown links](../type/page-name.md) to other pages.
-
-   ## See Also
-
-   - [related-1](../type/related-1.md) — description
-   - [related-2](../type/related-2.md) — description
-   ```
-
-5. Add Markdown links from existing pages to the new page. Use relative paths:
-   from `wiki/concepts/x.md` to `wiki/entities/y.md` → `[y](../entities/y.md)`.
-6. Ensure bidirectional links.
-7. Update `index.md`, append to `log.md`, validate with `npm run check`.
-
-### `wiki arch-sync <project>`
-
-Update wiki prose after a deterministic rig.db refresh. The graphs are
-already generated — your job is to summarize and route content.
-
-1. **Verify artifacts exist**: `ls raw/arch/<project>/` (rig.db, model.c4).
-2. **Query the graph** with the pi `rig` tool (see *Querying the graph* above)
-   — `rig overview`, then `rig component <name>` / `rig search <term>` for
-   detail. Compare component/symbol/edge counts with the previous log entry.
-3. **Do NOT generate graphs** — model.c4 is deterministic. Do NOT run rig-to-c4.py or likec4.
-4. **Embed Mermaid**: read `raw/arch/<project>/*.mmd`, copy into wiki pages as ` ```mermaid ` blocks.
-5. **Write interaction-level prose only** (context/container; see
-   Documentation Hierarchy). Summarize what changed in 1-3 sentences.
-6. **Route by hierarchy:** single-component detail goes into code comments;
-   single-project architecture goes to the project's repo wiki (`gh`/`fj`);
-   the llm-wiki keeps only the cross-repo view. Keep it unbloated.
-7. **Preserve manual content** (deployment notes, runbooks, config).
-8. **Update `index.md`** and **append to `log.md`**.
-9. **Commit** (do NOT push — gate runs next).
-
-### `wiki consult <project-repo-path>`
-
-Help a project set up RIG graph generation (promotion to LC4). Inspects the
-project repo, determines its language and build system, generates a CI
-workflow that uses the reusable repo-map Action, and writes it into the
-project repo.
-
-> This command operates on the **project repo** (not the wiki). It is the
-> only skill command that writes outside the wiki. It exists to *establish*
-> the project→graph→wiki pipeline, then gets out of the way.
-
-1. **Inspect the project repo** at `<project-repo-path>`:
-   - Detect the language: check for `go.mod` (Go), `package.json` (TS/JS),
-     `pyproject.toml`/`setup.py` (Python), `Cargo.toml` (Rust).
-   - Detect the build system.
-2. **Generate the workflow** that produces a RIG JSON using the reusable
-   Action `tibrezus/llm-wiki-core/.github/actions/repo-map@vN`:
-
-   ```yaml
-   # .github/workflows/repo-map.yml
-   name: Generate RIG
-   on:
-     push:
-       tags: ['v*']
-   jobs:
-     rig:
-       runs-on: ubuntu-latest
-       steps:
-         - uses: actions/checkout@v4
-         - uses: tibrezus/llm-wiki-core/.github/actions/repo-map@v1
-           with:
-             language: go          # detected language
-         - name: Publish RIG
-           uses: softprops/action-gh-release@v2
-           with:
-             files: repo-map.json
-   ```
-
-3. **Write the workflow** into `<project-repo-path>/.github/workflows/repo-map.yml`.
-4. **Open a PR** in the project repo. After merge, the project will
-   deterministically publish `repo-map.json` as a Release asset on every tag.
-5. **If the project repo is private**, create a read-scoped token (fine-grained
-   PAT on GitHub, or an access token on Forgejo) and store it as a CI secret in
-   the **wiki** repo: `gh secret set <PROJECT>_RIG_TOKEN` (GitHub) or the
-   equivalent in Forgejo. Then declare it in the wiki's `arch:` config as
-   `rig_token_env: <PROJECT>_RIG_TOKEN` alongside `rig_url`. Public repos skip
-   this step.
-6. **Tell the human** to add the project to the wiki's `arch:` config with the
-   Release asset URL as `rig_url` (and `rig_token_env` if private). From that
-   point, the wiki CI will fetch and commit the RIG, and LC4 unlocks.
-7. **After the first rig.db lands** in `raw/arch/<project>/`, the
-   deterministic pipeline produces model.c4 + Mermaid + the merged
-   Architecture.md automatically. Your job (`arch-sync`) is prose only:
-   query the DB (`rig overview`), embed the generated Mermaid into wiki
-   pages, summarize what changed.
-   **Never write model.c4 or run likec4 yourself.**
-
-### `wiki prune <topic>`
-
-Remove a page. **Never without explicit instruction.**
-
-1. Find the page: `find wiki/ -name "topic.md"`.
-2. Find all inbound links: `grep -rl "topic" wiki/` (check both `[topic](` and `[[topic]]`).
-3. Remove/update Markdown links from referencing pages.
-4. Delete the file.
-5. Remove from `index.md`, append to `log.md`, validate.
-
-### `wiki list`
-
-Summarize the wiki contents.
-
-1. Read `index.md` for the catalog.
-2. Count pages by type:
-
-   ```bash
-   find wiki/entities -name "*.md" | wc -l
-   find wiki/concepts -name "*.md" | wc -l
-   find wiki/guides -name "*.md" | wc -l
-   find wiki/reference -name "*.md" | wc -l
-   ```
-
-3. Check for architecture projects:
-
-   ```bash
-   ls -d raw/arch/*/ 2>/dev/null
-   ```
-
-4. Run health check:
-
-   ```bash
-   python3 .llm-wiki/scripts/wiki-health.py wiki/
-   ```
-
-5. Present: page counts, architecture projects, recent updates, warnings.
-
----
-
-## Diagram Rules by Workflow
-
-| Workflow | Tool | When | CI checks |
-|----------|------|------|----------|
-| Generic Documentation | **Mermaid only** | documenting from raw sources | markdown + mermaid render validity |
-| Architecture (LC4) | **LikeC4 → Mermaid** | documenting from a code graph | C4 model validity + mermaid render |
-
-Never mix: no LikeC4 models in generic docs, no hand-written Mermaid for C4
-architecture diagrams (generate from the model).
-
-### Mermaid type guide (Generic)
-
-| Content | Type |
-|---------|------|
-| Time-ordered triggers | `sequenceDiagram` |
-| Nested topology / containment | `flowchart TD` + `subgraph` |
-| Linear pipeline / fan-out | `flowchart LR` |
-| Dependency chain | `flowchart TD` |
-| Decision branches | `flowchart TD` with `{rhombus}` |
-| State transitions | `stateDiagram-v2` |
-| Schema / relationships | `erDiagram`, `classDiagram` |
-| Timeline / phases | `gantt`, `journey` |
-
-Use ` ```text ` for file trees, procedures, pseudo-code, templates — not diagrams.
-
-### LikeC4 C4 guide (Architecture)
-
-| C4 Level | Scope | LikeC4 element/view |
-|----------|-------|---------------------|
-| Context | whole system + actors | `system` elements; `view` with `include *` |
-| Container | one project | `container` in `system`; `view of <system>` |
-| Component | one module | `component` in `container`; `view of <container>` |
-| Code | few files | `component` details; `view of <component>` |
-
----
-
-## Commit and Verify
-
-A wiki change is **not done** when the local files are written. It is done
-only when it is **committed, pushed to the remote, and CI is green**.
-
-Local validation (`npm run check`) is necessary but not sufficient — it does
-not catch submodule drift, tool-version differences, or environment-specific
-failures. CI also validates diagrams (Mermaid render-checked via `mmdc`,
-LikeC4 models via `likec4 format --check`) that local checks do not. Only the
-remote CI run is authoritative.
-
-The workflow, end to end:
-
-1. Write the change locally.
-2. `npm run check` — fast local gate (catches obvious mistakes early).
-3. Commit and **push** to the remote.
-4. **Watch the CI run** and confirm it is green. If it fails, fix and push
-   again until it is green.
-5. Only then is the change considered complete.
-
-Use the right tool for the remote — they are NOT interchangeable:
-
-- **GitHub** repos: use **`gh`** (`gh run watch`, `gh run list`).
-- **Forgejo** repos: use **`fj`** (`fj actions tasks`, `fj actions jobs`).
-
-Determine the platform from the remote URL before pushing, and use the
-corresponding tool to watch CI. Do not assume — check.
-
-## Validation Checklist
-
-Before committing any wiki change:
-
-- [ ] `npm run check` passes (markdownlint + remark + wiki-health)
-- [ ] **Placement audit done — content sits at the lowest layer that can
-      hold it** (code comments → repo wiki → llm-wiki)
-- [ ] **No duplication: nothing copied across layers; lower layer
-      authoritative, upper layers link**
-- [ ] **Single-project pages only as temporary admission** (repo wiki
-      absent) — flagged for migration when it appears
-- [ ] New pages: all 6 frontmatter fields present, correct type directory
-- [ ] Tags: 2-7 items, first matches type, all lowercase
-- [ ] `## See Also` with ≥2 links
-- [ ] No duplicate filenames across `wiki/`
-- [ ] `index.md` updated, `log.md` appended
-- [ ] Bidirectional links maintained
-- [ ] No `#` body headings, no inline HTML
-- [ ] Cross-references use [Markdown links](relative/path.md) that render on Codeberg/GitHub
-- [ ] Generic workflow pages: Mermaid only (no LikeC4 models)
-- [ ] Architecture pages: Mermaid generated from LikeC4 model; model validates
-- [ ] **Architecture diagrams derived from `raw/arch/` RIG — NOT from memory**
-- [ ] **Every component/dependency in architecture diagrams is traceable to the
-      RIG**
-- [ ] **`raw/arch/<project>/rig.db` existed before architecture diagrams
-      were written** (no RIG = no architecture workflow)
-- [ ] **No page exceeds the size limit** (`pages.size_limit`, default 400
-      lines); if the CI flags one, shrink or split it (see Page-size discipline)
-
-After committing:
-
-- [ ] **Pushed** to the remote
-- [ ] **CI run watched** to green (via `gh` for GitHub, `fj` for Forgejo)
+| Command | What it does | Key rule |
+|---|---|---|
+| `wiki read <topic>` | qmd/grep search, read matches in full, synthesize with citations | offer to create a page if substantial and uncovered |
+| `wiki update` | ingest new information | placement audit FIRST; save source to `raw/` (immutable); update pages/frontmatter; `index.md` + `log.md`; `npm run check` |
+| `wiki create <topic>` | new page | placement gate → entity type → overlap check → template (see reference) → bidirectional links |
+| `wiki arch-sync <project>` | prose after a rig.db refresh | query, never generate; embed generated `*.mmd`; route by hierarchy; preserve manual content; commit, don't push |
+| `wiki consult <repo>` | promote a project to LC4 | writes in the project repo; full procedure in [`references/consult.md`](references/consult.md) |
+| `wiki prune <topic>` | remove a page | **never without explicit instruction**; fix all inbound links first |
+| `wiki list` | summarize contents | counts by type + health check + recent updates |
+
+Full procedures: [`references/commands.md`](references/commands.md).
+
+## Commit and verify
+
+A wiki change is done only when it is **committed, pushed, and CI is
+green** — `npm run check` locally is necessary but not sufficient (CI
+also validates diagrams via `mmdc` and LikeC4 via `likec4 format
+--check`); only the remote run is authoritative. Write → `npm run check`
+→ commit + push → watch CI to green (fix and push until green). Use the
+right tool: **`gh`** on GitHub, **`fj`** on Forgejo — determine the
+platform from the remote URL first; they are NOT interchangeable.
+
+## Validation checklist
+
+Before committing: `npm run check` passes; **placement audit done**
+(lowest layer that can hold it); **no cross-layer duplication** (lower
+authoritative, upper links); single-project pages only as flagged
+temporary admission; new pages have all 6 frontmatter fields, correct
+type directory, tags 2-7 (first = type, lowercase), `## See Also` ≥2
+links; no duplicate filenames; `index.md` updated, `log.md` appended;
+bidirectional links; no `#` body headings, no inline HTML; Markdown
+cross-references (render on GitHub/Codeberg); Generic pages Mermaid-only;
+Architecture pages' Mermaid generated from the LikeC4 model; **diagrams
+derived from `raw/arch/` RIG, never memory, every component traceable**;
+no page over `pages.size_limit` (default 400). After committing: pushed,
+CI watched to green via the platform's tool.

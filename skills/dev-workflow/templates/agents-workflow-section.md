@@ -24,11 +24,28 @@ default branch directly.
 > The full pipeline and an adversarial review run **once, at merge time**, on
 > the declared-ready head SHA — every push before that runs the fast tier
 > only. `dw_merge_readiness` verifies the chain before any merge.
+>
+> **Local-first:** the fast tier (lint, build, unit tests) is a *local
+> mirror* — run it green (`dw_preflight`) before **every** push, first push
+> and re-pushes alike. CI re-runs the mirror on a clean runner to catch
+> environment drift, not to discover basic breakage; only checks that
+> cannot run locally (external-service integration, GPU/infra matrices,
+> runner-class benchmarks) are first executed by CI.
 
 ### CI discipline (quality gates)
 
 "CI green" means the **test suite** passes, not merely that it builds. Two
 gates hold for every change:
+
+- **Local-first — the fast tier runs locally before every push.** Lint,
+  build, and unit tests are all laptop-runnable, so they are green locally
+  BEFORE any `git push` (`dw_preflight` runs lint + build + tests in one
+  shot; gate 9 of the skill — first push and every re-push alike; a step it
+  reports *not detected* is run by hand). CI re-runs them on a clean runner
+  to catch environment drift — a red fast check that a laptop could have
+  caught is wasted CI budget. Integration suites against external services,
+  GPU/infra matrices, and runner-class benchmarks are the legitimate
+  CI-only checks. Depth: the skill's `references/test-policy.md`.
 
 - **Tests cover the change.** Unit tests are **mandatory** for every behavior
   the change adds or alters. If the project already has an integration-test
@@ -64,15 +81,15 @@ gates hold for every change:
   (`not-suitable:` markers) · I4 no silent divergence · I5 naming consistency
   (kebab tokens, contexts decompose to tokens, no free-text expansions).
   Run `dw_ci_conformance` after any commit touching workflow files.
-  Depth: the skill's `ci-concepts.md` §5.
+  Depth: the skill's `references/invariants.md`.
 - **Measurements live in CI, not on laptops.** A benchmark, A/B comparison, or
   quality eval relevant over time is wired into the slow tier as a **reusable**
   job (`workflow_dispatch`), not an ad-hoc script. One harness, many
   invocations — composite actions, reusable workflows — never copy-pasted jobs.
-  Depth: the skill's `ci-concepts.md` §1.4.
+  Depth: the skill's `references/test-policy.md`.
 
 Depth (what counts as coupling, detection heuristics, CI wiring) lives in the
-skill's `references/ci-concepts.md`.
+skill's `references/ci-wiring.md` + `test-policy.md`.
 
 ### Project configuration
 
@@ -85,9 +102,15 @@ skill's `references/ci-concepts.md`.
 - **Test command:** `{{TEST_COMMAND}}` — the suite CI runs; verify locally with
   the same command before pushing. This is a best-effort *suggestion*; if wrong,
   commit `scripts/test` (preferred) or set `CI_TEST_COMMAND` rather than
-  hand-editing — see the skill's `ci-concepts.md`.
+  hand-editing — see the skill's `references/ci-wiring.md`.
+- **Lint command:** `{{LINT_COMMAND}}` — part of the local mirror
+  (`dw_preflight`). Best-effort suggestion; if wrong, commit `scripts/lint`
+  or set `CI_LINT_COMMAND`.
+- **Build command:** `{{BUILD_COMMAND}}` — part of the local mirror
+  (`dw_preflight`). Best-effort suggestion; if wrong, commit `scripts/build`
+  or set `CI_BUILD_COMMAND`.
 - **Coupling policy:** `{{COUPLING_POLICY}}` — one of `strict` (default) /
-  `documented-exceptions` / `legacy`; see the skill's `ci-concepts.md`.
+  `documented-exceptions` / `legacy`; see the skill's `references/coupling.md`.
 - **Safety level:** `{{SAFETY_LEVEL}}` — one of `none` (default) / `mcdc`.
   When `mcdc`, every boolean decision in changed code must achieve Modified
   Condition/Decision Coverage. See the skill's `mcdc.md`.
@@ -97,7 +120,7 @@ skill's `references/ci-concepts.md`.
   Forgejo set the workflow *name* if it differs from the filename.
 - **CI conformance:** `{{CI_CONFORMANCE}}` — one of `advisory` (default) /
   `strict` (`.ci-conformance` file contains `strict`: violations fail the
-  gate). See the skill's `ci-concepts.md` §5.
+  gate). See the skill's `references/invariants.md`.
 
 ### Before every change
 
@@ -117,9 +140,10 @@ skill's `references/ci-concepts.md`.
 5. **Simplify** — re-read the diff. Can it be simpler? Remove dead code,
    collapse abstractions, eliminate speculative generality. A complex
    implementation is not optimal when a simpler alternative exists.
-6. **Green locally, then open the PR** — run the project's CI workloads
-   locally (the same suite the fast tier runs: build, lint, tests) until
-   green and the simplification pass is done. The PR is the expensive
+6. **Green locally before every push** — run the local CI mirror
+   (`dw_preflight`: lint + build + tests — the same checks the fast tier
+   runs) until green and the simplification pass is done; this gates the
+   first push and every later re-push alike. The PR is the expensive
    step: it triggers CI on the forge, so it opens **once**, locally green.
 7. **Re-simplify, then declare ready:** rebase onto the default branch,
    trigger the full pipeline on that SHA (`dw_trigger_full_pipeline` — sets
@@ -128,6 +152,27 @@ skill's `references/ci-concepts.md`.
 8. **Merge only when merge-ready** — `dw_merge_readiness` verifies fast +
    full + review at the same head SHA — then delete the branch and close
    the issue.
+
+**Review-thread close-out (Forgejo).** An adversarial review leaves inline
+threads; the close-out is mechanical and native:
+
+- As each fix lands, resolve the threads it addresses:
+  `fj review resolve <PR> <COMMENT-ID>` — the resolved marker IS the
+  close-out; the reviewer verifies the fix in the diff.
+- When everything is done, reply once per thread on the SAME anchored
+  comment (`fj review reply <PR> <COMMENT-ID> --body "…"`) carrying
+  `path:line → fix SHA + one-line rationale` as the round record. Never
+  open new anchored snippet comments per finding — each starts a NEW
+  thread instead of answering the finding's.
+- The reviewer — not the dev — closes threads it did not author, and
+  queries `fj review comments <PR> <REVIEW>` (resolved markers) rather
+  than downgrading for host-UI thread state.
+- Client floor: these subcommands need an `fj` build with review thread
+  support (`fj __complete review` must list `resolve|reply|comments`).
+  On a stale client, surface the gap — never fall back to separate
+  comments.
+
+Depth: the skill's `references/review-threads.md` (hard rule 0).
 
 A direct commit to the default branch requires an explicit user instruction,
 recorded on the issue.
