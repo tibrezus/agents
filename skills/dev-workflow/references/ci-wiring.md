@@ -1,7 +1,8 @@
 # Wiring tests into CI — so the gate is real
 
-Depth page for the CI-discipline wiring mandates. The local `dw_run_tests`
-mirror and the CI pipeline must run the **same** suite, or the local loop
+Depth page for the CI-discipline wiring mandates. The local mirror
+(`dw_preflight` — lint + build + tests; `dw_run_tests` for tests alone)
+and the CI pipeline must run the **same** commands, or the local loop
 lies. If you are writing a script to validate your change that is not part
 of the project's test infrastructure — stop: extend the existing suite, or
 wire your tool into CI. A script that runs once and is deleted is the
@@ -58,18 +59,25 @@ is not a duplicate) so the reviewer can falsify it.
 
 ## How the test command is resolved
 
-Project-owned, not skill-owned. `dw_run_tests` (and the `Test command:`
-`adopt` suggests) resolve, highest first:
+Project-owned, not skill-owned. `dw_preflight`'s steps (and the
+`Test command:` / `Lint command:` / `Build command:` entries `adopt`
+suggests) resolve, highest first:
 
-1. **`CI_TEST_COMMAND` env var** — explicit session override.
+1. **`CI_TEST_COMMAND` / `CI_LINT_COMMAND` / `CI_BUILD_COMMAND` env vars** —
+   explicit session overrides.
 2. **A committed runner in the repo** (language-agnostic, **preferred**) —
-   `scripts/test` (executable), `scripts/test.sh`, `bin/test`, or a
-   Makefile `test:` target. **What scales across projects:** the project
-   commits its real command with real flags; the skill never needs editing.
+   `scripts/test|lint|build` (executable), or a Makefile target of the
+   same name. **What scales across projects:** the project commits its
+   real command with real flags; the skill never needs editing.
 3. **Language heuristics** (zero-config fallback) — `package.json`→
-   `npm test`, `go.mod`→`go test ./...`, `build.zig`→`zig build test`,
-   `Cargo.toml`→`cargo test`, `pyproject.toml`/`setup.py`→`pytest`,
+   `npm test`/`npm run lint`/`npm run build` (scripts must exist),
+   `go.mod`→`go test`/`go vet`/`go build`, `build.zig`→`zig build test`/
+   `zig fmt --check`/`zig build`, `Cargo.toml`→`cargo test`,
+   `pyproject.toml`/`setup.py`→`pytest` (ruff when configured),
    `meson.build`→`meson test`, `CMakeLists.txt`→ configure→build→`ctest`.
+   Lint/build heuristics are deliberately conservative (config-gated):
+   a missed command is reported as *skipped* by `dw_preflight`; a wrong
+   one green-lights broken code.
 
 The heuristic list is deliberately short. **C/C++/CMake are
 build-config dependent** (build dir, presets, toolchain) — commit

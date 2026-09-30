@@ -39,17 +39,23 @@ source "$(dirname "$(readlink -f "$0")")/scripts/host.sh"   # or source the abso
    default branch). Ask: "can this be simpler?" Remove dead code, collapse
    redundant abstractions, eliminate speculative generality. If you change
    code, re-verify locally before proceeding. (Gate 8; hard rule 5.)
-7. **Green locally first — the PR is the expensive step:**
+7. **Preflight green before EVERY push — the PR is the expensive step:**
    ```bash
-   dw_run_tests || { echo "local tests red — fix before pushing"; exit 1; }
+   dw_preflight || { echo "local CI mirror red — fix before pushing"; exit 1; }
    ```
-   Run the project's fast-tier workloads locally (build + lint +
-   `dw_run_tests`) until green and the simplification pass (gate 8) is
-   done. Opening a PR consumes CI on the forge — push and open it **once**,
-   when the local mirror is green. Probe the conflict state BEFORE pushing:
-   a branch that conflicts with the default branch is DIRTY, and GitHub
-   creates no merge ref for a DIRTY PR — `pull_request` workflows silently
-   never run, which reads as "CI is slow" but is actually "CI is absent":
+   `dw_preflight` runs the local CI mirror in one shot — lint, build,
+   tests. Gate 9 applies to the **first push and every later re-push on
+   the branch alike**: fast CI on the forge re-runs exactly these checks,
+   so finding them red there wastes CI budget on what a laptop already
+   could have told you. A step reporting *not detected* is run by hand if
+   the project has one; only checks that genuinely cannot run locally
+   (external-service integration, GPU/infra matrices, runner-class
+   benchmarks) are left to CI alone. When the mirror is green and the
+   simplification pass (gate 8) is done, probe the conflict state BEFORE
+   pushing: a branch that conflicts with the default branch is DIRTY, and
+   GitHub creates no merge ref for a DIRTY PR — `pull_request` workflows
+   silently never run, which reads as "CI is slow" but is actually "CI is
+   absent":
    ```bash
    git fetch origin "$(dw_default_branch)" -q
    git merge-tree --write-tree "HEAD" "origin/$(dw_default_branch)" >/dev/null 2>&1 \
@@ -60,8 +66,10 @@ source "$(dirname "$(readlink -f "$0")")/scripts/host.sh"   # or source the abso
 8. **Fast CI confirms on a clean runner** (it re-runs what you ran
    locally):
    ```bash
-   dw_watch_ci "$BRANCH" || { echo "fast CI red — fix on the branch and re-push"; exit 1; }
+   dw_watch_ci "$BRANCH" || { echo "fast CI red — preflight again (gate 9), fix on the branch, re-push"; exit 1; }
    ```
+   Every fix-and-re-push cycle repeats step 7's `dw_preflight` first —
+   never fix straight through to `git push`.
    **"No checks reported" is a STATE, not slowness.** On GitHub, check
    `gh pr view --json mergeStateStatus` first: `DIRTY`/`CONFLICTING` means
    the merge ref could not be created, so **no workflow will ever run for

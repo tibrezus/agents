@@ -52,6 +52,29 @@ the pr-review workflow end to end (Review-Ready Gate, attempts, event
 history) and provides the exact progress/query commands — never
 reconstruct them by hand.
 
+## `preflight` — the local CI mirror before every push
+
+```bash
+dw_preflight        # lint + build + tests, one shot, summary at the end
+dw_run_tests        # tests only (the mandatory floor)
+```
+
+Gate 9's executable form: runs every fast-tier check a dev machine can
+run — **lint → build → tests**, all three even when one is red so a single
+pass surfaces every failure — and exits 0 only when all detected steps are
+green. Run it before **every** push (first push and re-pushes alike): fast
+CI on the forge re-runs exactly these, and finding them red there is
+wasted CI budget. Tests are mandatory (undetectable → red, with guidance);
+lint and build are best-effort — a step reported *not detected* is run by
+hand if the project has one. Command detection precedence for all three:
+`CI_LINT_COMMAND` / `CI_BUILD_COMMAND` / `CI_TEST_COMMAND` env → committed
+runner (`scripts/lint|build|test`, Makefile target) → language heuristic
+(`scripts/detect-test-command.sh`, config-gated and deliberately
+conservative for lint/build). Checks that cannot run locally
+(external-service integration, GPU/infra matrices, runner-class
+benchmarks) are the legitimate CI-only set — depth:
+[`test-policy.md`](test-policy.md).
+
 ## `ci-conformance` — validate CI against the five invariants
 
 ```bash

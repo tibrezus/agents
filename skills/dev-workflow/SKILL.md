@@ -1,6 +1,6 @@
 ---
 name: dev-workflow
-description: "Enforce branch-based development — every change flows issue → branch → green CI → merged PR, never a direct commit to the default branch. Grounds changes in the project's documented design (wiki/llm-wiki); treats CI green as a quality gate (unit tests mandatory, integration suite extended); requires coupling to be intentional or wiki-documented. Multi-platform (GitHub via gh, Forgejo/Codeberg via fj). Ships `adopt` to inject the mandate into a repo's AGENTS.md. Use when implementing features/fixes, creating issues/branches/PRs, watching CI, or setting up the workflow in a repo."
+description: "Enforce branch-based development — every change flows issue → branch → green CI → merged PR, never a direct commit to the default branch. Grounds changes in the project's documented design (wiki/llm-wiki); treats CI green as a quality gate (unit tests mandatory, integration suite extended) with local-first preflight — lint+build+tests green locally before every push (`dw_preflight`); only checks that cannot run locally are left to CI. Requires coupling to be intentional or wiki-documented. Multi-platform (GitHub via gh, Forgejo/Codeberg via fj). Ships `adopt` to inject the mandate into a repo's AGENTS.md. Use when implementing features/fixes, creating issues/branches/PRs, watching CI, or setting up the workflow in a repo."
 ---
 
 # Dev Workflow — Issue → Branch → Green CI → Merge
@@ -58,14 +58,23 @@ independently falsifiable. (Numbers are stable identifiers —
 8. **Simplification pass** — re-read the full diff, ask "can this be
    simpler?", remove dead code / redundant abstractions / speculative
    generality (hard rule 5). Before pushing to CI, re-checked before merge.
-9. **PR open — only after the local CI mirror is green.** Fast-tier
-   workloads run locally first (build, lint, `dw_run_tests`); the PR opens
-   **once** — it triggers CI on the forge, so scaffolding stays on the
-   branch. Probe conflicts BEFORE pushing: a DIRTY PR gets no runs at all
-   (procedure step 7).
+9. **No push is red locally — the local CI mirror precedes every push.**
+   Everything the fast tier runs that a dev machine can also run — lint,
+   build, unit tests — is green locally BEFORE any `git push`, the first
+   push and every later re-push alike (`dw_preflight` runs all three in
+   one shot; a step it cannot detect is run by hand). Fast CI on the forge
+   exists to re-confirm the mirror on a clean runner, not to discover
+   basic breakage. Only checks that genuinely cannot run locally
+   (external-service integration, GPU/infra matrices, runner-class
+   benchmarks) are first executed by CI. The PR opens **once** — it
+   triggers CI on the forge, so scaffolding stays on the branch. Probe
+   conflicts BEFORE pushing: a DIRTY PR gets no runs at all (procedure
+   step 7).
 10. **Fast CI green on every push** — lint/build/unit/targeted tests; red
     fixed on the branch. Silence is not green: "no checks" is a rebase
-    signal (procedure step 8).
+    signal (procedure step 8). Fast CI **confirms** what already ran
+    locally (gate 9) — a red fast check that a laptop could have caught is
+    wasted CI budget and a process failure, not bad luck.
 11. **Full pipeline green on the head SHA** — at ready declaration: rebase
     onto default, then `dw_trigger_full_pipeline` (the helper **refuses
     unrebased heads** — first trigger and re-triggers alike; the full
@@ -85,9 +94,9 @@ independently falsifiable. (Numbers are stable identifiers —
     armed); then `dw_merge_pr`. Branch deleted; the merged PR
     (`Closes #n`) closes the issue and is the implementation record.
 
-**Two-phase readiness:** development pushes run the fast tier only; the
-full pipeline + adversarial review run **once, at ready declaration, on
-the final head SHA** (rebase *before* triggering). Statuses bind to SHAs,
+**Two-phase readiness:** development pushes run the fast tier only — each
+push preceded by its local mirror (gate 9); the full pipeline + adversarial
+review run **once, at ready declaration, on the final head SHA** (rebase *before* triggering). Statuses bind to SHAs,
 so any push after declaration — source or docs — re-opens the path; red
 pipeline means back to developing, never into review (depth:
 [`test-policy.md`](references/test-policy.md)).
@@ -155,6 +164,16 @@ pipeline means back to developing, never into review (depth:
 "CI green" is a quality gate, not a build-status light. The mandates; each
 rule's depth lives in its reference page:
 
+- **Local-first: CI is not where you find out your code doesn't lint.**
+  The fast tier is a **local mirror** — lint, build, and unit tests all run
+  on a dev machine, so they run there first, green, before **every** push
+  (`dw_preflight`; gate 9, first push and re-pushes alike). CI re-runs them
+  on a clean runner to catch environment drift, not to discover basic
+  breakage; a red fast check that a laptop could have caught is wasted CI
+  budget. A check may be *first executed* by CI only when it genuinely
+  cannot run locally: integration against external services, GPU/infra
+  matrices, benchmarks on runner-class hardware. Depth:
+  [`test-policy.md`](references/test-policy.md).
 - **CI instrumentation evolves with the project — there is no throwaway
   test.** Run the project's own runner locally (`make test`, `npm test`,
   `scripts/test`) and wire every new test or tool into CI; before creating
@@ -211,6 +230,7 @@ recreates drift. Update it here, then re-run `adopt` to propagate.
 | `adopt` | inject/update the workflow section in a project's AGENTS.md (idempotent; marker-delimited; template: [`templates/agents-workflow-section.md`](templates/agents-workflow-section.md) — never hand-edit the block) | [`references/commands.md`](references/commands.md) |
 | `review` | `dw_request_review "<pr>"` — guarded ingress, adds `needs-review`; verdict = comment with `<!-- pr-review: <DECISION> @ <sha> -->`; runtime progress via the `harmostes` skill | [`references/commands.md`](references/commands.md) |
 | `ci-conformance` | `dw_ci_conformance ["origin/main"] [--fleet a b]` — I1–I5 + checks-preservation; run after any workflow-file commit | [`references/commands.md`](references/commands.md) |
+| `preflight` | `dw_preflight` — the local CI mirror (lint + build + tests) in one shot; green before **every** push (gate 9) | [`references/commands.md`](references/commands.md) |
 | Make a change | the per-change procedure, full bash | [`references/procedure.md`](references/procedure.md) |
 
 ### Make a change — the skeleton
@@ -223,8 +243,9 @@ recreates drift. Update it here, then re-run `adopt` to propagate.
 5. Make the change **including its tests**; document new coupling in the
    wiki now; commit with `Refs #$ISSUE`.
 6. Simplification pass on the full diff (gate 8).
-7. Green locally (`dw_run_tests` + build + lint), probe conflicts
-   (`git merge-tree`), then push and open the PR **once**
+7. Preflight green (`dw_preflight` — lint + build + tests; gate 9 applies
+   to every push, re-pushes included), probe conflicts (`git merge-tree`),
+   then push and open the PR **once**
    (`dw_open_pr "$BRANCH" "$(dw_default_branch)" "<title>" "Closes #$ISSUE"`).
 8. Watch fast CI (`dw_watch_ci`); if workflow files changed, CI
    conformance must hold (`dw_ci_conformance "origin/<default>"`).

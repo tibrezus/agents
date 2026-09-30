@@ -43,10 +43,36 @@ interfaces, vertical red-green slices; refuse horizontal slicing
 | **Fast** | Every push, every PR | unit, lint, type-check | Gate 10 floor |
 | **Full (slow)** | **Dispatched once at ready declaration** — a merge gate, not a push gate | benchmarks, GPU/infra matrices, integration A/B, long evals, MC/DC | Gates 11–12 input |
 
+### The local mirror — green before every push
+
+The fast tier is a **local mirror**: lint, build, and unit tests all run
+on a dev machine, so they are run there first — green — before **every**
+push (gate 9; `dw_preflight` runs the three in one shot, first push and
+every re-push alike). Pushing red on a check a laptop can run is a
+process failure: it spends forge CI budget to discover what the agent
+already could have, and basic lint/build/unit red on CI is exactly the
+failure class local verification exists to prevent. CI's role in the
+fast tier is to re-confirm the mirror on a **clean runner** — catching
+environment drift (dependency skew, OS/toolchain differences, dirty
+local state) — not first-line breakage discovery.
+
+**CI-only is a justification, not a default.** A check may be *first
+executed* by CI only when it genuinely cannot run locally, and the usual
+suspects are legitimate: integration suites against external services
+(databases, queues, SaaS, multi-node topologies), GPU/infra matrices,
+benchmarks and perf/A/B whose reproducibility depends on the runner
+class, long evals. The two rules compose: the **boundary rule** below
+(30s) decides a check's *CI* tier; *laptop runnability* decides whether
+it must also be in the local mirror — fast and laptop-runnable means
+both. `dw_preflight` reports undetected steps as *skipped* — if the
+project has one (committed runner, `CI_LINT_COMMAND` /
+`CI_BUILD_COMMAND`, AGENTS.md entry), it is run by hand before pushing.
+
 The bors/merge-queue lineage, inverted for agent workflows: the guarantee
-lives at **merge time**, not PR-open time. Development iterates locally;
-the PR opens **once**, locally green (gate 9 — an open PR consumes forge CI
-on every push). After it opens, pushes re-run the fast tier only, with
+lives at **merge time**, not PR-open time. Development iterates locally —
+preflight before every push; the PR opens **once**, local mirror green
+(gate 9 — an open PR consumes forge CI on every push). After it opens,
+pushes re-run the fast tier only, with
 superseded runs cancelled via `concurrency`. At ready declaration: rebase
 first, trigger the full pipeline on that SHA (the `full-pipeline` label —
 the trigger helper refuses heads not rebased onto current default, first

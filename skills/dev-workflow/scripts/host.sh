@@ -598,9 +598,14 @@ dw_watch_full_pipeline() {
 # (shared with adopt.sh) so the precedence + language list are defined once.
 
 # dw_test_command  → echoes the project's test command, or empty.
-#   Thin alias over dw_detect_test_command (see detect-test-command.sh for the
-#   full precedence: CI_TEST_COMMAND env → committed runner → language heuristic).
-dw_test_command() { dw_detect_test_command; }
+# dw_build_command  → echoes the project's build command, or empty.
+# dw_lint_command   → echoes the project's lint command, or empty.
+#   Thin aliases over the detectors in detect-test-command.sh (see there for
+#   the full precedence: CI_*_COMMAND env → committed runner → language
+#   heuristic).
+dw_test_command()  { dw_detect_test_command; }
+dw_build_command() { dw_detect_build_command; }
+dw_lint_command()  { dw_detect_lint_command; }
 
 # dw_run_tests  → run the project's tests locally; exit code is the suite's.
 #   Dies with guidance if no command can be determined.
@@ -609,6 +614,41 @@ dw_run_tests() {
   [ -n "$cmd" ] || dw_die "no test command detected — commit scripts/test, set CI_TEST_COMMAND, or add a 'Test command' in the project's AGENTS.md (see references/ci-wiring.md)"
   echo "dev-workflow: running tests: $cmd" >&2
   sh -c "$cmd"
+}
+
+# dw_preflight → run the LOCAL CI MIRROR — lint + build + tests, the fast-tier
+#   checks every dev machine can run — in one shot, and report a summary.
+#   Exit 0 only when every detected step is green. Run before EVERY push
+#   (gate 9: first push and every re-push alike): fast CI on the forge re-runs
+#   exactly these, so finding them red there is wasted CI budget. Tests are
+#   mandatory (undetectable → red, same guidance as dw_run_tests); lint and
+#   build are best-effort — a step reported "not detected" is run by hand if
+#   the project has one. All steps run even when one is red, so a single pass
+#   surfaces every failure. Checks that CANNOT run locally (external-service
+#   integration, GPU/infra matrices, runner-class benchmarks) are the only
+#   ones legitimately left to CI alone — see references/test-policy.md.
+dw_preflight() {
+  local fail=0 name cmd step
+  local tests; tests=$(dw_test_command)
+  [ -n "$tests" ] || { echo "dev-workflow: preflight test: no test command detected — commit scripts/test, set CI_TEST_COMMAND, or fix AGENTS.md (references/ci-wiring.md)" >&2; fail=1; }
+  local steps=("lint:$(dw_lint_command)" "build:$(dw_build_command)" "test:$tests")
+  for step in "${steps[@]}"; do
+    name="${step%%:*}"; cmd="${step#*:}"
+    if [ -z "$cmd" ]; then
+      # the mandatory test step already reported its guidance above — only
+      # optional steps announce themselves as skipped
+      [ "$name" = test ] || echo "dev-workflow: preflight $name: not detected — skipped (run it by hand before pushing if the project has one)" >&2
+      continue
+    fi
+    echo "dev-workflow: preflight $name: $cmd" >&2
+    sh -c "$cmd" || { echo "dev-workflow: preflight $name RED — fix before pushing (fast CI runs this too; finding it red there wastes CI budget)" >&2; fail=1; }
+  done
+  if [ "$fail" -eq 0 ]; then
+    echo "dev-workflow: preflight green — local CI mirror passed, safe to push" >&2
+  else
+    echo "dev-workflow: preflight RED — gate 9: no push until the local mirror is green" >&2
+  fi
+  return "$fail"
 }
 
 # ── merge ───────────────────────────────────────────────────────────────────

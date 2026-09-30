@@ -24,11 +24,28 @@ default branch directly.
 > The full pipeline and an adversarial review run **once, at merge time**, on
 > the declared-ready head SHA — every push before that runs the fast tier
 > only. `dw_merge_readiness` verifies the chain before any merge.
+>
+> **Local-first:** the fast tier (lint, build, unit tests) is a *local
+> mirror* — run it green (`dw_preflight`) before **every** push, first push
+> and re-pushes alike. CI re-runs the mirror on a clean runner to catch
+> environment drift, not to discover basic breakage; only checks that
+> cannot run locally (external-service integration, GPU/infra matrices,
+> runner-class benchmarks) are first executed by CI.
 
 ### CI discipline (quality gates)
 
 "CI green" means the **test suite** passes, not merely that it builds. Two
 gates hold for every change:
+
+- **Local-first — the fast tier runs locally before every push.** Lint,
+  build, and unit tests are all laptop-runnable, so they are green locally
+  BEFORE any `git push` (`dw_preflight` runs lint + build + tests in one
+  shot; gate 9 of the skill — first push and every re-push alike; a step it
+  reports *not detected* is run by hand). CI re-runs them on a clean runner
+  to catch environment drift — a red fast check that a laptop could have
+  caught is wasted CI budget. Integration suites against external services,
+  GPU/infra matrices, and runner-class benchmarks are the legitimate
+  CI-only checks. Depth: the skill's `references/test-policy.md`.
 
 - **Tests cover the change.** Unit tests are **mandatory** for every behavior
   the change adds or alters. If the project already has an integration-test
@@ -86,6 +103,12 @@ skill's `references/ci-wiring.md` + `test-policy.md`.
   the same command before pushing. This is a best-effort *suggestion*; if wrong,
   commit `scripts/test` (preferred) or set `CI_TEST_COMMAND` rather than
   hand-editing — see the skill's `references/ci-wiring.md`.
+- **Lint command:** `{{LINT_COMMAND}}` — part of the local mirror
+  (`dw_preflight`). Best-effort suggestion; if wrong, commit `scripts/lint`
+  or set `CI_LINT_COMMAND`.
+- **Build command:** `{{BUILD_COMMAND}}` — part of the local mirror
+  (`dw_preflight`). Best-effort suggestion; if wrong, commit `scripts/build`
+  or set `CI_BUILD_COMMAND`.
 - **Coupling policy:** `{{COUPLING_POLICY}}` — one of `strict` (default) /
   `documented-exceptions` / `legacy`; see the skill's `references/coupling.md`.
 - **Safety level:** `{{SAFETY_LEVEL}}` — one of `none` (default) / `mcdc`.
@@ -117,9 +140,10 @@ skill's `references/ci-wiring.md` + `test-policy.md`.
 5. **Simplify** — re-read the diff. Can it be simpler? Remove dead code,
    collapse abstractions, eliminate speculative generality. A complex
    implementation is not optimal when a simpler alternative exists.
-6. **Green locally, then open the PR** — run the project's CI workloads
-   locally (the same suite the fast tier runs: build, lint, tests) until
-   green and the simplification pass is done. The PR is the expensive
+6. **Green locally before every push** — run the local CI mirror
+   (`dw_preflight`: lint + build + tests — the same checks the fast tier
+   runs) until green and the simplification pass is done; this gates the
+   first push and every later re-push alike. The PR is the expensive
    step: it triggers CI on the forge, so it opens **once**, locally green.
 7. **Re-simplify, then declare ready:** rebase onto the default branch,
    trigger the full pipeline on that SHA (`dw_trigger_full_pipeline` — sets
