@@ -685,17 +685,33 @@ dw_merge_readiness() {
   if [ -n "$(dw_full_pipeline_workflows)" ]; then
     if dw_full_green "$head"; then echo "  ✔ full pipeline green @ ${head:0:8}"; else echo "  ✘ full pipeline not green @ ${head:0:8}"; fail=1; fi
   else echo "  – full pipeline: none configured (fast tier is the pipeline)"; fi
-  # 4. review verdict trailer bound to head
-  local bodies=""
+  # 4. review verdict trailer bound to head — REQUIRED only when armed.
+  #    The `needs-review` label is the armed marker (set by dw_request_review,
+  #    gate 12 opt-in). Without it the r18 verdict doctrine applies: verdicts
+  #    are testing signals, not merge authority — the owner merges on the
+  #    deterministic evidence (CI green + conformance above), optionally
+  #    recording an owner-bypass comment when a verdict was expected.
+  local armed=0
+  local labels=""
   case "$platform" in
-    github) bodies=$(gh api "repos/$owner_repo/issues/$pr/comments" --jq '.[].body' 2>/dev/null) ;;
-    *) local host token; host=$(dw_host); token=$(dw_token)
-       bodies=$(curl -fsSL -H "Authorization: token $token" \
-         "https://$host/api/v1/repos/$owner_repo/issues/$pr/comments" 2>/dev/null | jq -r '.[].body // empty') ;;
+    github) labels=$(gh api "repos/$owner_repo/issues/$pr/labels" --jq '.[].name' 2>/dev/null) ;;
+    *) local lhost ltoken; lhost=$(dw_host); ltoken=$(dw_token)
+       labels=$(curl -fsSL -H "Authorization: token $ltoken" \
+         "https://$lhost/api/v1/repos/$owner_repo/issues/$pr/labels" 2>/dev/null | jq -r '.[].name // empty') ;;
   esac
-  if echo "$bodies" | grep -qF "<!-- pr-review: APPROVE @ $head -->"; then
-    echo "  ✔ adversarial review APPROVE @ ${head:0:8}"
-  else echo "  ✘ no APPROVE verdict for ${head:0:8} (stale or missing — re-declare ready)"; fail=1; fi
+  echo "$labels" | grep -qx 'needs-review' && armed=1
+  local bodies=""
+  if [ "$armed" = 1 ]; then
+    case "$platform" in
+      github) bodies=$(gh api "repos/$owner_repo/issues/$pr/comments" --jq '.[].body' 2>/dev/null) ;;
+      *) local host token; host=$(dw_host); token=$(dw_token)
+         bodies=$(curl -fsSL -H "Authorization: token $token" \
+           "https://$host/api/v1/repos/$owner_repo/issues/$pr/comments" 2>/dev/null | jq -r '.[].body // empty') ;;
+    esac
+    if echo "$bodies" | grep -qF "<!-- pr-review: APPROVE @ $head -->"; then
+      echo "  ✔ adversarial review APPROVE @ ${head:0:8}"
+    else echo "  ✘ no APPROVE verdict for ${head:0:8} (stale or missing — re-declare ready)"; fail=1; fi
+  else echo "  – adversarial review: not armed (no needs-review label) — r18: owner merges on deterministic evidence"; fi
   # 5. rebase-clean against default
   local default dbase dhead
   default=$(dw_default_branch)
