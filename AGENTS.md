@@ -1,0 +1,183 @@
+---
+title: .agents
+---
+
+<!-- BEGIN dev-workflow (managed by the dev-workflow skill — re-run `adopt` to update) -->
+## Development Workflow
+
+This project uses **branch-based development**. No change lands on the
+default branch directly.
+
+> **Cardinal rule:** before making any change, load and follow the
+> `dev-workflow` skill (`/skill:dev-workflow`). Every change flows:
+>
+> **issue → branch → green CI → merged PR**
+>
+> Never `git commit` or `git push` to the default branch (`main`).
+> Never force-push (`--force` / `--force-with-lease`) to the default branch —
+> on Codeberg this is absolute: `main`/`master` must never be overwritten.
+> Always rebase the feature branch onto the default before merging.
+> Never change platform/repository rules (branch protection, force-push
+> settings, merge-strategy constraints) to work around merge requirements.
+> Never merge a PR whose CI is red. A change is not done until the PR is
+> merged and CI is green on the default branch.
+> Only optimal implementations are accepted — no workarounds at any level
+> (code, tests, CI, tooling, configuration). If a proper fix is blocked,
+> surface the blocker on the issue.
+>
+> The full pipeline and an adversarial review run **once, at merge time**, on
+> the declared-ready head SHA — every push before that runs the fast tier
+> only. `dw_merge_readiness` verifies the chain before any merge.
+>
+> **Local-first:** the fast tier (lint, build, unit tests) is a *local
+> mirror* — run it green (`dw_preflight`) before **every** push, first push
+> and re-pushes alike. CI re-runs the mirror on a clean runner to catch
+> environment drift, not to discover basic breakage; only checks that
+> cannot run locally (external-service integration, GPU/infra matrices,
+> runner-class benchmarks) are first executed by CI.
+
+### CI discipline (quality gates)
+
+"CI green" means the **test suite** passes, not merely that it builds. Two
+gates hold for every change:
+
+- **Local-first — the fast tier runs locally before every push.** Lint,
+  build, and unit tests are all laptop-runnable, so they are green locally
+  BEFORE any `git push` (`dw_preflight` runs lint + build + tests in one
+  shot; gate 9 of the skill — first push and every re-push alike; a step it
+  reports *not detected* is run by hand). CI re-runs them on a clean runner
+  to catch environment drift — a red fast check that a laptop could have
+  caught is wasted CI budget. Integration suites against external services,
+  GPU/infra matrices, and runner-class benchmarks are the legitimate
+  CI-only checks. Depth: the skill's `references/test-policy.md`.
+
+- **Tests cover the change.** Unit tests are **mandatory** for every behavior
+  the change adds or alters. If the project already has an integration-test
+  suite, the change **extends** it for the paths it touches (never shrinks it).
+  Tests must run in CI, not only locally. Load the `tdd` skill to write them.
+- **CI instrumentation evolves with the project.** Run the project's own test
+  runner locally — the same command CI runs (`make test`, `npm test`,
+  `scripts/test`) — never a throwaway script you discard after verifying.
+  Consolidation is the default: before creating any component — a tool, a CI
+  job, a wiki page — quickly check that an equivalent doesn't already exist
+  (tooling folders: `scripts/`, `tools/`, `bench/`) and extend it. Extend the
+  existing suite; never create a parallel one.
+- **CI code is expensive — a purpose runs once.** Before adding any test,
+  job, or step to CI, audit the **entire** CI surface (all workflow files,
+  plus the repo runners CI invokes: `scripts/test`, Makefile targets) for a
+  check that already achieves the same **purpose** — the defect it exists to
+  catch, not its literal commands. If one exists, the new logic **moves** —
+  manual → always-on in CI, local-only → wired into CI, fast → slow tier —
+  and is never added a second time. A purpose has exactly one home: checks
+  move between homes; they are never cloned, never dropped. State the audit
+  result on the PR.
+- **No undocumented coupling.** Avoid coupling between components unless it is
+  part of the intended architecture. If coupling is unavoidable and not part
+  of the documented design, record it in the wiki (`/skill:llm-wiki`) **before**
+  the PR merges, per `COUPLING_POLICY` below.
+- **CI checks are never removed — they shift.** When restructuring pipelines
+  (splitting compound jobs, renaming to gate tokens, moving checks between
+  tiers), every existing check must still exist somewhere in the repo's
+  workflows. `dw_ci_conformance "origin/$(dw_default_branch)"` enforces this
+  deterministically; genuine obsolescence is justified to the reviewer.
+- **CI conformance (five invariants).** Platform-agnostic and shape-agnostic:
+  I1 check equivalence · I2 matrix coherence · I3 justified non-suitability
+  (`not-suitable:` markers) · I4 no silent divergence · I5 naming consistency
+  (kebab tokens, contexts decompose to tokens, no free-text expansions).
+  Run `dw_ci_conformance` after any commit touching workflow files.
+  Depth: the skill's `references/invariants.md`.
+- **Measurements live in CI, not on laptops.** A benchmark, A/B comparison, or
+  quality eval relevant over time is wired into the slow tier as a **reusable**
+  job (`workflow_dispatch`), not an ad-hoc script. One harness, many
+  invocations — composite actions, reusable workflows — never copy-pasted jobs.
+  Depth: the skill's `references/test-policy.md`.
+
+Depth (what counts as coupling, detection heuristics, CI wiring) lives in the
+skill's `references/ci-wiring.md` + `test-policy.md`.
+
+### Project configuration
+
+- **Platform:** `github`
+- **Default branch:** `main`
+- **Branch naming:** `<type>/<issue#>-<slug>` — the issue number MUST appear in the
+  branch name so the branch and issue stay linked.
+- **Milestone convention:** `current`
+- **CI watch:** `gh pr checks <PR> --watch  (then verify green)`
+- **Test command:** `./scripts/test` — the suite CI runs; verify locally with
+  the same command before pushing. This is a best-effort *suggestion*; if wrong,
+  commit `scripts/test` (preferred) or set `CI_TEST_COMMAND` rather than
+  hand-editing — see the skill's `references/ci-wiring.md`.
+- **Lint command:** `(none detected — commit scripts/lint or set CI_LINT_COMMAND if the project lints)` — part of the local mirror
+  (`dw_preflight`). Best-effort suggestion; if wrong, commit `scripts/lint`
+  or set `CI_LINT_COMMAND`.
+- **Build command:** `(none detected — commit scripts/build or set CI_BUILD_COMMAND if separate from test)` — part of the local mirror
+  (`dw_preflight`). Best-effort suggestion; if wrong, commit `scripts/build`
+  or set `CI_BUILD_COMMAND`.
+- **Coupling policy:** `strict` — one of `strict` (default) /
+  `documented-exceptions` / `legacy`; see the skill's `references/coupling.md`.
+- **Safety level:** `none` — one of `none` (default) / `mcdc`.
+  When `mcdc`, every boolean decision in changed code must achieve Modified
+  Condition/Decision Coverage. See the skill's `mcdc.md`.
+- **Merge method:** `squash`
+- **Full pipeline:** `none` — slow-tier workflow(s) dispatched
+  at ready declaration. `none` = the fast tier is the whole pipeline. On
+  Forgejo set the workflow *name* if it differs from the filename.
+- **CI conformance:** `advisory` — one of `advisory` (default) /
+  `strict` (`.ci-conformance` file contains `strict`: violations fail the
+  gate). See the skill's `references/invariants.md`.
+
+### Before every change
+
+1. **Consult the wiki** (`/skill:llm-wiki` `consult`/`read`) for the
+   project's documented design — entities, concepts, ADRs — before framing
+   the change. This is what "no undocumented coupling" judges against.
+2. **Find the issue** — search open issues for the task. If none exists,
+   create one with a clear title and acceptance criteria.
+3. **Find the branch** tied to that issue (by number). If none, create it off
+   the default branch and associate the issue with a milestone.
+4. **Make the change** on the branch, **with its tests** (unit mandatory;
+   extend integration tests if a suite exists; before adding a test or CI
+   job, audit the whole CI for a same-purpose check — extend or move, never
+   duplicate). Reference the issue in commits
+   (`Fixes #<n>` / `Refs #<n>`). If the change adds coupling that is not part
+   of the design, document it in the wiki first.
+5. **Simplify** — re-read the diff. Can it be simpler? Remove dead code,
+   collapse abstractions, eliminate speculative generality. A complex
+   implementation is not optimal when a simpler alternative exists.
+6. **Green locally before every push** — run the local CI mirror
+   (`dw_preflight`: lint + build + tests — the same checks the fast tier
+   runs) until green and the simplification pass is done; this gates the
+   first push and every later re-push alike. The PR is the expensive
+   step: it triggers CI on the forge, so it opens **once**, locally green.
+7. **Re-simplify, then declare ready:** rebase onto the default branch,
+   trigger the full pipeline on that SHA (`dw_trigger_full_pipeline` — sets
+   the `full-pipeline` label) and watch it green; then request
+   the adversarial review (`dw_request_review`) and wait for APPROVE.
+8. **Merge only when merge-ready** — `dw_merge_readiness` verifies fast +
+   full + review at the same head SHA — then delete the branch and close
+   the issue.
+
+**Review-thread close-out (Forgejo).** An adversarial review leaves inline
+threads; the close-out is mechanical and native:
+
+- As each fix lands, resolve the threads it addresses:
+  `fj review resolve <PR> <COMMENT-ID>` — the resolved marker IS the
+  close-out; the reviewer verifies the fix in the diff.
+- When everything is done, reply once per thread on the SAME anchored
+  comment (`fj review reply <PR> <COMMENT-ID> --body "…"`) carrying
+  `path:line → fix SHA + one-line rationale` as the round record. Never
+  open new anchored snippet comments per finding — each starts a NEW
+  thread instead of answering the finding's.
+- The reviewer — not the dev — closes threads it did not author, and
+  queries `fj review comments <PR> <REVIEW>` (resolved markers) rather
+  than downgrading for host-UI thread state.
+- Client floor: these subcommands need an `fj` build with review thread
+  support (`fj __complete review` must list `resolve|reply|comments`).
+  On a stale client, surface the gap — never fall back to separate
+  comments.
+
+Depth: the skill's `references/review-threads.md` (hard rule 0).
+
+A direct commit to the default branch requires an explicit user instruction,
+recorded on the issue.
+<!-- END dev-workflow -->
