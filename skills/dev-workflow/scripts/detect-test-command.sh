@@ -134,7 +134,10 @@ dw_detect_lint_command() {
     fi
     echo 'go vet ./...'; return   # stdlib, always available with Go
   fi
-  [ -f build.zig ] && { echo 'zig fmt --check .'; return; }
+  # NB: NO zig lint heuristic — bare `zig fmt --check .` walks every .zig file
+  # including generated/vendored ones the project's own fmt gate deliberately
+  # scopes out (rhexadox: vulkan/shaders.zig vs `zig fmt --check src build.zig`);
+  # zig projects lint via their build chain (ci:build-test) or a scripts/lint.
   if { [ -f ruff.toml ] || [ -f .ruff.toml ] || grep -q '^\[tool\.ruff' pyproject.toml 2>/dev/null; } \
     && command -v ruff >/dev/null 2>&1; then
     echo 'ruff check .'; return

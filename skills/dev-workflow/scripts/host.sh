@@ -70,21 +70,25 @@ dw_token() {
 
 # ── issues ─────────────────────────────────────────────────────────────────
 
-# dw_find_issue "<query>"  → echoes issue number (first open match) or nothing
+# dw_find_issue "<query>"  → echoes issue number (first open match); exits 1
+#   when nothing matches (empty-but-success made `x || create` never fire —
+#   found live during fleet propagation)
 dw_find_issue() {
-  local query="$1" platform owner_repo
+  local query="$1" platform owner_repo out
   platform=$(dw_detect_platform); owner_repo=$(dw_owner_repo)
   case "$platform" in
     github)
-      gh issue list --repo "$owner_repo" --state open --search "$query" \
-        --json number -q '.[0].number' 2>/dev/null ;;
+      out=$(gh issue list --repo "$owner_repo" --state open --search "$query" \
+        --json number -q '.[0].number' 2>/dev/null) ;;
     *)
       local host token
       host=$(dw_host); token=$(dw_token)
-      curl -fsSL -H "Authorization: token $token" \
+      out=$(curl -fsSL -H "Authorization: token $token" \
         "https://$host/api/v1/repos/$owner_repo/issues?state=open&type=issues&q=$(printf %s "$query" | jq -sRr @uri 2>/dev/null || printf %s "$query")" \
-        2>/dev/null | jq -r '.[0].number // empty' 2>/dev/null ;;
+        2>/dev/null | jq -r '.[0].number // empty' 2>/dev/null) ;;
   esac
+  [ -n "$out" ] || return 1
+  echo "$out"
 }
 
 # dw_create_issue "<title>" "<body>"  → echoes the new issue number
@@ -106,11 +110,14 @@ dw_create_issue() {
 
 # ── branches ───────────────────────────────────────────────────────────────
 
-# dw_find_branch_for_issue "<issue#>"  → echoes matching branch name or nothing
+# dw_find_branch_for_issue "<issue#>"  → echoes matching branch name; exits 1
+#   when none matches (same empty-success fix as dw_find_issue)
 dw_find_branch_for_issue() {
-  local issue="$1"
-  git branch -a --list "*${issue}*" 2>/dev/null \
-    | sed 's/^[* ]*//; s#^remotes/origin/##' | grep -v HEAD | head -1
+  local issue="$1" out
+  out=$(git branch -a --list "*${issue}*" 2>/dev/null \
+    | sed 's/^[* ]*//; s#^remotes/origin/##' | grep -v HEAD | head -1)
+  [ -n "$out" ] || return 1
+  echo "$out"
 }
 
 # dw_create_branch "<name>" "[base]"  → creates + switches to the branch
