@@ -55,16 +55,16 @@ gates hold for every change:
   the change adds or alters. If the project already has an integration-test
   suite, the change **extends** it for the paths it touches (never shrinks it).
   Tests must run in CI, not only locally. Load the `tdd` skill to write them.
-- **CI instrumentation evolves with the project.** Run the project's own test
-  runner locally — the same command CI runs (`make test`, `npm test`,
-  `scripts/test`) — never a throwaway script you discard after verifying.
+- **CI instrumentation evolves with the project.** Run the project's declared
+  test runner locally — the AGENTS.md command, the project's own convention
+  — never a throwaway script you discard after verifying.
   Consolidation is the default: before creating any component — a tool, a CI
   job, a wiki page — quickly check that an equivalent doesn't already exist
   (tooling folders: `scripts/`, `tools/`, `bench/`) and extend it. Extend the
   existing suite; never create a parallel one.
 - **CI code is expensive — a purpose runs once.** Before adding any test,
   job, or step to CI, audit the **entire** CI surface (all workflow files,
-  plus the repo runners CI invokes: `scripts/test`, Makefile targets) for a
+  plus the repo runners CI invokes: committed runners, Makefile targets) for a
   check that already achieves the same **purpose** — the defect it exists to
   catch, not its literal commands. If one exists, the new logic **moves** —
   manual → always-on in CI, local-only → wired into CI, fast → slow tier —
