@@ -1,128 +1,96 @@
 #!/usr/bin/env bash
 # fast-tier-detect.sh (installed as detect-test-command.sh)
 #
-# Best-effort detection of a project's FAST-TIER commands — the checks that
-# run on every push and are all runnable on a dev machine: test, build, lint.
-# `dw_preflight` runs the three as the local CI mirror before every push.
+# Resolution of a project's FAST-TIER commands — the checks that run on every
+# push and are runnable on a dev machine: test, build, lint. `dw_preflight`
+# runs them as the local CI mirror before every push.
 #
 # Sourced by host.sh (runtime: dw_preflight / dw_run_tests) and adopt.sh
-# (one-shot: write the suggested commands into AGENTS.md). Each list lives
-# in ONE place on purpose — adding a language or runner edits this file, not
-# two copies.
+# (one-shot: seed the declarations into AGENTS.md).
 #
-# ── precedence (applies to all three detectors) ──────────────────────────────
+# ── THE SKILL NEVER PRESCRIBES WHERE COMMANDS LIVE ──────────────────────────
 #
-# A skill script cannot keep up with every project's real invocation (build
-# dirs, presets, containers, monorepo selectors, custom harnesses, version
-# pins). So the project OWNS its commands. Precedence, highest first:
+# Projects own their conventions (`make test`, `just check`, `pnpm test`,
+# a runner binary, nix flake checks — anything). The skill only READS:
 #
 #   1. CI_TEST_COMMAND / CI_BUILD_COMMAND / CI_LINT_COMMAND env vars
 #                                     explicit session overrides
-#   2. a committed runner in the repo   project-owned, language-agnostic
-#        - scripts/test|lint|build (executable)  preferred — any stack
-#        - a Makefile with a matching target   →  make test|lint|build
-#   3. language heuristics (below)      zero-config convenience, extended
-#                                      sparingly; lint/build heuristics are
-#                                      deliberately CONSERVATIVE — a missed
-#                                      command is reported as skipped by
-#                                      dw_preflight; a wrong one fails green
-#                                      code. When in doubt: return "".
+#   2. the project's DECLARATION in AGENTS.md   the project-owned channel
+#        - **Test command:** `<command>`   (same for Lint/Build)
+#      The declaration is data — edit it freely, it is never doctrine.
+#      The `none` sentinel marks a deliberately absent command (sanctioned
+#      skip; gaps surface on the issue, never invented).
+#   3. language-standard observation    zero-config convenience ONLY: reads
+#      what the project already declares in its own standard files
+#      (package.json scripts, go.mod, build.zig, Cargo.toml…). Never a path
+#      convention, never a guess beyond the standard.
 #
-# For anything (3) can't nail — C/CMake variants, C++ without CMake, monorepos,
-# containerised suites, bespoke harnesses — the project COMMITS a runner (2) or
-# sets the env var (1). No skill edit is required for a new language; that
-# is the whole point of the precedence above.
+# Anything (3) can't nail — custom runners, monorepo selectors, containerised
+# suites, bespoke harnesses — the project DECLARES (2) or overrides (1).
+# No skill edit is ever required for a new convention; that is the point.
 
-# dw_detect_test_command  → echoes the test command, or "" if nothing detected.
-# Run from the project root (it checks the current directory).
+# _dw_declared <Test|Lint|Build> → the value declared in AGENTS.md, or "".
+#   Placeholder seeds from older adopts (values starting with "(") read as
+#   undeclared — they were detection output, not a project decision.
+_dw_declared() {
+  [ -f AGENTS.md ] || return 0
+  local v
+  v=$(sed -n "s/^- \*\*${1} command:\*\* \`\([^\`]*\)\`.*/\1/p" AGENTS.md | head -1)
+  case "$v" in ""|\(*) return 0 ;; esac
+  printf '%s\n' "$v"
+}
+
+# dw_detect_test_command → command | "none" (declared absent) | "".
 dw_detect_test_command() {
-  local t
-
   # 1) explicit override
   [ -n "${CI_TEST_COMMAND:-}" ] && { echo "$CI_TEST_COMMAND"; return; }
-
-  # 2) committed, project-owned runner (language-agnostic — preferred over guesses)
-  local r
-  for r in scripts/test scripts/test.sh bin/test; do
-    [ -f "$r" ] && { echo "./$r"; return; }
-  done
-  if [ -f Makefile ] && grep -qE '^test:' Makefile 2>/dev/null; then
-    echo 'make test'; return
-  fi
-
-  # 3) zero-config heuristics for common stacks (extend sparingly — prefer (2))
+  # 2) project declaration
+  local d; d=$(_dw_declared Test); [ -n "$d" ] && { echo "$d"; return; }
+  # 3) language-standard observation
   if [ -f package.json ]; then
-    t=$(jq -r '.scripts.test // empty' package.json 2>/dev/null)
-    # `npm init` leaves a placeholder script — don't suggest it
+    local t; t=$(jq -r '.scripts.test // empty' package.json 2>/dev/null)
+    # `npm init` leaves a placeholder script — don't observe it
     case "$t" in
       ''|'echo "Error: no test specified"'*|'exit 1') ;;
       *) echo 'npm test'; return ;;
     esac
   fi
   [ -f go.mod ]     && { echo 'go test ./...';  return; }
-  [ -f build.zig ]  && { echo 'zig build test'; return; }   # Zig — build.zig is its build system
+  [ -f build.zig ]  && { echo 'zig build test'; return; }
   [ -f Cargo.toml ] && { echo 'cargo test';     return; }
   { [ -f pyproject.toml ] || [ -f setup.py ]; } && { echo 'pytest'; return; }
   [ -f meson.build ] && { echo 'meson test';    return; }
-  # C / C++ via CMake. Test invocation is build-config dependent — this configures
-  # + builds + runs ctest in one go. Non-trivial C projects should commit
-  # scripts/test (path 2) so the real flags/presets/build-dir are authoritative.
+  # C/CMake — configure + build + ctest; non-trivial C projects should
+  # declare their real invocation (flags/presets/build-dir) in AGENTS.md.
   [ -f CMakeLists.txt ] && {
     echo 'cmake -B build -S . && cmake --build build && ctest --test-dir build --output-on-failure'
     return
   }
-
   echo ""
 }
 
-# dw_detect_build_command → echoes the build command, or "" if nothing
-#   detected (compilation is already covered when the test command builds
-#   too — cargo test, go test, the CMake line above — so "" is a fine answer).
-#   Same precedence as dw_detect_test_command. Run from the project root.
+# dw_detect_build_command → command | "none" | "".
+#   "" is a fine answer when the test command already builds (cargo/go/zig/
+#   the CMake line); "none" is the project saying so explicitly.
 dw_detect_build_command() {
-  # 1) explicit override
   [ -n "${CI_BUILD_COMMAND:-}" ] && { echo "$CI_BUILD_COMMAND"; return; }
-
-  # 2) committed, project-owned runner
-  local r
-  for r in scripts/build scripts/build.sh bin/build; do
-    [ -f "$r" ] && { echo "./$r"; return; }
-  done
-  if [ -f Makefile ] && grep -qE '^build:' Makefile 2>/dev/null; then
-    echo 'make build'; return
-  fi
-
-  # 3) zero-config heuristics — only where build ≠ what `test` already does
+  local d; d=$(_dw_declared Build); [ -n "$d" ] && { echo "$d"; return; }
   if [ -f package.json ]; then
     local b; b=$(jq -r '.scripts.build // empty' package.json 2>/dev/null)
     case "$b" in ''|'echo "Error:'*) ;; *) echo 'npm run build'; return ;; esac
   fi
   [ -f go.mod ]     && { echo 'go build ./...'; return; }  # go test skips main-link errors
   [ -f build.zig ]  && { echo 'zig build';       return; }
-
   echo ""
 }
 
-# dw_detect_lint_command → echoes the lint command, or "" if nothing
-#   detected. Same precedence as dw_detect_test_command. Deliberately
-#   conservative (config-gated): a false "green" lint is worse than no lint —
-#   undetected is reported as skipped by dw_preflight, which prompts a
-#   by-hand run. Run from the project root.
+# dw_detect_lint_command → command | "none" | "".
+#   Deliberately conservative (config-gated): a false "green" lint is worse
+#   than no lint. Projects linting via a build chain or custom runner
+#   declare `none` (with the chain noted) or their real command.
 dw_detect_lint_command() {
-  # 1) explicit override
   [ -n "${CI_LINT_COMMAND:-}" ] && { echo "$CI_LINT_COMMAND"; return; }
-
-  # 2) committed, project-owned runner
-  local r
-  for r in scripts/lint scripts/lint.sh; do
-    [ -f "$r" ] && { echo "./$r"; return; }
-  done
-  if [ -f Makefile ] && grep -qE '^lint:' Makefile 2>/dev/null; then
-    echo 'make lint'; return
-  fi
-
-  # 3) zero-config heuristics — gated on config files / installed tooling so
-  #    we never invent a lint that isn't the project's own
+  local d; d=$(_dw_declared Lint); [ -n "$d" ] && { echo "$d"; return; }
   if [ -f package.json ]; then
     local l; l=$(jq -r '.scripts.lint // empty' package.json 2>/dev/null)
     case "$l" in ''|'echo "Error:'*) ;; *) echo 'npm run lint'; return ;; esac
@@ -134,14 +102,12 @@ dw_detect_lint_command() {
     fi
     echo 'go vet ./...'; return   # stdlib, always available with Go
   fi
-  # NB: NO zig lint heuristic — bare `zig fmt --check .` walks every .zig file
-  # including generated/vendored ones the project's own fmt gate deliberately
-  # scopes out (rhexadox: vulkan/shaders.zig vs `zig fmt --check src build.zig`);
-  # zig projects lint via their build chain (ci:build-test) or a scripts/lint.
+  # NB: NO zig lint heuristic — fmt scope is project-specific (generated/
+  # vendored files are often deliberately outside it) and usually part of the
+  # build chain; zig projects declare their lint (or `none` + the chain).
   if { [ -f ruff.toml ] || [ -f .ruff.toml ] || grep -q '^\[tool\.ruff' pyproject.toml 2>/dev/null; } \
     && command -v ruff >/dev/null 2>&1; then
     echo 'ruff check .'; return
   fi
-
   echo ""
 }

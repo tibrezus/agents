@@ -27,7 +27,7 @@ Before adding **any** CI logic — test, job, step, tool — run the
 
 1. **Enumerate the entire CI surface** — every native CI file
    (`.github/workflows/`, `.forgejo/`, `.gitea/`, `.gitlab-ci.yml`) plus
-   everything CI invokes: Makefile targets, `scripts/test`, composite
+   everything CI invokes: Makefile targets, committed runners, composite
    actions, reusable workflows. A purpose often lives outside the YAML —
    a `tidy` Makefile target *is* a dependency-drift check once CI calls it.
 2. **Reduce every existing check to its purpose** — the defect class it
@@ -59,31 +59,34 @@ is not a duplicate) so the reviewer can falsify it.
 
 ## How the test command is resolved
 
-Project-owned, not skill-owned. `dw_preflight`'s steps (and the
-`Test command:` / `Lint command:` / `Build command:` entries `adopt`
-suggests) resolve, highest first:
+Project-owned, not skill-owned — and the skill **never prescribes where
+commands live**. Projects declare; the skill reads. `dw_preflight`'s steps
+(and the `Test command:` / `Lint command:` / `Build command:` entries in
+AGENTS.md) resolve, highest first:
 
 1. **`CI_TEST_COMMAND` / `CI_LINT_COMMAND` / `CI_BUILD_COMMAND` env vars** —
    explicit session overrides.
-2. **A committed runner in the repo** (language-agnostic, **preferred**) —
-   `scripts/test|lint|build` (executable), or a Makefile target of the
-   same name. **What scales across projects:** the project commits its
-   real command with real flags; the skill never needs editing.
-3. **Language heuristics** (zero-config fallback) — `package.json`→
-   `npm test`/`npm run lint`/`npm run build` (scripts must exist),
-   `go.mod`→`go test`/`go vet`/`go build`, `build.zig`→`zig build test`/
-   `zig fmt --check`/`zig build`, `Cargo.toml`→`cargo test`,
-   `pyproject.toml`/`setup.py`→`pytest` (ruff when configured),
-   `meson.build`→`meson test`, `CMakeLists.txt`→ configure→build→`ctest`.
-   Lint/build heuristics are deliberately conservative (config-gated):
-   a missed command is reported as *skipped* by `dw_preflight`; a wrong
-   one green-lights broken code.
+2. **The project's declaration in AGENTS.md** — the project-owned channel:
+   `Test command: \`<anything>\`` (`make test`, `just check`, `pnpm test`,
+   a runner binary — the project's own convention, whatever it is).
+   `none` = deliberately absent (sanctioned skip). **Adopt preserves
+   declared values across re-adopts** and only seeds absent ones; editing
+   the line is the sanctioned way to declare, never doctrine-breaking.
+3. **Language-standard observation** (zero-config convenience ONLY — reads
+   what the project already declares in its own standard files):
+   `package.json`→`npm test`/`npm run lint`/`npm run build` (scripts must
+   exist), `go.mod`→`go test`/`go vet`/`go build`, `build.zig`→`zig build
+   test`/`zig build`, `Cargo.toml`→`cargo test`, `pyproject.toml`/
+   `setup.py`→`pytest` (ruff when configured), `meson.build`→`meson test`,
+   `CMakeLists.txt`→ configure→build→`ctest`. Lint/build observation is
+   deliberately conservative (config-gated): a missed command is reported
+   as *skipped* by `dw_preflight`; a wrong one green-lights broken code.
 
-The heuristic list is deliberately short. **C/C++/CMake are
-build-config dependent** (build dir, presets, toolchain) — commit
-`scripts/test` with the real invocation. Same for monorepos,
-containerised suites, bespoke harnesses. New stack ⇒ commit a runner (2)
-or set `CI_TEST_COMMAND` (1), never edit the skill.
+The observation list is deliberately short. **C/C++/CMake are
+build-config dependent** (build dir, presets, toolchain) — declare the
+real invocation in AGENTS.md. Same for monorepos, containerised suites,
+bespoke harnesses, `just`files, runner binaries. New convention ⇒ declare
+(2) or override (1), never edit the skill, never move your scripts.
 
 ## When setting up or updating CI
 

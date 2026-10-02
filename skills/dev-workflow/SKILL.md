@@ -69,7 +69,7 @@ independently falsifiable. (Numbers are stable identifiers —
 10. **Fast CI green on every push** — lint/build/unit/targeted tests; red
     fixed on the branch. Silence is not green: "no checks" is a rebase
     signal (procedure step 8). Fast CI **confirms** the local mirror — a
-    red fast check a laptop could have caught is wasted CI budget.
+    laptop-catchable red there is wasted CI budget.
 11. **Full pipeline green on the head SHA** — at ready declaration: rebase
     onto default, then `dw_trigger_full_pipeline` (the helper **refuses
     unrebased heads** — first trigger and re-triggers alike; the full
@@ -151,8 +151,8 @@ rule's depth lives in its reference page:
   on a clean runner to catch environment drift, not to discover basic
   breakage. Depth: [`test-policy.md`](references/test-policy.md).
 - **CI instrumentation evolves with the project — there is no throwaway
-  test.** Run the project's own runner locally (`make test`, `npm test`,
-  `scripts/test`) and wire every new test or tool into CI; before creating
+  test.** Run the project's declared runner locally (the AGENTS.md command)
+  and wire every new test or tool into CI; before creating
   a component (tool, CI job, wiki page), check that an equivalent doesn't
   already exist and extend it. A throwaway script leaves CI frozen while
   the code moves on — it looks like coverage but protects nothing.

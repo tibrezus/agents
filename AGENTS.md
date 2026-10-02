@@ -103,16 +103,19 @@ skill's `references/ci-wiring.md` + `test-policy.md`.
   branch name so the branch and issue stay linked.
 - **Milestone convention:** `current`
 - **CI watch:** `gh pr checks <PR> --watch  (then verify green)`
-- **Test command:** `./scripts/test` — the suite CI runs; verify locally with
-  the same command before pushing. This is a best-effort *suggestion*; if wrong,
-  commit `scripts/test` (preferred) or set `CI_TEST_COMMAND` rather than
-  hand-editing — see the skill's `references/ci-wiring.md`.
-- **Lint command:** `(none detected — commit scripts/lint or set CI_LINT_COMMAND if the project lints)` — part of the local mirror
-  (`dw_preflight`). Best-effort suggestion; if wrong, commit `scripts/lint`
-  or set `CI_LINT_COMMAND`.
-- **Build command:** `(none detected — commit scripts/build or set CI_BUILD_COMMAND if separate from test)` — part of the local mirror
-  (`dw_preflight`). Best-effort suggestion; if wrong, commit `scripts/build`
-  or set `CI_BUILD_COMMAND`.
+- **Test command:** `cd scripts && npm ci --silent && npm run validate-skills && npm test` — the project-declared local mirror
+  command. This line IS the declaration (project data, not skill doctrine —
+  the skill never prescribes where your runner lives): edit it freely to the
+  project's own convention (`make test`, `just check`, `pnpm test`, a runner
+  binary — anything). `none` = deliberately no local suite (CI-only by
+  design; surface gaps on the issue, never invent one).
+- **Lint command:** `none` — same contract; part of the local
+  mirror. `none` when lint lives inside the test chain (note the chain).
+- **Build command:** `none` — same contract; part of the local
+  mirror. `none` when the test command already builds.
+  Session override for all three: `CI_TEST_COMMAND` / `CI_LINT_COMMAND` /
+  `CI_BUILD_COMMAND` env vars. Adopt preserves declared values across
+  re-adopts and only seeds absent ones.
 - **Coupling policy:** `strict` — one of `strict` (default) /
   `documented-exceptions` / `legacy`; see the skill's `references/coupling.md`.
 - **Safety level:** `none` — one of `none` (default) / `mcdc`.
