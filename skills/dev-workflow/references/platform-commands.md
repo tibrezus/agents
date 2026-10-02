@@ -6,6 +6,15 @@ helper doesn't fit.
 
 ## Platform detection
 
+git remote URL → platform (`github` / `codeberg` / `gitlab` / `forgejo`).
+All three hosts are natively dispatched: `gh` (GitHub), `fj` + REST (Forgejo/
+Codeberg), `glab api` (GitLab — self-authenticating; `GITLAB_TOKEN` only for
+raw curl paths). GitLab **subgroups are part of the project path** —
+`dw_owner_repo` keeps the full namespace (`rezusnet/operations/k8s-config`);
+`glab api` project ids are the URL-encoded full path (`_dw_gl_project`).
+Multi-line bodies via `glab api --input <file>` + `Content-Type:
+application/json` (`-f` mangles them — verified live).
+
 `dw_detect_platform()` reads `git remote get-url origin`: `github.com` →
 `github`/`gh`; `codeberg.org` → `codeberg`/`fj`+REST; anything else →
 `forgejo`/`fj`+REST. Codeberg runs Forgejo, so only host and token env
