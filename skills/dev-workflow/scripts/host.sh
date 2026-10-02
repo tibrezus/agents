@@ -25,9 +25,13 @@ dw_detect_platform() {
   case "$url" in
     *github.com*)    echo github ;;
     *codeberg.org*)  echo codeberg ;;
+    *gitlab.com*)    echo gitlab ;;
     *)               echo forgejo ;;
   esac
 }
+
+# URL-encoded project path for glab api calls (owner%2Frepo)
+_dw_gl_project() { printf '%s' "$(dw_owner_repo)" | jq -sRr @uri; }
 
 # API host (REST base, without scheme/path)
 dw_host() {
@@ -36,17 +40,26 @@ dw_host() {
   platform=$(dw_detect_platform)
   case "$platform" in
     github)   echo "api.github.com" ;;
+    gitlab)   echo "gitlab.com" ;;
     codeberg) echo "codeberg.org" ;;
     forgejo)  # git.rezus.cloud etc. — derive host from the remote URL
       url="${url#*://}"; url="${url#*@}"; url="${url%%[:/]*}"; echo "$url" ;;
   esac
 }
 
-# owner/repo from the origin remote (handles scp-like, ssh://, https://)
+# owner/repo from the origin remote (handles scp-like, ssh://, https://).
+#   gitlab: keeps the FULL namespace — subgroups are part of the project path
+#   (rezusnet/operations/k8s-config, not operations/k8s-config); glab api and
+#   the REST v4 project id are the URL-encoded full path.
+#   github/forgejo/codeberg: owner/repo (2 segments — hosts have no subgroups).
 dw_owner_repo() {
-  git remote get-url origin 2>/dev/null \
-    | sed -E 's#\.git$##; s#(https?://|ssh://)?##; s#^[^@]*@##; s#^[^:/]+[:/]##' \
-    | sed -E 's#^(.*/)?([^/]+/[^/]+)$#\2#'
+  local url path
+  url=$(git remote get-url origin 2>/dev/null) || return 1
+  path=$(printf '%s' "$url" | sed -E 's#\.git$##; s#(https?://|ssh://)?##; s#^[^@]*@##; s#^[^:/]+[:/]##')
+  case "$(dw_detect_platform)" in
+    gitlab) printf '%s\n' "$path" ;;
+    *)       printf '%s' "$path" | sed -E 's#^(.*/)?([^/]+/[^/]+)$#\2#' ;;
+  esac
 }
 
 dw_default_branch() {
@@ -64,6 +77,7 @@ dw_token() {
   case "$(dw_detect_platform)" in
     github)   echo "${GH_TOKEN:-${GITHUB_TOKEN:-}}" ;;
     codeberg) echo "${CODEBERG_TOKEN:-${FJ_TOKEN:-}}" ;;
+    gitlab)   echo "${GITLAB_TOKEN:-}" ;;   # glab api self-authenticates; env only for raw curl paths
     forgejo)  echo "${RZC_TOKEN:-${FJ_TOKEN:-${FORGEJO_TOKEN:-}}}" ;;
   esac
 }
@@ -77,6 +91,9 @@ dw_find_issue() {
   local query="$1" platform owner_repo out
   platform=$(dw_detect_platform); owner_repo=$(dw_owner_repo)
   case "$platform" in
+    gitlab)
+      out=$(glab api "projects/$(_dw_gl_project)/issues?state=opened&search=$(printf %s "$query" | jq -sRr @uri 2>/dev/null || printf %s "$query")" \
+        2>/dev/null | jq -r '.[0].iid // empty' 2>/dev/null) ;;
     github)
       out=$(gh issue list --repo "$owner_repo" --state open --search "$query" \
         --json number -q '.[0].number' 2>/dev/null) ;;
@@ -96,6 +113,14 @@ dw_create_issue() {
   local title="$1" body="${2:-}" platform owner_repo
   platform=$(dw_detect_platform); owner_repo=$(dw_owner_repo)
   case "$platform" in
+    gitlab)
+      # glab api -f mangles multi-line bodies; --input (temp file) + explicit
+      # content-type is the reliable JSON path (verified live, k8s-config)
+      local tmp; tmp=$(mktemp)
+      jq -n --arg t "$title" --arg b "$body" '{title:$t,description:$b}' > "$tmp"
+      glab api -X POST "projects/$(_dw_gl_project)/issues" --input "$tmp" \
+        -H 'Content-Type: application/json' 2>/dev/null | jq -r '.iid // empty'
+      rm -f "$tmp" ;;
     github)
       gh issue create --repo "$owner_repo" --title "$title" --body "$body" ;;
     *)
@@ -137,6 +162,11 @@ dw_resolve_milestone() {
   local platform owner_repo
   platform=$(dw_detect_platform); owner_repo=$(dw_owner_repo)
   case "$platform" in
+    gitlab)
+      local qs="state=active&sort=due_date&direction=desc"
+      [ "$convention" != "current" ] && qs="$qs&title=$(printf %s "$convention" | jq -sRr @uri 2>/dev/null || printf %s "$convention")"
+      glab api "projects/$(_dw_gl_project)/milestones?$qs" 2>/dev/null \
+        | jq -r 'if .[0] then "\(.[0].id):\(.[0].title)" else empty end' 2>/dev/null ;;
     github)
       if [ "$convention" = "current" ]; then
         gh api "repos/$owner_repo/milestones?state=open&sort=due_on&direction=desc" \
@@ -162,6 +192,8 @@ dw_set_milestone() {
   [ -z "$mid" ] && return 0
   platform=$(dw_detect_platform); owner_repo=$(dw_owner_repo)
   case "$platform" in
+    gitlab)
+      glab api -X PUT "projects/$(_dw_gl_project)/issues/$issue?milestone_id=$mid" >/dev/null 2>&1 || true ;;
     github)
       gh issue edit "$issue" --repo "$owner_repo" --milestone \
         "$(gh api "repos/$owner_repo/milestones" --jq ".[] | select(.number==$mid) | .title")" ;;
@@ -184,6 +216,10 @@ dw_open_pr() {
     github)
       gh pr create --repo "$owner_repo" --base "$base" --head "$head" \
         --title "$title" --body "$body" ;;
+    gitlab)
+      glab mr create --repo "$owner_repo" --source-branch "$head" --target-branch "$base" \
+        --title "$title" --description "$body" 2>/dev/null \
+        | grep -oE 'https://[^ ]+/merge_requests/[0-9]+' | head -1 ;;
     *)
       local host token
       host=$(dw_host); token=$(dw_token)
@@ -201,6 +237,9 @@ dw_pr_number_from_branch() {
   case "$platform" in
     github)
       gh pr list --repo "$owner_repo" --head "$branch" --state open --json number -q '.[0].number' 2>/dev/null ;;
+    gitlab)
+      glab api "projects/$(_dw_gl_project)/merge_requests?source_branch=$(printf %s "$branch" | jq -sRr @uri)&state=opened" \
+        2>/dev/null | jq -r '.[0].iid // empty' 2>/dev/null ;;
     *)
       local host token
       host=$(dw_host); token=$(dw_token)
@@ -263,6 +302,7 @@ dw_request_review() {
     github)
       gh label create "$label" --repo "$owner_repo" --color fbca04 \
         --description "request the adversarial review (declare ready)" >/dev/null 2>&1 || true ;;
+    gitlab) : ;;  # quick-labels: no pre-creation needed (PUT add_label creates it)
     *)
       local rhost rtoken exists
       rhost=$(dw_host); rtoken=$(dw_token)
@@ -277,6 +317,9 @@ dw_request_review() {
     github)
       gh issue edit "$pr" --repo "$owner_repo" --add-label "$label" 2>/dev/null \
         || gh api "repos/$owner_repo/issues/$pr/labels" -f "labels[]=$label" >/dev/null 2>&1 ;;
+    gitlab)
+      glab api -X PUT "projects/$(_dw_gl_project)/merge_requests/$pr?add_label=$(printf %s "$label" | jq -sRr @uri)" >/dev/null \
+        || dw_die "failed to set '$label' on MR !$pr" ;;
     *)
       local host token
       host=$(dw_host); token=$(dw_token)
@@ -354,6 +397,19 @@ dw_watch_ci() {
   local ref="$1" platform owner_repo pr
   platform=$(dw_detect_platform); owner_repo=$(dw_owner_repo)
   case "$platform" in
+    gitlab)
+      local glpr glst
+      glpr=$(dw_pr_number_from_branch "$ref"); [ -z "$glpr" ] && glpr="$ref"
+      echo "dev-workflow: polling pipeline on $owner_repo MR !$glpr (gitlab)…" >&2
+      for _ in $(seq 1 120); do
+        glst=$(glab api "projects/$(_dw_gl_project)/merge_requests/$glpr" 2>/dev/null | jq -r '.head_pipeline.status // empty')
+        case "$glst" in
+          success|skipped) return 0 ;;
+          failed|canceled) echo "dev-workflow: MR pipeline $glst" >&2; return 1 ;;
+          *) sleep 15 ;;
+        esac
+      done
+      echo "dev-workflow: pipeline poll timed out after 30m" >&2; return 1 ;;
     github)
       # ref may be a PR number or a branch; resolve to a PR for pr checks
       pr=$(gh pr list --repo "$owner_repo" --head "$ref" --state open --json number -q '.[0].number' 2>/dev/null)
@@ -433,6 +489,7 @@ dw_pr_head() {
   platform=$(dw_detect_platform); owner_repo=$(dw_owner_repo)
   case "$platform" in
     github) gh pr view "$pr" --repo "$owner_repo" --json headRefOid -q .headRefOid 2>/dev/null ;;
+    gitlab) glab api "projects/$(_dw_gl_project)/merge_requests/$pr" 2>/dev/null | jq -r '.sha // empty' ;;
     *) local host token; host=$(dw_host); token=$(dw_token)
        curl -fsSL -H "Authorization: token $token" \
          "https://$host/api/v1/repos/$owner_repo/pulls/$pr" 2>/dev/null | jq -r '.head.sha' ;;
@@ -508,6 +565,11 @@ dw_trigger_full_pipeline() {
   local platform owner_repo
   platform=$(dw_detect_platform); owner_repo=$(dw_owner_repo)
   case "$platform" in
+    gitlab)
+      # quick-labels: remove (fresh event) then add
+      glab api -X PUT "projects/$(_dw_gl_project)/merge_requests/$pr?remove_label=$(printf %s "$label" | jq -sRr @uri)" >/dev/null 2>&1 || true
+      glab api -X PUT "projects/$(_dw_gl_project)/merge_requests/$pr?add_label=$(printf %s "$label" | jq -sRr @uri)" >/dev/null \
+        || dw_die "failed to set '$label' on MR #$pr" ;;
     github)
       gh label create "$label" --repo "$owner_repo" --color 0ea5e9 \
         --description "run the full pipeline on the current head (declare ready)" >/dev/null 2>&1 || true
@@ -554,6 +616,9 @@ dw_full_green() {
       github)
         gh pr checks "$(dw_pr_number_from_branch "$(git branch --show-current)")" \
           --repo "$owner_repo" --json state -q 'length>0 and all(.[]; .state == "SUCCESS")' 2>/dev/null | grep -q true ;;
+      gitlab)
+        local glmr; glmr=$(dw_pr_number_from_branch "$(git branch --show-current)")
+        [ -n "$glmr" ] && [ "$(glab api "projects/$(_dw_gl_project)/merge_requests/$glmr" 2>/dev/null | jq -r '.head_pipeline.status // empty')" = success ] ;;
       *) local host token; host=$(dw_host); token=$(dw_token)
          [ "$(curl -fsSL -H "Authorization: token $token" \
              "https://$host/api/v1/repos/$owner_repo/commits/$sha/status" 2>/dev/null \
@@ -568,6 +633,12 @@ dw_full_green() {
         gh api "repos/$owner_repo/actions/runs?head_sha=$sha" --paginate \
           --jq "[.workflow_runs[] | select((.path | endswith(\"$wf\")) or (.name==\"$wf\"))][0].conclusion" 2>/dev/null \
           | grep -q '^success$' || return 1 ;;
+      gitlab)
+        # gitlab: pipeline-name matching via the MR head pipeline — declare
+        # full-pipeline workflow names in DW_FULL_PIPELINE / AGENTS.md; a
+        # simple success of the head pipeline covers the single-pipeline case
+        local glmr; glmr=$(dw_pr_number_from_branch "$(git branch --show-current)")
+        [ -n "$glmr" ] && [ "$(glab api "projects/$(_dw_gl_project)/merge_requests/$glmr" 2>/dev/null | jq -r '.head_pipeline.status // empty')" = success ] || return 1 ;;
       *)
         local host token; host=$(dw_host); token=$(dw_token)
         # NOTE: Forgejo run records expose the workflow FILE id
@@ -576,7 +647,14 @@ dw_full_green() {
         curl -fsSL -H "Authorization: token $token" \
           "https://$host/api/v1/repos/$owner_repo/actions/runs?limit=100" 2>/dev/null \
           | jq -e --arg sha "$sha" --arg wf "$wf" --arg wfy "$wf.yml" \
-              '[.workflow_runs[] | select(.commit_sha==$sha and (.workflow_id==$wf or .workflow_id==$wfy))][0].status=="success"' >/dev/null || return 1 ;;
+              '[.workflow_runs[] | select(.commit_sha==$sha and (.workflow_id==$wf or .workflow_id==$wfy))][0].status=="success"' >/dev/null || return 1
+      # hardening (live, rhesadox #2535): the RUN can be green while branch
+      # protection evaluates commit STATUSES — fail on explicit failure/error
+      # rows (real reds); pending rows are tolerated (instance status-lag)
+      local srows; srows=$(curl -fsSL -H "Authorization: token $token" \
+        "https://$host/api/v1/repos/$owner_repo/commits/$sha/status" 2>/dev/null \
+        | jq -r '[.statuses[]? | select(.state=="failure" or .state=="error")] | length' 2>/dev/null)
+      [ "${srows:-0}" = "0" ] || return 1 ;;
     esac
   done
 }
@@ -717,6 +795,7 @@ dw_merge_readiness() {
   local labels=""
   case "$platform" in
     github) labels=$(gh api "repos/$owner_repo/issues/$pr/labels" --jq '.[].name' 2>/dev/null) ;;
+    gitlab) labels=$(glab api "projects/$(_dw_gl_project)/merge_requests/$pr" 2>/dev/null | jq -r '.labels[]? // empty') ;;
     *) local lhost ltoken; lhost=$(dw_host); ltoken=$(dw_token)
        labels=$(curl -fsSL -H "Authorization: token $ltoken" \
          "https://$lhost/api/v1/repos/$owner_repo/issues/$pr/labels" 2>/dev/null | jq -r '.[].name // empty') ;;
@@ -726,6 +805,7 @@ dw_merge_readiness() {
   if [ "$armed" = 1 ]; then
     case "$platform" in
       github) bodies=$(gh api "repos/$owner_repo/issues/$pr/comments" --jq '.[].body' 2>/dev/null) ;;
+      gitlab) bodies=$(glab api "projects/$(_dw_gl_project)/merge_requests/$pr/notes?per_page=100" 2>/dev/null | jq -r '.[].body // empty') ;;
       *) local host token; host=$(dw_host); token=$(dw_token)
          bodies=$(curl -fsSL -H "Authorization: token $token" \
            "https://$host/api/v1/repos/$owner_repo/issues/$pr/comments" 2>/dev/null | jq -r '.[].body // empty') ;;

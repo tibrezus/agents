@@ -10,8 +10,9 @@ skill directory.
 bash scripts/adopt.sh [repo-path]   # default: current directory
 ```
 
-Auto-detects platform, default branch, CI-watch command, and test command.
-It wraps the section in `<!-- BEGIN dev-workflow -->` / `<!-- END
+Auto-detects platform, default branch, CI-watch command, and the fast-tier
+commands (declaration-preserving — see below). It wraps the section in
+`<!-- BEGIN dev-workflow -->` / `<!-- END
 dev-workflow -->` markers, so re-running `adopt` **replaces** it
 (idempotent — this is how "change the workflow to the one in the skill"
 propagates). It converts a legacy unmarked `## Development Workflow` header
@@ -20,7 +21,17 @@ injects the gate chain + CI-discipline mandates + a pointer to this skill +
 a **Project configuration** block (see
 [`templates/agents-workflow-section.md`](../templates/agents-workflow-section.md)
 for the exact content — edit there, then re-`adopt`). Never hand-edit the
-marker block; change the template and re-adopt.
+marker block; change the template and re-adopt. **Declared values**
+(Test/Lint/Build command, Platform, Full pipeline) are project data:
+adopt preserves them across re-adopts and only seeds absent lines.
+
+**Fleet propagation boundary.** Re-running `adopt` across many repos is a
+fleet sweep — it touches every repo's AGENTS.md and consumes each repo's
+CI/review capacity. Boundary: adopt touches repos **the user names**; when
+a repo shows concurrent-agent activity (shared worktrees, other open PRs,
+busy GPU queues), **ask first** — hot repos burn capacity on docs-only
+changes and compete with real work. Skill updates propagate on the repo's
+next natural adopt, not on a sweep.
 
 ## `review` — request the adversarial review (gate 12)
 
