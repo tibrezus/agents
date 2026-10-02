@@ -8,8 +8,9 @@ owns *what counts as covered* and *where tests run*.
 > contributor's laptop is not CI.
 
 > CI instrumentation is cumulative. The local test command and the CI
-> command are the same thing: run the project's own runner (`make test`,
-> `npm test`, `scripts/test`) locally, never a throwaway script.
+> command are the same thing: run the project's own declared runner
+> (`make test`, `npm test`, `just check` — whatever the project's
+> convention is) locally, never a throwaway script.
 > Consolidation is the default: before creating any component — tool, CI
 > job, wiki page — check that an equivalent doesn't already exist
 > (`scripts/`, `tools/`, `bench/`) and extend it. A one-off script

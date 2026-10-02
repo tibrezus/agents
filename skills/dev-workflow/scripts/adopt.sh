@@ -30,6 +30,9 @@ git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "adopt: not a git 
 
 # ── detect project metadata ────────────────────────────────────────────────
 platform() {
+  # declared value survives re-adopts (e.g. a hand-corrected `gitlab`);
+  # detection seeds only when absent
+  local v; v=$(_dw_cfg_declared Platform); [ -n "$v" ] && { echo "$v"; return; }
   local url
   # NB: the || fallback must land IN the variable, not on stdout — a bare
   # `url=$(...) || echo x` emits two lines ("x\nforgejo") and corrupts the
@@ -38,6 +41,7 @@ platform() {
   case "$url" in
     *github.com*)   echo github ;;
     *codeberg.org*) echo codeberg ;;
+    *gitlab.com*)   echo gitlab ;;
     *)              echo forgejo ;;
   esac
 }
@@ -58,21 +62,35 @@ ci_watch() {
   esac
 }
 
-# Best-effort detection of the project's fast-tier commands (CI must run the
-# same). Delegates to the shared detectors so precedence + the language/runner
-# lists live in one place (detect-test-command.sh). Never returns empty so the
-# template always has a value to show; the human confirms or overrides it.
+# Project-declared values are DATA and survive re-adopts: adopt preserves
+# an existing declaration and only seeds when the line is absent (or holds
+# placeholder junk from an older adopt). The skill never overwrites a
+# project's own decision — decoupling, not doctrine.
+_dw_cfg_declared() { # $1 = Test|Lint|Build|Platform — declared value or ""
+  [ -f AGENTS.md ] || return 0
+  local v
+  v=$(sed -n "s/^- \*\*${1} command:\*\* \`\([^\`]*\)\`.*/\1/p" AGENTS.md | head -1)
+  [ -z "$v" ] && v=$(sed -n "s/^- \*\*${1}:\*\* \`\([^\`]*\)\`.*/\1/p" AGENTS.md | head -1)
+  case "$v" in ""|\(*) return 0 ;; esac
+  printf '%s\n' "$v"
+}
+
+# Best-effort SEEDS for absent declarations (language-standard observation
+# only — delegated to the shared detector so the list lives in one place).
 test_command() {
+  local v; v=$(_dw_cfg_declared Test); [ -n "$v" ] && { echo "$v"; return; }
   local cmd; cmd=$(dw_detect_test_command)
-  echo "${cmd:-(project-specific — commit scripts/test or set CI_TEST_COMMAND)}"
+  echo "${cmd:-(declare the test command here, or none if CI-only by design)}"
 }
 lint_command() {
+  local v; v=$(_dw_cfg_declared Lint); [ -n "$v" ] && { echo "$v"; return; }
   local cmd; cmd=$(dw_detect_lint_command)
-  echo "${cmd:-(none detected — commit scripts/lint or set CI_LINT_COMMAND if the project lints)}"
+  echo "${cmd:-(declare the lint command here, or none if lint lives in the test chain)}"
 }
 build_command() {
+  local v; v=$(_dw_cfg_declared Build); [ -n "$v" ] && { echo "$v"; return; }
   local cmd; cmd=$(dw_detect_build_command)
-  echo "${cmd:-(none detected — commit scripts/build or set CI_BUILD_COMMAND if separate from test)}"
+  echo "${cmd:-(declare the build command here, or none if the test command builds)}"
 }
 
 # Full-pipeline workflow(s) for the merge-gated tier. Precedence mirrors

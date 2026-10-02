@@ -615,10 +615,15 @@ dw_build_command() { dw_detect_build_command; }
 dw_lint_command()  { dw_detect_lint_command; }
 
 # dw_run_tests  → run the project's tests locally; exit code is the suite's.
-#   Dies with guidance if no command can be determined.
+#   `none` (declared absent) is a sanctioned skip — note + exit 0.
+#   Dies with guidance if nothing can be resolved.
 dw_run_tests() {
   local cmd; cmd=$(dw_test_command)
-  [ -n "$cmd" ] || dw_die "no test command detected — commit scripts/test, set CI_TEST_COMMAND, or add a 'Test command' in the project's AGENTS.md (see references/ci-wiring.md)"
+  if [ "$cmd" = "none" ]; then
+    echo "dev-workflow: no local test suite declared (AGENTS.md: none) — CI-only by project decision" >&2
+    return 0
+  fi
+  [ -n "$cmd" ] || dw_die "no test command resolved — declare it in AGENTS.md ('Test command: \`…\`') or set CI_TEST_COMMAND; the skill never prescribes where your runner lives"
   echo "dev-workflow: running tests: $cmd" >&2
   sh -c "$cmd"
 }
@@ -637,14 +642,24 @@ dw_run_tests() {
 dw_preflight() {
   local fail=0 name cmd step
   local tests; tests=$(dw_test_command)
-  [ -n "$tests" ] || { echo "dev-workflow: preflight test: no test command detected — commit scripts/test, set CI_TEST_COMMAND, or fix AGENTS.md (references/ci-wiring.md)" >&2; fail=1; }
+  if [ "$tests" = "none" ]; then
+    :
+  elif [ -z "$tests" ]; then
+    echo "dev-workflow: preflight test: no test command resolved — declare it in AGENTS.md ('Test command: \`…\`') or set CI_TEST_COMMAND" >&2; fail=1
+  fi
   local steps=("lint:$(dw_lint_command)" "build:$(dw_build_command)" "test:$tests")
   for step in "${steps[@]}"; do
     name="${step%%:*}"; cmd="${step#*:}"
-    if [ -z "$cmd" ]; then
-      # the mandatory test step already reported its guidance above — only
-      # optional steps announce themselves as skipped
-      [ "$name" = test ] || echo "dev-workflow: preflight $name: not detected — skipped (run it by hand before pushing if the project has one)" >&2
+    if [ -z "$cmd" ] || [ "$cmd" = "none" ]; then
+      # the mandatory test step already reported its guidance above — optional
+      # steps announce themselves as skipped
+      [ "$name" = test ] || {
+        if [ "$cmd" = "none" ]; then
+          echo "dev-workflow: preflight $name: declared none — skipped (by project declaration)" >&2
+        else
+          echo "dev-workflow: preflight $name: not resolved — skipped (declare it in AGENTS.md if the project has one)" >&2
+        fi
+      }
       continue
     fi
     echo "dev-workflow: preflight $name: $cmd" >&2

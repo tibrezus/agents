@@ -290,16 +290,16 @@ dispatches. Determinism is the point: re-arm at an unchanged head must
 NEVER produce a different verdict — that non-determinism is exactly what
 made re-arm-as-retry rational for the dev.
 
-**Author side (dev agent).** The dev's half of this protocol — the
-all-rounds reconciliation sweep (r40, #2360), on-thread replies carrying
-fix SHAs, the Forgejo close-out order, transport registration (r17,
-#2359), and re-arm mechanics (#567 standing verdicts, #488
-request-as-signal, #579 post-review downgrade) — is owned by dev-workflow:
-[`dev-workflow/references/review-threads.md`](dev-workflow/references/review-threads.md).
-Load it when acting as the author; the reviewer verifies against the same
-contract. Reviewer-side, the sweep rule mirrors it: enumerate every
-review's unresolved threads — all rounds — verify against the diff, close
-valid fixes on that same thread, never mint duplicates.
+**Author side (dev agent) — self-contained statement.** The dev answers
+EVERY open thread — findings AND TODOs, all rounds — on that same anchored
+comment (reply mechanism, never a new one), carrying fix SHA + rationale,
+and resolves natively; the reviewer closes threads it did not author after
+verifying the diff. Before concluding an author is ignoring you, verify
+thread state yourself: resolved markers and `in_reply_to` are the only
+registration — a wrong transport still returns HTTP 201 ("replied wrongly"
+≡ "replied and was heard", from your side). The dev-side protocol is owned
+by the dev's workflow skill wherever it lives; this skill judges only the
+thread state itself.
 
 ## Output contract — threads are the review; the comment is one line
 
@@ -364,8 +364,9 @@ clean" vs "N blocking"), not by an N/A essay.
 
 - **`dev-workflow`** — owns the gate chain; this skill **is gate 12**.
   Pillar→gate map: Coupling → Gate 7, Design Intent → Gate 1, CI Economy →
-  the CI-discipline purpose audit ([`ci-wiring.md`](dev-workflow/references/ci-wiring.md) purpose audit). The verdict
-  trailer is what `dw_merge_readiness` consumes as merge currency.
+  the caller's ci-wiring purpose audit. The verdict trailer is what
+  `dw_merge_readiness` consumes as merge currency. No file links into
+  dev-workflow — inter-skill dependencies stay one-way, never mutual.
 - **`llm-wiki`** — consulted for Design Intent: RIG/C4 are the
   deterministic architecture graph; wiki pages are the reasoning.
 

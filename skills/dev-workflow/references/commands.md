@@ -66,11 +66,13 @@ green. Run it before **every** push (first push and re-pushes alike): fast
 CI on the forge re-runs exactly these, and finding them red there is
 wasted CI budget. Tests are mandatory (undetectable → red, with guidance);
 lint and build are best-effort — a step reported *not detected* is run by
-hand if the project has one. Command detection precedence for all three:
-`CI_LINT_COMMAND` / `CI_BUILD_COMMAND` / `CI_TEST_COMMAND` env → committed
-runner (`scripts/lint|build|test`, Makefile target) → language heuristic
-(`scripts/detect-test-command.sh`, config-gated and deliberately
-conservative for lint/build). Checks that cannot run locally
+hand if the project has one. Command resolution for all three (the skill
+never prescribes where commands live — projects declare, the skill reads):
+`CI_LINT_COMMAND` / `CI_BUILD_COMMAND` / `CI_TEST_COMMAND` env → the
+AGENTS.md declaration (`none` = deliberately absent, sanctioned skip) →
+language-standard observation (`scripts/detect-test-command.sh`, reads
+only what the project's own standard files declare). Checks that cannot
+run locally
 (external-service integration, GPU/infra matrices, runner-class
 benchmarks) are the legitimate CI-only set — depth:
 [`test-policy.md`](test-policy.md).
