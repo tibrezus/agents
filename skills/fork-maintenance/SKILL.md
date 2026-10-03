@@ -52,7 +52,7 @@ Fork maintenance is a **mapping table**: rows map `theirs → ours`
 edit, delete. The registry defs in `forks/` state the table; transports
 execute it. **forgejo** is self-hosted (`.github/workflows/sync.yml`
 walks the table daily; the engine politely declines mapping defs);
-**dapr / signoz / llama-cpp** use the plugin transport (phase mode below).
+**dapr / signoz** use the plugin transport (phase mode below).
 
 ## Version identity (upstream-identity versioning)
 
