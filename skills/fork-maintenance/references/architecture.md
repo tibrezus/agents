@@ -43,7 +43,7 @@ clone inside the job.
 
 | Shape | Example | Merges / gate | Release |
 |-------|---------|---------------|---------|
-| **merge fork** | dapr, signoz, llama-cpp | upstream branch → release branch (immutable patches); centralized checks + signatures | plugin tags `v*-rezus.*` (opt-in auto) |
+| **merge fork** | dapr, signoz | upstream branch → release branch (immutable patches); centralized checks + signatures | plugin tags `v*-rezus.*` (opt-in auto) |
 | **subtree** (pristine) | `runner/` (forgejo monorepo) | delegate re-vendors at the new pin; byte-diff vs upstream archive | target repo's cycle (plugin reports unreleased-pending) |
 | **subtree + patches** | `charts/forgejo/` | re-vendor + re-apply the declared contract; diff must be exactly `preserve:` + signed `patches:` (contract read by plugin AND the target's CI guard) | target repo's cycle |
 | **merge into monorepo** (mapping table) | forgejo itself (codeberg `v16.0/forgejo` → `rezus/forgejo-16`) | upstream release branch → monorepo release branch; regen + repo-local validation before push (`sync-validate.sh`, regen committed) | deliberate tags only — a sync never mints a version |
@@ -155,4 +155,4 @@ branch is modified **only** by a merged PR — a broken sync cannot deploy.
 
 ## Reference implementation
 
-`k8s-config/platform/harmostes/fork-maintenance/` is the production instance (forks: forgejo, signoz, dapr, llama.cpp). It demonstrates all four cases: a Go monorepo with codegen + integration (forgejo), a Go single-module with permanent divergence (signoz — strips `ee/`), a Go single-module (dapr), and a non-Go project with no validation (llama.cpp).
+`platform/harmostes/` in k8s-config is the production instance (forks: forgejo, signoz, dapr — defs live in the HelmRelease values, ADR-0011). It demonstrates the cases: a Go monorepo with codegen + integration (forgejo), a Go single-module with permanent divergence (signoz — strips `ee/`), and a Go single-module (dapr). llama.cpp was retired from tracking (k8s-config !286, harmostes #641).
