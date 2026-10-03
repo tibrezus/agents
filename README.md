@@ -6,15 +6,21 @@ A collection of AI coding agent skills, distributed via [skills.sh](https://skil
 
 | Skill | Description |
 |-------|-------------|
+| **bitwarden** | Unlock and operate the Bitwarden vault / Secrets Manager from a non-interactive agent shell |
+| **dev-workflow** | Branch-based development: issue → branch → green CI → merged PR, with local-first preflight |
 | **diagnose** | Disciplined debugging loop: reproduce → minimise → hypothesise → instrument → fix → regression-test |
 | **diataxis-docs** | Diátaxis documentation: four quadrants (tutorial/how-to/reference/explanation), scaffold, map, audit, lint via `dd` |
 | **find-skills** | Discover and install new agent skills from the community |
+| **forgejo** | Operate Forgejo instances via the REST API and the `fj` CLI — issues, PRs, releases, CI, wiki |
+| **fork-maintenance** | Keep feature-carrying forks continuously synced with upstream through safeguarded, auto-mergeable PRs |
 | **grill-me** | Stress-test plans via relentless questioning |
 | **grill-with-docs** | Grill plans against domain model, sharpen terminology, update CONTEXT.md/ADRs inline |
-| **huashu-design** | Hi-fi HTML prototypes, interactive demos, slide decks, animations, design exploration |
+| **harmostes** | Kubernetes-native workflow orchestration — deterministic ops + agentic reasoning, one supported path |
 | **impeccable** | Frontend UI/UX improvement: audit, polish, shape, critique, animate, colorize |
 | **improve-codebase-architecture** | Find deepening and refactoring opportunities in a codebase |
+| **pr-review** | Pillar-driven adversarial PR review: Architect, Adversary, Judge — deterministic proof, N/A-marked coverage |
 | **tdd** | Test-driven development with red-green-refactor loop |
+| **wiki** | LLM Wiki knowledge base — persistent, compounding agent documentation with architecture sync |
 | **zoom-out** | Get broader context and higher-level perspective on codebase sections |
 
 ## Usage
@@ -76,12 +82,11 @@ npm run list                # list bundled skills
 │   │   ├── reference/     # per-command reference docs
 │   │   ├── scripts/       # helper scripts (live preview, etc.)
 │   │   └── agents/        # provider-specific configs
-│   ├── huashu-design/
+│   ├── dev-workflow/
 │   │   ├── SKILL.md
-│   │   ├── assets/        # showcases, sfx, BGM
-│   │   ├── demos/         # interactive HTML demos
-│   │   ├── references/    # design references
-│   │   └── scripts/       # export and render scripts
+│   │   ├── references/    # procedure depth, loaded per need
+│   │   ├── scripts/       # host dispatch, adopt, detection
+│   │   └── templates/     # AGENTS.md marker block
 │   └── ...
 └── .gitignore
 ```
@@ -104,6 +109,13 @@ Instructions for the agent...
 EOF
 git add . && git commit -m "feat: add my-skill" && git push
 ```
+
+The `SKILL.md` format follows the open
+[Agent Skills specification](https://github.com/agentskills/agentskills/blob/main/docs/specification.mdx):
+a folder with a `SKILL.md` carrying `name`/`description` frontmatter plus a
+Markdown body, optionally bundled with `references/` (loaded on demand) and
+`scripts/` (executed, not loaded) — progressive disclosure keeps the
+always-in-context footprint to the description alone.
 
 ## Validating skills
 

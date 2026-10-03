@@ -1,6 +1,6 @@
 ---
 name: harmostes
-description: "Operate harmostes — a Kubernetes-native workflow orchestration platform that combines deterministic operations with agentic reasoning — and ENFORCE its single supported implementation path. Use when creating, deploying, triggering, monitoring, or removing workflows; debugging workflow failures; reviewing changes that touch workflow machinery (kernel, chart, k8s-config, docs); or any question about how harmostes works. This skill's core job is drift prevention: workflows are implemented exactly one way."
+description: "Operate harmostes — a Kubernetes-native workflow orchestration platform that combines deterministic operations with agentic reasoning — and ENFORCE its single supported implementation path. Use when creating, deploying, triggering, monitoring, or removing workflows; debugging workflow failures; reviewing changes that touch workflow machinery (kernel, chart, k8s-config, docs); or any question about how harmostes works. Core job: drift prevention — workflows are implemented exactly one way."
 ---
 
 # Harmostes — Workflow Orchestration Platform
