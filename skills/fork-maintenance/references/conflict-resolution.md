@@ -100,20 +100,33 @@ The escalation is a **label and a stop**, not a silent merge. The release branch
 
 ## Agentic integration shape
 
-For full automation, the sync emits a `needs-fix` payload the agent consumes:
+For full automation, the sync emits a `needs-fix` payload (CloudEvent `type: fork.conflict.needs-resolution`, POSTed with retries to the resolver's `/events` endpoint and always mirrored to `manifests/<fork>-needs-fix.json`) that the agent consumes:
 
 ```json
 {
   "fork": "signoz",
-  "sync_branch": "rezus/sync-2026-06-27",
+  "upstream_url": "https://github.com/SigNoz/signoz",
+  "upstream_branch": "main",
+  "upstream_range": "<base12>..<head12>",
   "conflict_files": ["pkg/authz/openfgaauthz/provider.go"],
   "patches_at_risk": [{
     "file": "...", "signature": "...", "description": "...", "status": "LOST"
   }],
-  "validation_output": "...",
-  "upstream_range": "<base>..<head>"
+  "row": {"theirs": "v16.0/forgejo", "ours": "rezus/forgejo-16"},
+  "conflict_branch": "conflict/v16.0-forgejo"
 }
 ```
+
+`row` + `conflict_branch` are the unified contract (#637): mapping-table defs
+escalate with their row context; legacy single-row defs emit empty fields and
+the resolver falls back to the def's top-level `upstream.branch` /
+`fork.default_branch` (the degenerate one-row table). The conflict branch is
+STABLE per row (no date) — the engine force-updates it daily and the resolver
+pushes its resolution onto the same branch, so the PR is one living thread
+that gets merged, never orphaned. After the resolution merges, the resolver
+closes any older open `conflict/*` PRs into the same base and, when
+`auto.release` is set, mints the release through `derive-release-version.sh`
+(exact/behind refusal — never mint blind).
 
 The agent runs the protocol above and pushes to the *same sync branch*. The existing PR re-runs validation; green → `auto-merge`. No special merge path — the agent is just another contributor whose edits must pass the gates.
 
