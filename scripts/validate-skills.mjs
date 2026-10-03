@@ -74,6 +74,14 @@ export const LINE_BUDGET_EXCEPTIONS = {
     max: 270,
     reason: "hard rules + procedure contract — phase 3 accepted at 262 (PR #40, issue #33)",
   },
+  "skills/harmostes/SKILL.md": {
+    max: 220,
+    reason: "single-path contract + ops dispatch — layering audit accepted at 220 (issue #59)",
+  },
+  "skills/wiki/SKILL.md": {
+    max: 182,
+    reason: "hierarchy contract + command dispatch table — layering audit accepted at 182 (issue #59)",
+  },
 };
 
 // ── frontmatter ───────────────────────────────────────────────────────────
