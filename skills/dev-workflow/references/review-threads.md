@@ -70,7 +70,8 @@ WRONG, the registered path is an on-thread reply with evidence — never
 re-arm-as-retry.
 
 Exact per-host call shapes: `pr-review`'s
-[`references/thread-commands.md`](../../pr-review/references/thread-commands.md).
+`references/thread-commands.md` (same skills root — sibling skill, no
+cross-skill path link so each skill stays distributable standalone).
 
 ## Re-arm is refused over a standing verdict (#567, live on rhesadox#2359)
 
