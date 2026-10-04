@@ -20,7 +20,7 @@ A collection of AI coding agent skills, distributed via [skills.sh](https://skil
 | **improve-codebase-architecture** | Find deepening and refactoring opportunities in a codebase |
 | **pr-review** | Pillar-driven adversarial PR review: Architect, Adversary, Judge — deterministic proof, N/A-marked coverage |
 | **tdd** | Test-driven development with red-green-refactor loop |
-| **wiki** | LLM Wiki knowledge base — persistent, compounding agent documentation with architecture sync |
+| **llm-wiki** | LLM Wiki knowledge base — persistent, compounding agent documentation with architecture sync |
 | **zoom-out** | Get broader context and higher-level perspective on codebase sections |
 
 ## Usage

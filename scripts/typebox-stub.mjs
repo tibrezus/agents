@@ -1,6 +1,6 @@
 // Minimal `typebox` stub for the rig-query extension tests.
 //
-// The extension (skills/wiki/extensions/rig-query.ts) imports { Type } at
+// The extension (skills/llm-wiki/extensions/rig-query.ts) imports { Type } at
 // module level — that import resolves inside pi at runtime, but the test
 // harness runs the file standalone. Instead of adding a registry dependency
 // for test-only purposes, this stub provides just the surface the extension

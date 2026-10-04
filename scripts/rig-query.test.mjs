@@ -14,7 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 
-const EXT = new URL("../skills/wiki/extensions/rig-query.ts", import.meta.url);
+const EXT = new URL("../skills/llm-wiki/extensions/rig-query.ts", import.meta.url);
 
 // ── Stubbed pi ExtensionAPI ──────────────────────────────────────────
 
