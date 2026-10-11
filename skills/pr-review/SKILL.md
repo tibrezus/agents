@@ -104,7 +104,7 @@ workspace, if one was assembled; otherwise alongside your notes):
   "reviewed_sha": "<full head SHA>",
   "findings": [
     {"path": "src/foo.zig", "line": 42, "body": "Blocking: <what> <evidence> <fix>",
-     "thread_id": "<platform thread id, once posted>"}
+     "thread_ref": "<platform thread reference, once posted>"}
   ],
   "todos": [
     {"path": "src/bar.zig", "line": 7, "body": "<what is missing> <where it belongs>"}
