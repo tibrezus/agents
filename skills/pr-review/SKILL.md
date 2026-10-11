@@ -88,11 +88,15 @@ todo downgrades the next APPROVE. Decision: any verified CRITICAL or MAJOR
 
 ## Posting protocol — threads are the review
 
-Post each verified blocking finding **immediately** as a native anchored
-thread on the PR — do not batch. Before posting, list the existing threads;
-**never post a finding that already has an open thread** — reply on that
-thread instead. Threads are append-only: a finding you later disprove is
-closed by a reply saying so, never deleted. Exact verbs per host are in
+If your environment carries a **posting credential** (a comment-scoped
+token), post each verified blocking finding **immediately** as a native
+anchored thread on the PR — do not batch. If no posting credential is
+present, record findings in the ledger only; the pipeline publishes them.
+
+Before posting, list the existing threads; **never post a finding that
+already has an open thread** — reply on that thread instead. Threads are
+append-only: a finding you later disprove is closed by a reply saying so,
+never deleted. Exact verbs per host are in
 [references/hosts.md](references/hosts.md).
 
 Record what you posted in the round ledger (the review file in your
