@@ -1,400 +1,160 @@
 ---
 name: pr-review
-description: "Review a pull request using a pillar-driven adversarial methodology. Two adversaries cover nine CI quality pillars: the Architect (structural fit: coupling & architecture decay, design intent & DRY, interface stability, CI economy) and the Adversary (behavioral soundness: correctness, security, performance, observability, test quality). A Judge adjudicates. The reviewer scans the diff to determine which pillars apply, investigates those selectively, and marks the rest N/A — making coverage visible without bloating every review. Leverages deterministic proof (lint/tests/CI via bash), the architecture graph (RIG + C4), and selective web search. Two ingress points: manual (dev-workflow review subcommand) or automated (harmostes pr-review workflow). Use when a pull request needs adversarial pre-merge review, when filing or addressing review findings, or when a merge verdict must be verified."
+description: "Adversarial review of a pull request or merge request on any forge (GitHub, Forgejo/Gitea, GitLab). Reviews the delta across nine quality pillars from two stances — an Architect judging structural fit (boundaries, design intent, interface stability, CI cost) and an Adversary probing behavior (correctness, security, performance, observability, test quality). Every pillar is examined on every review; depth scales with risk. Use when asked to review, critique, or vet a PR/MR before merge, or to re-review after fixes. Posts each verified finding as an anchored thread on the platform immediately, then a single verdict. Works on any project; uses an architecture map when the project provides one, derives structure from the code when it does not."
+compatibility: "Requires a git checkout of the reviewed head SHA and access to the forge host (host CLI or HTTP API with a token)."
 ---
 
-# PR Review — Pillar-Driven Adversarial Toolkit
+# PR Review — Adversarial, Pillar-Driven
 
-Review a PR from **two adversarial stances** across **nine CI quality
-pillars**, then adjudicate: scan the diff against pillar triggers,
-investigate the ones that fire, mark the rest N/A — coverage is visible
-without investigating every pillar on every PR. The author held the whole
-codebase in their head; the reviewer does not need to. Answer sharp
-questions about the **delta** from minimal context — the diff, the
-architecture graph (RIG + C4), selective tools. Never read the whole repo.
+Review a change from two adversarial stances and post what survives. The
+**Architect** asks whether the change fits the codebase's structure; the
+**Adversary** tries to break its behavior. A **Judge** decides what is
+blocking. You review the **delta** — the diff is the artifact — reading the
+smallest amount of surrounding context each finding needs. Never read the
+whole repository.
 
-## The 15-minute contract
+All nine pillars are examined on every review. Most get a quick pass; the
+risky ones get depth. Depth comes from risk, not habit.
 
-A review that has not posted its verdict within the run bound is a FAILED
-review, however good — the platform kills the run and the next one starts
-over (live: #357 r14 — a focused 5-file PR burned 65 min of wall on
-unbounded verification theater: watching CI the ingress already guarantees,
-a cold full-battery run, per-finding mutation probes each rebuilding from
-scratch, a verdict written as an essay; the verdict itself took 5 min).
-Budget the review at **15 minutes**, spent where findings come from:
+## Ground rules
 
-| Phase | Cap | Rule |
-|---|---|---|
-| Orient (context + diff + RIG brief of touched nodes) | 3 min | Read the diff — it is the artifact. Follow a symbol out of the diff only when the finding hinges on it. |
-| Investigate (pillars the diff's triggers select) | 7 min | Targeted source reads. A cross-package trace earns its keep only when a finding names the seam. |
-| Deterministic proof | 3 min | ONE warm build + tests for TOUCHED packages only — never the full battery (pipeline CI is green by ingress). Mutation probes batch into one edit→test→revert cycle, load-bearing claims only. |
-| Judge + write | 2 min | The verdict is the payload. Write it, post it, done. |
+- Evidence or it didn't happen: every finding cites a code line, a failing
+  check, a documented decision, or an external advisory.
+- Never modify the reviewed repository. Review only.
+- The platform is the state: threads on the PR are the durable record;
+  your working notes are not.
+- The pipeline guarantees CI was green at the reviewed head. If your
+  context shows a failed check instead, say so and stop — red CI is fixed
+  on the branch, not reviewed.
+- If no pre-assembled context exists, build it: checkout the head SHA,
+  fetch the diff and PR metadata via the host (see
+  [references/hosts.md](references/hosts.md)).
 
-Budget exhausted mid-investigation → post what the evidence already
-supports at the highest remaining severity; an honest partial verdict beats
-a perfect review that dies unposted. Never re-derive what the diff shows.
+## Orientation
 
-## Ingress contract — validated SHAs only
+Read, in order: the PR context (metadata, CI state, files touched), the
+full diff, and the project's architecture map or design docs if they
+exist. Note which components the diff touches and who depends on them —
+from the map if there is one, from imports and symbol searches if not.
+Pillars whose surface the diff barely touches get their quick pass and
+move on; note where depth is warranted.
 
-**This skill owns the review process**: the two-stance methodology, the
-verdict vocabulary (APPROVE / REQUEST_CHANGES), the `reviewed_sha` currency
-rule, the label lifecycle (set by the requester; consumed only by a verdict
-at the exact reviewed SHA). The output contract's canonical home is
-`verdictTrailer` in the harmostes tree (internal/review/review.go);
-`dev-workflow` requests and consumes verdicts — it never re-states them.
+## The nine pillars
 
-Two ingress points, one contract: the **harmostes Review-Ready Gate**
-(ADR-0006, armed per PR by the `needs-review` label) proceeds only when
-label ∧ merge-rule context is green at the head SHA; or **manual** via
-`dw_request_review`, which refuses unvalidated heads. Invoked **only on a
-pipeline-green SHA** — red CI is fixed on the branch, never reviewed; this
-pass exists for what CI cannot see. Phase-0 deterministic proof remains:
-it catches nondeterminism and drift, not CI status.
+| Pillar | The question | Evidence that settles it | Dig deeper when |
+|---|---|---|---|
+| Boundaries | Does it respect the project's component seams — no new cycles, hubs, or god-modules? | the architecture map; import graph | cross-component calls or new dependencies appear |
+| Design intent | Aligned with documented decisions? Duplicating an existing capability? | design docs; a search for the same capability elsewhere | new functions/types/commands are added |
+| Interface stability | Breaking changes to exported symbols, APIs, schemas, or stored data? | usages of changed symbols across the repo | public surface changes |
+| CI cost | Is every new or moved check necessary, and in the right place? | a purpose-map of the whole CI surface | CI files, runners, or check wiring change |
+| Correctness | Logic right? Errors handled? Edge and concurrent cases safe? | the project's own tests on changed parts | any logic changes |
+| Security | Injection, authz gaps, secrets, unsafe deserialization, supply chain? | pattern knowledge + external advisories | auth, crypto, network, SQL, or input parsing changes |
+| Performance | Complexity, hot paths, resource leaks, unbounded growth? | benchmarks if they exist | loops, allocations, I/O, or hot paths change |
+| Observability | Are new error paths logged or surfaced? Debuggable in production? | error paths in the diff | new error or async paths |
+| Test quality | Do tests pin behavior through public interfaces, edges included? | the tests that changed with the code | behavior is added or altered |
 
-## Context and toolkit
+## Investigate
 
-Workspace (assembled by pr-fetch): `/workspace/pr-context.json` (PR
-metadata, CI status, files changed; `rig_path` set → RIG graph exists,
-`c4_path` set → C4 model exists) — read it FIRST; `/workspace/pr-diff.patch`
-(the full diff); `/workspace/repo` (checkout at the head SHA);
-`/workspace/wiki` (project wiki if configured). Route selectively.
+Work the pillars where depth is warranted. For each hypothesis: find the
+seam, read the minimal code, and try to **falsify** it — a suspicion that
+survives an attempt to break it is a finding; one that doesn't was noise.
+Depth recipes per pillar (with and without an architecture map) are in
+[references/playbook.md](references/playbook.md) — load it when a pillar
+needs more than its quick pass.
 
-| Tool | When | Gives |
-|------|------|-------|
-| `read` | always — diff, changed files, RIG/C4, wiki | code + architecture context |
-| `grep` | usages, test files, exported symbols, log/metric calls | where things are used |
-| `bash` | **deterministic proof** — build, lint, tests, benchmarks | pass/fail, not opinion |
-| `web_search` | **selectively** — crypto, concurrency, new dependency, CVEs | current practice, advisories |
+## Deterministic proof
 
-Do not web_search everything: for most changes the diff + RIG + lint/tests
-suffice.
+Run the project's own checks on the changed parts — its build, its tests,
+touched packages only. One warm build first. A failing build or test is an
+automatic REQUEST_CHANGES; no debate, no further pillars needed. If a
+load-bearing claim depends on a test really guarding something, make that
+test fail on purpose once (feed it nonsense) and watch it go red — a test
+that cannot fail guards nothing.
 
-## The 9 pillars
+## Judge
 
-Scan the diff against the **Trigger** column; investigate pillars that
-fire, mark the rest N/A. Scale to the risk of the change, not the pillar
-count — docs-only touches ~0 pillars; a GPU kernel touches performance,
-correctness, observability, test quality; an auth handler touches
-security, correctness, interface stability.
+Severity, with the evidence bar:
 
-### Architect — structural fit (4 pillars)
+- **CRITICAL** — security hole, data loss, broken architecture, build failure.
+- **MAJOR** — logic error, missing tests for new behavior, undocumented
+  coupling, breaking interface change, resource leak, duplicated CI purpose.
+- **MINOR / NIT** — style, polish, opinion. Recorded in your notes only.
 
-| Pillar | Question | Proof | Trigger (investigate when…) |
-|--------|----------|-------|-----------------------------|
-| **Coupling** | Does it respect component boundaries in the RIG — and keep the graph's shape scalable (no cycles, hubs, god-components)? | RIG edge check + `rig overview` shape + the brief's risk lines (blast radius) | the diff adds imports/calls across components, or grows a component's footprint |
-| **Design Intent** | Aligned with documented decisions / ADRs? **Does the diff duplicate existing functionality?** | `rig search` (whole graph) + `rig clones` near-dup edges + `rig dead` + wiki pages + model.c4 `// Exports:` | the change touches documented architecture, **or adds new functions/types** |
-| **Interface Stability** | Breaking changes to exported symbols / API contracts? | grep exports + diff | the change modifies public/exported API |
-| **CI Economy** | Is CI treated as the expensive asset it is — each new check **necessary** (no existing check already achieves the purpose) and **efficient, in the right place** (tier, trigger, single home)? | Read the full CI surface (all workflow files + Makefile/`scripts/test` runners) and purpose-map it against the diff | the diff touches workflow/CI files or test runners, adds/moves checks between tiers, or adds tests that run in CI |
+Rules: a CRITICAL or MAJOR without cited evidence is a NIT. A *completely
+missing* piece (a test scope that should exist, an unwired tool) is a
+**todo**, not a finding — it never blocks this round, but an unresolved
+todo downgrades the next APPROVE. Decision: any verified CRITICAL or MAJOR
+→ REQUEST_CHANGES; otherwise APPROVE.
 
-### Adversary — behavioral soundness (5 pillars)
+## Posting protocol — threads are the review
 
-| Pillar | Question | Proof | Trigger (investigate when…) |
-|--------|----------|-------|-----------------------------|
-| **Correctness** | Logic right? Edge cases, invariants, error handling? | test suite pass | any logic change |
-| **Security** | Injection, authz, secrets, supply chain? | web_search CVEs | auth, crypto, network, SQL, deserialization |
-| **Performance** | Complexity, hot paths, resource leaks, allocation patterns? | benchmarks (if exist) | loops, allocations, I/O, hot paths |
-| **Observability** | Logging, metrics, traceability, error messages? | grep log/metric | error paths, async work, production paths |
-| **Test Quality** | Tests exist? Test behavior (not implementation)? Cover edges? | coverage gap on changed files | new behavior added or altered |
+If your environment carries a **posting credential** (a comment-scoped
+token), post each verified blocking finding **immediately** as a native
+anchored thread on the PR — do not batch. If no posting credential is
+present, record findings in the ledger only; the pipeline publishes them.
 
-## The review process
+Before posting, list the existing threads; **never post a finding that
+already has an open thread** — reply on that thread instead. Threads are
+append-only: a finding you later disprove is closed by a reply saying so,
+never deleted. Exact verbs per host are in
+[references/hosts.md](references/hosts.md).
 
-### Phase 0: Orient (read the change)
+Record what you posted in the round ledger (the review file in your
+workspace, if one was assembled; otherwise alongside your notes):
 
-1. `cat /workspace/pr-context.json` — project, CI status, files.
-2. Read the diff (`/workspace/pr-diff.patch`).
-3. **One graph call, the whole orientation:** when `rig_path` is set and
-   the diff touches code, run `rig brief diff=$(git diff
-   origin/<default>...HEAD) expectSha=$HEAD_SHA` — provenance (stale graph
-   → re-emit, never review one), touched files → components, risk-ranked
-   symbols with fan-in and cross-component hops, orphaned new exports,
-   near-clone edges, and the drill-down menu. **Orientation is one call;
-   drill down (`rig impact` / `dead` / `clones` / `trace` / `component`)
-   only where the brief flags** — they are follow-ups a finding names, not
-   a second orientation pass. If `c4_path` is set, read the relevant C4
-   view for design intent beyond what the brief flags.
-4. Run deterministic proof via `bash`, CHEAPLY (15-minute contract): detect
-   the build system (Makefile `make test`, `scripts/test`, `go.mod`→`go`,
-   `build.zig`→`zig`, `package.json`→`npm`, `Cargo.toml`→`cargo`).
-   - Build once — it warms every later test invocation.
-   - Tests: **touched packages only** — the battery ran in pipeline CI on
-     this exact SHA and is green by ingress.
-   - A failing build or test is an automatic REQUEST_CHANGES — no debate.
-   - CI status is a FIELD in `pr-context.json`. Read it; never poll or
-     watch a pipeline — that is the dispatcher's spent budget, not yours.
-5. Scan the diff against the pillar triggers; note relevant pillars.
-
-### Phase 1: Architect — structural fit
-
-- **Coupling** — each new cross-component import/call must be a graph edge
-  or documented (wiki/ADR); undocumented edges are findings. Check
-  **architecture decay against a deterministic baseline**, not by eyeball:
-  `rig-fitness.py <db> --json` on base (merge-base SHA or the kb's
-  `raw/arch/<proj>/rig.db`) vs head, diff for new cycles, fan-in growth on
-  touched components, growth in the largest component — scalability is a
-  graph *shape* property; findings stand even when each edge is
-  individually documented. Cite a HIGH `brief` risk line rather than
-  re-deriving it; evidence reads like `fan-in 3→9 on decode`.
-- **Design Intent** — read the entity/concept/ADR pages for touched
-  components. **DRY:** for every new exported symbol, `rig search` its name
-  and capability keywords — a matching export anywhere is a finding
-  (extend, don't duplicate); `rig clones` catches paraphrased copies;
-  `rig dead` flags new exports zero callers reach (dead API surface is a
-  finding, not a neutral fact). Without a rig.db: model.c4
-  `// Exports:` + `grep`.
-- **Interface Stability** — does the diff modify exported/public symbols,
-  API contracts, schema? `grep` usages of changed symbols across the repo;
-  breaking changes without versioning/migration are findings. Evidence:
-  the symbol and its usages.
-- **CI Economy** — every check is paid on every future push, forever. When
-  the diff adds or moves CI work, re-run the author's purpose audit
-  independently: enumerate the entire CI surface (workflow files plus what
-  CI invokes — Makefile targets, `scripts/test`, reusable actions), reduce
-  each check to its **purpose** (the defect it catches, not its commands),
-  compare the diff's additions against that map. Findings (cite the
-  colliding check file:line):
-  - new check whose purpose an existing check already achieves — **MAJOR**:
-    the logic moves (extend or re-home), never clones;
-  - a purpose re-homed by copy-paste (two homes) → **MAJOR**;
-  - new purpose in the wrong tier/trigger → **MAJOR** if the waste recurs
-    on every push, **MINOR** otherwise;
-  - inefficiency inside a legitimate check (no caching, unbounded matrix,
-    missing `concurrency` cancellation) → **MINOR**.
-
-  Test Quality hunts *missing* coverage; CI Economy hunts *redundant*
-  coverage — together they bound the test delta from both sides. When
-  workflow files changed, run `dw_ci_conformance "origin/<default>"`; its
-  findings are findings here too.
-
-### Phase 2: Adversary — behavioral soundness
-
-- **Correctness** — logic errors, unhandled errors, off-by-one, nil/null
-  deref, races, missing input validation; verify invariants on edge cases
-  (empty, max, concurrent). When tests cannot answer a call-chain question
-  (who reaches this path, what breaks if the invariant flips), `rig trace
-  '<a> <b>'` returns the shortest call paths — escalation only, never a
-  substitute for running the tests. Evidence: the code line, or the trace
-  path with the broken link in it.
-- **Security** — injection, secret exposure, missing authz, unsafe
-  deserialization; for auth/crypto/network/SQL diffs, `web_search` known
-  vulnerabilities in the specific functions/patterns. Evidence: the
-  pattern + advisory.
-- **Performance** — algorithmic complexity, hot-path allocations, resource
-  leaks (file handles, connections, goroutines, GPU memory), unbounded
-  growth; run benchmarks if they exist. Evidence: the hot path or
-  allocation site.
-- **Observability** — are errors logged/surfaced, metrics for the new
-  behavior, debuggable in production? `grep` log/metric calls in changed
-  files; missing logging on error paths is a finding (cite the silent
-  error path).
-- **Test Quality** — tests for new behavior, through public interfaces
-  (not implementation), covering the edge cases found; missing tests for
-  new behavior is a MAJOR finding (cite the untested function/behavior).
-
-Be selective: if the diff doesn't touch a pillar's trigger, mark it N/A
-and move on. Do not force an investigation where there is no risk.
-
-### Phase 3: Judge — adjudicate
-
-1. Collect findings across investigated pillars.
-2. Verify each CRITICAL/MAJOR finding cites evidence (code line +
-   proof/RIG/wiki/advisory). Findings without evidence downgrade to NIT.
-3. Weigh severity:
-   - **CRITICAL** — security hole, data loss, broken architecture, build failure
-   - **MAJOR** — logic error, missing tests for new behavior, undocumented
-     coupling, breaking interface change, resource leak, duplicated CI
-     purpose or a check in the wrong tier/trigger
-   - **MINOR** — style issue, missing docstring, minor improvement, CI
-     efficiency polish
-   - **NIT** — cosmetic, opinion, no evidence
-4. Decide:
-
-| Condition | Decision |
-|-----------|----------|
-| Any CRITICAL or verified MAJOR finding | REQUEST_CHANGES (each becomes a thread) |
-| Only MINOR/NIT, or all clean + CI green + deterministic proof passes | APPROVE (MINOR/NIT are dropped, not posted) |
-
-5. **Completely missing, not wrong?** A missing piece — absent test scope,
-   an unwired tool, a doc that should exist — that is not a defect in what
-   the diff contains is a **TODO**, not a finding: record it in `todos[]`
-   (same shape as `comments[]`). TODOs anchor as non-blocking threads the
-   dev must address; they never change THIS decision, but unresolved TODO
-   threads downgrade the NEXT round's APPROVE. Anything that makes the
-   change incorrect or unmergeable is a finding, never a TODO.
-
-"Deterministic proof" = the reviewer's independent local run of the
-checked-out delta — pipeline CI is green by ingress contract.
-
-## The inline review protocol — threads are the merge currency
-
-Under the r7 output contract the threads are **NOT yours to post**: every
-NEW blocking finding rides `review.json`'s `comments[]` (path, line, body);
-the deploy node publishes them as native anchored threads and composes the
-one-line verdict. NEVER post NEW findings via the forge CLI yourself — a
-self-post duplicates the deploy's publish and the verdict line lies about
-the count. One thread per finding (and per TODO); the verdict is a
-deploy-composed ONE-LINE comment (decision + SHA + blocking count +
-trailer) — you write no prose.
-
-**Exact per-host call shapes** (gh/fj/glab post/reply/resolve, the Forgejo
-`new_position` field, `fj review reply|resolve|comments` — native since
-#115 shipped, verdict-sink identity mechanics) live in
-[`references/thread-commands.md`](references/thread-commands.md) — load it
-when replying to or closing threads, or debugging where a verdict landed.
-
-**Verdict sink — identity decides.** The deploy posts the verdict as a
-native review event under the runtime identity. **Doctrine (r18): the
-verdict is a testing signal, not merge authority — anywhere.** Its value
-is the FINDINGS it delivers and the corroboration it offers; the
-non-determinism of an LLM reviewer (a re-review of an unchanged diff can
-disagree — the rhesadox#2359 class) means no merge, in any repo, may
-stand on a verdict alone. Deterministic gates (CI, conformance,
-signatures) are the enforcement layer; a merge that must proceed without
-a guaranteed verdict carries a recorded owner-bypass with the
-deterministic evidence instead. Where branch protection arms on the
-review event, treat the native APPROVED/REQUEST_CHANGES as one input to
-the owner's judgment — never as a guarantee to lean on.
-
-**Later rounds — YOU (the reviewer) resolve prior threads by
-verification, FIRST, across ALL reviews (r40, live on rhesadox#2360: the
-reviewer re-posted its canonical findings as NEW threads each round while
-old review objects kept their stale threads — 3×5=15 unresolved
-duplicates accumulated monotonically and the gate downgraded verdicts
-over a fixed diff for eight rounds). The sweep precedes composing new
-findings: enumerate every review's unresolved threads — all rounds, not
-just the latest (`fj review comments <PR> <REVIEW>` per review) — verify
-each against the diff, and close valid fixes **on that same thread** (the
-host's reply mechanism; `fj review reply` on Forgejo) + resolve natively
-(`fj review resolve <PR> <COMMENT-ID>`). **Never mint a duplicate
-thread**: a finding that already has an open thread from ANY prior round
-is addressed BY REPLY on that thread — a new thread for the same finding
-is the defect that poisoned #2360. Only what is NEW or re-raised enters
-this round's `comments[]`.
-Do NOT downgrade an APPROVE because a thread shows unresolved in the host
-UI — UI state can lie both ways; query the threads instead (`fj review
-comments <PR> <REVIEW>`, resolved markers) — trusting the UI burns a full
-review round on findings already fixed (r12, live on #483). A downgrade is
-for exactly one thing: a prior finding NOT addressed in the diff — and
-the post-review gate now counts only the NEWEST prior round's open
-threads (#579), so verified closures are the merge currency, not the UI
-counter.
-
-**Same head, same verdict — refuse in one line (r17, #567).** If the PR
-head equals the head an existing verdict was posted at, and the diff is
-unchanged since, do NOT run the phases: every phase re-derives a conclusion
-that already exists (the rhesadox#2359 class — six full reviews, one diff).
-Emit the verdict line stating the standing decision, SHA, and unresolved
-count, with the directive (push a fix, reply + resolve on the threads,
-re-arm), and stop. The kernel's gate enforces the same rule before
-dispatch; this is the reviewer-side backstop for older gates and manual
-dispatches. Determinism is the point: re-arm at an unchanged head must
-NEVER produce a different verdict — that non-determinism is exactly what
-made re-arm-as-retry rational for the dev.
-
-**Author side (dev agent) — self-contained statement.** The dev answers
-EVERY open thread — findings AND TODOs, all rounds — on that same anchored
-comment (reply mechanism, never a new one), carrying fix SHA + rationale,
-and resolves natively; the reviewer closes threads it did not author after
-verifying the diff. Before concluding an author is ignoring you, verify
-thread state yourself: resolved markers and `in_reply_to` are the only
-registration — a wrong transport still returns HTTP 201 ("replied wrongly"
-≡ "replied and was heard", from your side). The dev-side protocol is owned
-by the dev's workflow skill wherever it lives; this skill judges only the
-thread state itself.
-
-## Output contract — threads are the review; the comment is one line
-
-The pillar analysis (Phases 0–3) happens in your head and your tool calls
-— never posted as prose. Exactly three things leave this review:
-
-1. **Blocking findings** — each CRITICAL or verified MAJOR finding is ONE
-   `comments[]` entry, posted by the deploy as a native inline thread each
-   dev must independently resolve before merge. MINOR/NIT are NOT posted.
-2. **TODOs** — each completely-missing piece is ONE `todos[]` entry,
-   anchored non-blocking; never change the decision, unresolved ones
-   downgrade the next round.
-3. **A one-line verdict** — by the deploy, not you: decision, SHA, blocking
-   count. No pillar-structured body, no summary, no coverage essay.
-
-Write the review to `/workspace/review.json` using Python (NOT a bash
-heredoc — heredocs break on Markdown backticks and special chars):
-
-```python
-import json
-review = {
-    "decision": "REQUEST_CHANGES",
-    "reviewed_sha": "<head SHA of /workspace/repo>",
-    "comments": [
-        {"path": "src/foo.zig", "line": 42,
-         "body": "Blocking: <what is wrong> <evidence> <what to do>."}
-    ],
-    "todos": [
-        {"path": "src/bar.zig", "line": 7,
-         "body": "<what is completely missing> <where it belongs>."}
-    ]
+```json
+{
+  "decision": "REQUEST_CHANGES",
+  "reviewed_sha": "<full head SHA>",
+  "findings": [
+    {"path": "src/foo.zig", "line": 42, "body": "Blocking: <what> <evidence> <fix>",
+     "thread_ref": "<platform thread reference, once posted>"}
+  ],
+  "todos": [
+    {"path": "src/bar.zig", "line": 7, "body": "<what is missing> <where it belongs>"}
+  ]
 }
-json.dump(review, open("/workspace/review.json", "w"), indent=2)
 ```
 
-- `decision` — `APPROVE` (no blocking findings) or `REQUEST_CHANGES` (≥1).
-  No COMMENT middle ground; MINOR/NIT dropped; TODOs never affect it.
-- `reviewed_sha` — head SHA of `/workspace/repo` (full 40 hex); the deploy
-  embeds it in the verdict and anchors every thread to it.
-- `comments` — ONLY blocking findings (`[]` when approving); each a
-  self-contained thread — what is wrong, the evidence, what to do. The
-  deploy deduplicates and publishes; do not post them yourself.
-- `todos` — optional; ONLY completely-missing pieces (`[]` or omit); same
-  self-contained rule.
+The verdict line (decision, SHA, blocking count) is composed from the
+threads actually on the PR — not from the ledger — by whatever pipeline
+assembled the review. If none did, post it yourself as one line.
 
-**Coverage** stays your discipline — every pillar investigated per the
-phases — but it is reported by the deploy's one-line verdict ("pillars
-clean" vs "N blocking"), not by an N/A essay.
+## Later rounds on the same PR
 
-## Do NOT
+Sweep **first**: list every unresolved thread from all prior rounds,
+verify each against the current diff, and close the fixed ones by replying
+on that same thread (fix SHA + one line) and resolving it. Only findings
+that are new or still unaddressed become new threads. Do not downgrade a
+verdict because a UI shows threads unresolved — query the threads; the UI
+can lag. The only downgrade reason is a prior finding genuinely unaddressed
+in the diff.
 
-- Do not push, commit, or modify any repository. Review only.
-- Do not read the entire repo. Route to the minimal source (RIG, C4, wiki
-  pages for touched components, changed files).
-- Do not investigate pillars whose triggers the diff doesn't touch. Mark N/A.
-- Do not state findings without evidence. Cite the code line, the RIG edge,
-  the wiki page, or the deterministic check that failed.
-- Do not re-dispatch CI or wait for pipelines — ingress guarantees a green
-  SHA; review the delta.
+## Hardened rules
 
-## Relationship to other skills
+Learned the hard way; apply without exception:
 
-- **`dev-workflow`** — owns the gate chain; this skill **is gate 12**.
-  Pillar→gate map: Coupling → Gate 7, Design Intent → Gate 1, CI Economy →
-  the caller's ci-wiring purpose audit. The verdict trailer is what
-  `dw_merge_readiness` consumes as merge currency. No file links into
-  dev-workflow — inter-skill dependencies stay one-way, never mutual.
-- **`llm-wiki`** — consulted for Design Intent: RIG/C4 are the
-  deterministic architecture graph; wiki pages are the reasoning.
+1. **A test that cannot fail guards nothing.** When a finding hinges on a
+   test's protection, break the test once and watch it go red.
+2. **One fact, one home.** When a fix changes a stated fact (a limit, a
+   name, a chain), find *every* home of that fact — comments, docs, sibling
+   constants — and fix all of them.
+3. **Claims about deployment are verified against manifests**, not prose:
+   the actual config, the actual runtime wiring.
+4. **When the PR's author also wrote the spec it implements**, give that
+   spec's load-bearing assumptions an extra adversarial pass.
 
-## Divergence ledger — carried across rounds (never re-litigate, never forget)
+## Do not
 
-Empirical source: rounds r18–r20 of the model-role flip + #367's blocker.
-Multi-round loops were never *disagreements about the implementation* —
-they were **unverified claims about the implementation**. Each round checks
-the *class*, not just the finding:
+- Do not push, commit, or modify any repository under review.
+- Do not read the entire repository — route to the minimal context.
+- Do not post findings without evidence, or MINOR/NITs at all.
+- Do not watch or re-trigger CI — review the delta you were given.
 
-1. **Tests pin mechanism, not intent.** Mutation-probe the load-bearing
-   test: swap the guarded value for nonsense (`BOGUS/primary`), run the
-   suite — red required. A test that survives nonsense is decoration (r18:
-   19/19 passed with a BOGUS default).
-2. **One fact, one home.** When a fix updates a stated fact (constant,
-   chain, clamp, limit), grep for EVERY home of that fact (docblocks,
-   canonical comments, ADRs) — fix the class, not the instance (r19: third
-   stale vintage in `applyChains` docblock).
-3. **Deployment claims are manifest-grounded.** Any claim about durability,
-   env, volumes, or topology must be falsified against `job.go`, the
-   chart, and the ops repo — never accepted from an ADR's prose (r20: "the
-   directory IS the association" died on `/tmp` being per-pod ephemeral).
-4. **Self-authored spec = suspect premise.** When the PR's author also
-   authored the ADR/spec it implements, the load-bearing assumption gets an
-   adversarial pass *first*.
+## References
 
-**Session continuity:** a PR's review rounds are ONE lineage (ADR-0010). If
-a prior verdict exists at an earlier head, resume its context: verified
-findings stay verified, addressed fixes are acknowledged, the review
-examines the delta between heads. This ledger is the compaction seed — what
-survives between rounds.
+- [references/hosts.md](references/hosts.md) — talking to the forge:
+  host detection, fetching diff and metadata, posting/replying/resolving
+  threads, token and curl fallbacks. Load when you first touch the platform.
+- [references/playbook.md](references/playbook.md) — per-pillar depth
+  recipes. Load when a pillar needs more than its quick pass.
