@@ -26,7 +26,7 @@ examples assume `$TOK` set to it.
 | List threads | REST comments + GraphQL (below) | per-review comments (below) | `GET …/discussions` |
 | Post finding | REST comments (below) | create-pull-review (below) | discussions with position |
 | Reply | `in_reply_to` | `fj review reply` | discussion notes |
-| Resolve | GraphQL | `fj review resolve` | `PUT …/discussions/$ID` |
+| Resolve | GraphQL | `PUT …/comments/$ID/resolutions` | `PUT …/discussions/$ID` |
 
 `$REPO` is `owner/name`; `:id` is GitLab's numeric project id.
 
@@ -82,12 +82,25 @@ curl -sS -X POST -H "authorization: token $TOK" -H "content-type: application/js
   -d "{\"event\":\"COMMENT\",\"commit_id\":\"$SHA\",\"body\":\"finding\",
        \"comments\":[{\"path\":\"$FILE\",\"new_position\":$LINE,\"body\":\"…\"}]}"
 
-# Reply and resolve (fj is the reliable transport; REST reply is a known
-# gap on some versions):
-fj review comments  $PR $REVIEW   # list one review's threads
-fj review reply     $PR $COMMENT_ID --body "…"
-fj review resolve   $PR $COMMENT_ID
-fj review unresolve $PR $COMMENT_ID   # reopen if a claimed fix fails verification
+# Reply and resolve. The resolve is the close-out — a reply alone never
+# closes a thread. `fj review reply/resolve` wraps the same REST routes if
+# you have it; raw curl is the dependency-free form (resolve verified live
+# on Forgejo-class forges; the route is `/resolutions`, NOT `/discussions`):
+fj review reply     $PR $COMMENT_ID --body "…"     # or the replies route below
+curl -sS -X PUT -H "authorization: token $TOK" \
+  "$BASE/api/v1/repos/$REPO/pulls/$N/comments/$COMMENT_ID/resolutions"   # → 204
+curl -sS -X DELETE -H "authorization: token $TOK" \
+  "$BASE/api/v1/repos/$REPO/pulls/$N/comments/$COMMENT_ID/resolutions" \
+  # unresolve — reopen if a claimed fix fails verification
+
+# Carry an Architecture-carry thread: mint or reference the tracker issue,
+# reply the reference, resolve the thread. Issue mint (milestone = the
+# repo's most recent open milestone, fetched first):
+MS=$(curl -sS -H "authorization: token $TOK" \
+  "$BASE/api/v1/repos/$REPO/milestones?state=open" | jq -r '.[0].id // empty')
+curl -sS -X POST -H "authorization: token $TOK" -H "content-type: application/json" \
+  "$BASE/api/v1/repos/$REPO/issues" \
+  -d "{\"title\":\"architecture: <the finding>\",\"body\":\"from PR #$N thread $COMMENT_ID — <evidence/anchor>\"$( [ -n "$MS" ] && echo \",\\\"milestone\\\":$MS\" )}"
 ```
 
 ## GitLab

@@ -769,10 +769,71 @@ dw_rebase_onto_default() {
   git push --force-with-lease origin "$current" 2>&1 | grep -v '^remote:' | grep -v '^To ' || true
 }
 
+# dw_thread_check "<pr#>" → the review-thread gate. Enumerates every
+#   review-thread root on the PR (any round, any author) and fails while
+#   ANY root is unresolved — a reply is the record, the resolve is the
+#   close-out (the marker/reply closure grammar is retired: native resolve
+#   is API-settable on every supported host). Runs regardless of the
+#   needs-review label — human reviewers' threads bind the same way.
+#   Unreadable listings FAIL CLOSED with a spoken reason (never a silent
+#   pass — an unverifiable thread state is not a clean thread state).
+dw_thread_check() {
+  local pr="$1"
+  local platform host token owner_repo
+  platform=$(dw_detect_platform); owner_repo=$(dw_owner_repo)
+  case "$platform" in
+    github)
+      gh pr view "$pr" --repo "$owner_repo" --json headRefOid >/dev/null 2>&1 || dw_die "cannot read PR #$pr"
+      # REST roots + GraphQL resolved set — the same read the verdict gate uses.
+      if ! gh api "repos/$owner_repo/pulls/$pr/comments?per_page=100" > /tmp/.dw_threads.$$ 2>/dev/null; then
+        echo "  ✘ review threads: listing failed — refusing merge on unreadable state"; return 1
+      fi
+      local resolved
+      resolved=$(gh api graphql -f query='query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){pullRequest(number:$n){reviewThreads(first:100){nodes{isResolved comments(first:1){nodes{databaseId}}}}}}}' \
+        -f o="${owner_repo%%/*}" -f r="${owner_repo#*/}" -F n="$pr" \
+        --jq '[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved) | .comments.nodes[0].databaseId] | @json' 2>/dev/null || echo '[]')
+      python3 - "$resolved" < /tmp/.dw_threads.$$ <<'PYTC'
+import json, sys
+cs = json.load(sys.stdin)
+resolved = set(json.loads(sys.argv[1]))
+open_r = [c for c in cs if not (c.get("in_reply_to_id") or c.get("in_reply_to")) and c.get("id") not in resolved]
+for c in open_r[:8]:
+    path = c.get("path", "?")
+    line = c.get("line") or c.get("original_line_number") or "?"
+    cid = c.get("id")
+    body = (c.get("body") or "")[:60]
+    print("  OPEN thread %s:%s id=%s: %s" % (path, line, cid, body))
+print("THREADS_OPEN=%d" % len(open_r))
+PYTC
+      rm -f /tmp/.dw_threads.$$
+      ;;
+    gitlab) echo "  – review threads: gitlab enumeration not wired (manual check)"; return 0 ;;
+    *)
+      host=$(dw_host); token=$(dw_token)
+      local cs rvs
+      rvs=$(curl -fsSL -H "Authorization: token $token" "https://$host/api/v1/repos/$owner_repo/pulls/$pr/reviews?limit=50" 2>/dev/null | jq -r '.[].id') \
+        || { echo "  ✘ review threads: listing failed — refusing merge on unreadable state"; return 1; }
+      cs=$(for rv in $rvs; do curl -fsSL -H "Authorization: token $token" \
+            "https://$host/api/v1/repos/$owner_repo/pulls/$pr/reviews/$rv/comments?limit=50" 2>/dev/null; done | jq -cs 'flatten')
+      printf '%s' "$cs" | python3 -c '
+import json, sys
+cs = json.load(sys.stdin)
+open_r = [c for c in cs if not (c.get("in_reply_to") or c.get("in_reply_to_id")) and not c.get("resolver")]
+for c in open_r[:8]:
+    path = c.get("path", "?")
+    line = c.get("line_num") or "?"
+    cid = c.get("id")
+    body = (c.get("body") or "")[:60]
+    print("  OPEN thread %s:%s id=%s: %s" % (path, line, cid, body))
+print("THREADS_OPEN=%d" % len(open_r))'
+      ;;
+  esac
+}
+
 # dw_merge_readiness "<pr#>" → the falsifiable merge gate. Exit 0 only when
 #   ALL pass at one frozen head SHA: fast tier green, full pipeline green
-#   (skipped when none configured), review APPROVE (verdict trailer), and
-#   merge-base(head, default) == default head.
+#   (skipped when none configured), review APPROVE (verdict trailer),
+#   review threads resolved, and merge-base(head, default) == default head.
 dw_merge_readiness() {
   local pr="$1" fail=0
   local head; head=$(dw_pr_head "$pr"); [ -n "$head" ] || dw_die "cannot resolve PR #$pr head"
@@ -785,7 +846,22 @@ dw_merge_readiness() {
   if [ -n "$(dw_full_pipeline_workflows)" ]; then
     if dw_full_green "$head"; then echo "  ✔ full pipeline green @ ${head:0:8}"; else echo "  ✘ full pipeline not green @ ${head:0:8}"; fail=1; fi
   else echo "  – full pipeline: none configured (fast tier is the pipeline)"; fi
-  # 4. review verdict trailer bound to head — REQUIRED only when armed.
+  # 4. review-thread closure — the mandate, mechanically enforced: no
+  #    merge while any review-thread root on the PR is unresolved. Runs
+  #    whether or not the agent review was armed (a human reviewer's
+  #    threads bind identically). The pipeline's verdict gate holds the
+  #    same line for automated rounds; this check also covers manual ones.
+  local threads_out
+  threads_out=$(dw_thread_check "$pr")
+  if printf '%s' "$threads_out" | grep -q 'THREADS_OPEN=0$'; then
+    echo "  ✔ review threads: all roots resolved"
+  else
+    printf '%s\n' "$threads_out" | grep -E '✘|THREADS_OPEN=' | sed 's/^/  /' \
+      || echo "  ✘ review threads: enumeration produced no verdict line"
+    echo "  ✘ review threads unresolved — reply + resolve each root (architecture-scale items: carry to an issue, then resolve)"
+    fail=1
+  fi
+  # 5. review verdict trailer bound to head — REQUIRED only when armed.
   #    The `needs-review` label is the armed marker (set by dw_request_review,
   #    gate 12 opt-in). Without it the r18 verdict doctrine applies: verdicts
   #    are testing signals, not merge authority — the owner merges on the
@@ -814,7 +890,7 @@ dw_merge_readiness() {
       echo "  ✔ adversarial review APPROVE @ ${head:0:8}"
     else echo "  ✘ no APPROVE verdict for ${head:0:8} (stale or missing — re-declare ready)"; fail=1; fi
   else echo "  – adversarial review: not armed (no needs-review label) — r18: owner merges on deterministic evidence"; fi
-  # 5. rebase-clean against default
+  # 6. rebase-clean against default
   local default dbase dhead
   default=$(dw_default_branch)
   git fetch origin "$default" >/dev/null 2>&1
