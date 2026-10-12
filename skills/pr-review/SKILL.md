@@ -82,9 +82,9 @@ Severity, with the evidence bar:
 
 Rules: a CRITICAL or MAJOR without cited evidence is a NIT. A *completely
 missing* piece (a test scope that should exist, an unwired tool) is a
-**todo**, not a finding — it never blocks this round, but an unresolved
-todo downgrades the next APPROVE. Decision: any verified CRITICAL or MAJOR
-→ REQUEST_CHANGES; otherwise APPROVE.
+**todo**, not a finding — but it still blocks: every open thread counts
+against the verdict, todos included. Decision: any verified CRITICAL or
+MAJOR, or any todo left open → REQUEST_CHANGES; otherwise APPROVE.
 
 ## Posting protocol — threads are the review
 
@@ -99,6 +99,22 @@ append-only: a finding you later disprove is closed by a reply saying so,
 never deleted. Exact verbs per host are in
 [references/hosts.md](references/hosts.md).
 
+Every thread you raise opens with its **class prefix** — the verdict gate
+and the merge gate read it, and the class fixes the lawful way to close:
+
+- `**Blocking**` — a defect in this diff. Close: fixed in this PR; reply
+  the fix SHA, then **resolve**. Never carried.
+- `**TODO**` — a missing complement. Close: fixed in this PR, same way.
+- `**Architecture-carry**` — a design/architecture-scale flaw that
+  outlives this diff. Close: search the tracker for an open issue that
+  already covers it — never duplicate; if none, mint one issue (milestone
+  it), reply the issue reference on the thread, then **resolve**. Severe
+  items (e.g. security) get *two* threads: a Blocking quick fix in this
+  PR **and** an Architecture-carry for the structural cure.
+
+A reply alone never closes a thread: the reply is the record, the
+**resolve is the close-out**.
+
 Record what you posted in the round ledger (the review file in your
 workspace, if one was assembled; otherwise alongside your notes):
 
@@ -111,10 +127,17 @@ workspace, if one was assembled; otherwise alongside your notes):
      "thread_ref": "<platform thread reference, once posted>"}
   ],
   "todos": [
-    {"path": "src/bar.zig", "line": 7, "body": "<what is missing> <where it belongs>"}
+    {"path": "src/bar.zig", "line": 7, "body": "<what is missing> <where it belongs>",
+     "disposition": "fix-in-pr"}
   ]
 }
 ```
+
+`disposition` is `fix-in-pr` (default) or `architecture-carry`; a carry
+entry may carry an `issue` reference (`"#431"` or a URL) when the tracker
+already covers it. The pipeline publishes uncarried todos as threads and
+carries marked ones (minting the issue if needed) — it never carries a
+`Blocking` entry.
 
 The verdict line (decision, SHA, blocking count) is composed from the
 threads actually on the PR — not from the ledger — by whatever pipeline
@@ -122,13 +145,13 @@ assembled the review. If none did, post it yourself as one line.
 
 ## Later rounds on the same PR
 
-Sweep **first**: list every unresolved thread from all prior rounds,
-verify each against the current diff, and close the fixed ones by replying
-on that same thread (fix SHA + one line) and resolving it. Only findings
-that are new or still unaddressed become new threads. Do not downgrade a
-verdict because a UI shows threads unresolved — query the threads; the UI
-can lag. The only downgrade reason is a prior finding genuinely unaddressed
-in the diff.
+Sweep **first**: list every thread on the PR from all rounds; a thread is
+closed only by its **resolve** state. Verify each open one against the
+current diff: fixed → reply (fix SHA + one line) and **resolve**;
+disproven → reply why, and **resolve**; architecture-scale → carry it
+(issue reference + **resolve**). Only findings that are new or still
+unaddressed become new threads. Do not trust a UI's resolved markers over
+the API — query the threads; the UI can lag.
 
 ## Hardened rules
 

@@ -98,17 +98,17 @@ pipeline means back to developing, never into review (depth:
 
 ## Hard rules
 
-0. **Review threads are the merge currency.** Every inline thread a
-   review leaves — blocking findings AND TODOs alike — is answered **on
-   that same thread** (the host's reply mechanism, never a new comment),
-   carrying the fix SHA + one-line rationale; Forgejo close-out: resolve
-   as fixes land (`fj review resolve`), actual replies (`fj review reply`)
-   once at the end — one per thread, the round record; never mint
-   duplicate threads (rhesadox#2241). The REVIEWER — not the dev — closes
-   threads it did not author, after verifying the diff. Full protocol —
-   the all-rounds reconciliation sweep (r40, #2360), transport
-   registration (r17, #2359), re-arm mechanics (#567):
-   [`references/review-threads.md`](references/review-threads.md).
+0. **Review threads are the merge currency — no merge over an open
+   thread.** Every inline thread a review leaves — blocking findings and
+   TODOs alike — is answered **on that same thread** (the host's reply
+   mechanism, never a new comment), carrying the fix SHA + one-line
+   rationale, then **resolved** — the reply is the record, the resolve is
+   the close-out; `dw_merge_readiness` refuses the merge while any
+   review-thread root on the PR is unresolved, any round, any author.
+   Architecture/design-scale items are the sole exception: carried to a
+   deduped tracker issue (reply the reference, resolve). Never mint
+   duplicate threads. Full protocol — discharges, the all-rounds sweep,
+   transport registration: [`references/review-threads.md`](references/review-threads.md).
 1. A direct commit/push to the default branch is forbidden unless the user
    gave an explicit instruction that is recorded on the issue. When in
    doubt, branch.
