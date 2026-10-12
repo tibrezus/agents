@@ -46,9 +46,9 @@ gh api graphql -f query='
 gh api repos/$O/$R/pulls/$N/comments \
   -f commit_id=$SHA -f path=$FILE -F line=$LINE -f body="…"
 
-# Reply ON a thread (the /replies subpath does not exist; in_reply_to is
-# the mechanism — an answer rides its thread, never a new comment):
-gh api repos/$O/$R/pulls/$N/comments -f body="…" -F in_reply_to=$ID
+# Reply ON a thread — the documented /replies subpath (in_reply_to is a
+# not-permitted key on github.com: 422; an answer rides its thread):
+gh api repos/$O/$R/pulls/$N/comments/$ID/replies -f body="…"
 
 # Resolve (map the comment's databaseId → thread id first, as in the
 # listing query above):
@@ -94,10 +94,13 @@ curl -sS -X DELETE -H "authorization: token $TOK" \
   # unresolve — reopen if a claimed fix fails verification
 
 # Carry an Architecture-carry thread: mint or reference the tracker issue,
-# reply the reference, resolve the thread. Issue mint (milestone = the
-# repo's most recent open milestone, fetched first):
+# reply the reference, resolve the thread. Issue mint — milestone = the
+# NEWEST-CREATED open one, computed client-side (the listing's default
+# sort is due_on ASC: .[0] is the OLDEST — verified live on both hosts;
+# on GitHub the mint takes the milestone NUMBER, not the id):
 MS=$(curl -sS -H "authorization: token $TOK" \
-  "$BASE/api/v1/repos/$REPO/milestones?state=open" | jq -r '.[0].id // empty')
+  "$BASE/api/v1/repos/$REPO/milestones?state=open" \
+  | jq -r 'sort_by(.created_at) | last | .id // empty')
 curl -sS -X POST -H "authorization: token $TOK" -H "content-type: application/json" \
   "$BASE/api/v1/repos/$REPO/issues" \
   -d "{\"title\":\"architecture: <the finding>\",\"body\":\"from PR #$N thread $COMMENT_ID — <evidence/anchor>\"$( [ -n "$MS" ] && echo \",\\\"milestone\\\":$MS\" )}"
