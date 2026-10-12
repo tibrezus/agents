@@ -55,6 +55,13 @@ gh api repos/$O/$R/pulls/$N/comments/$ID/replies -f body="…"
 gh api graphql -f query='
   mutation($id:ID!){ resolveReviewThread(input:{threadId:$id}){ thread{ isResolved } } }' \
   -f id=$THREAD_ID
+
+# Carry-mint a tracker issue (milestone = the NEWEST-CREATED open one by
+# NUMBER — an id is 422 field-invalid on github.com, probed live):
+MS=$(gh api "repos/$O/$R/milestones?state=open" \
+  | jq -r 'sort_by(.created_at) | last | .number // empty')
+gh api repos/$O/$R/issues -f title="architecture: <the finding>" \
+  -f body="from PR #$N thread $ID — <evidence/anchor>" $( [ -n "$MS" ] && echo -f milestone=$MS )
 ```
 
 ## Forgejo / Gitea
@@ -96,8 +103,9 @@ curl -sS -X DELETE -H "authorization: token $TOK" \
 # Carry an Architecture-carry thread: mint or reference the tracker issue,
 # reply the reference, resolve the thread. Issue mint — milestone = the
 # NEWEST-CREATED open one, computed client-side (the listing's default
-# sort is due_on ASC: .[0] is the OLDEST — verified live on both hosts;
-# on GitHub the mint takes the milestone NUMBER, not the id):
+# sort is due_on ASC: .[0] is the OLDEST — verified live on both hosts).
+# This verb is the FORK's: it mints the milestone .id — github.com wants
+# the NUMBER instead (the GitHub carry-mint verb above does this):
 MS=$(curl -sS -H "authorization: token $TOK" \
   "$BASE/api/v1/repos/$REPO/milestones?state=open" \
   | jq -r 'sort_by(.created_at) | last | .id // empty')
