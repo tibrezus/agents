@@ -106,11 +106,24 @@ and the merge gate read it, and the class fixes the lawful way to close:
   the fix SHA, then **resolve**. Never carried.
 - `**TODO**` — a missing complement. Close: fixed in this PR, same way.
 - `**Architecture-carry**` — a design/architecture-scale flaw that
-  outlives this diff. Close: search the tracker for an open issue that
-  already covers it — never duplicate; if none, mint one issue (milestone
-  it), reply the issue reference on the thread, then **resolve**. Severe
-  items (e.g. security) get *two* threads: a Blocking quick fix in this
-  PR **and** an Architecture-carry for the structural cure.
+  outlives this diff. Close: **reply + resolve — a tracker issue is the
+  EXCEPTION, not the default** (#71: the advisory "never duplicate"
+  flooded rhesadox with ~20 re-mints of the same few findings). Mint one
+  issue ONLY when BOTH hold: (a) the finding is **severe/structural**
+  (security, data loss, outage, corruption — or you wrote an explicit
+  `mint:` marker in the todo body) AND (b) **no existing issue covers
+  it** — search OPEN and CLOSED issues with several keyword probes;
+  titles drift between rounds, so probe the finding's stable nouns, not
+  your last wording. A recurrence never mints: if you are writing
+  "(Nth round…)" or "still open" in the body, an issue already exists —
+  find it and reference it. Everything else resolves as a review-record
+  carry: reply "carried in the review record" + **resolve**, no issue.
+  Findings whose subject is deterministically GENERATED content
+  (arch-sync artifacts: `raw/arch/`, `rig.json`, `model.c4`, `.mmd`,
+  arch-graph commits and pages) never mint — they belong to the
+  generator's owner; raise a TODO thread on the PR at most. Severe items
+  (e.g. security) get *two* threads: a Blocking quick fix in this PR
+  **and** an Architecture-carry for the structural cure.
 
 A reply alone never closes a thread: the reply is the record, the
 **resolve is the close-out**.
@@ -134,9 +147,13 @@ workspace, if one was assembled; otherwise alongside your notes):
 ```
 
 `disposition` is `fix-in-pr` (default) or `architecture-carry`; a carry
-entry may carry an `issue` reference (`"#431"` or a URL) when the tracker
-already covers it. The pipeline publishes uncarried todos as threads and
-carries marked ones (minting the issue if needed) — it never carries a
+entry SHOULD carry an `issue` reference (`"#431"` or a URL) whenever the
+tracker already covers it, and MUST contain `mint:` (or a severity word:
+severe/security/data loss/outage/corruption) when you want a NEW issue —
+the pipeline's dedup and exception gates read the same signals (#71):
+deduped (fuzzy, open+closed) and unmarked carries resolve as
+review-record carries with no tracker issue. The pipeline publishes
+uncarried todos as threads and carries marked ones — it never carries a
 `Blocking` entry.
 
 The verdict line (decision, SHA, blocking count) is composed from the
@@ -149,7 +166,9 @@ Sweep **first**: list every thread on the PR from all rounds; a thread is
 closed only by its **resolve** state. Verify each open one against the
 current diff: fixed → reply (fix SHA + one line) and **resolve**;
 disproven → reply why, and **resolve**; architecture-scale → carry it
-(issue reference + **resolve**). Only findings that are new or still
+(issue reference + **resolve** — reference the ORIGINAL issue, never a
+re-mint: a recurring finding that cannot find its issue resolves as a
+review-record carry and says so). Only findings that are new or still
 unaddressed become new threads. Do not trust a UI's resolved markers over
 the API — query the threads; the UI can lag.
 
