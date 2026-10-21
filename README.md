@@ -6,6 +6,7 @@ A collection of AI coding agent skills, distributed via [skills.sh](https://skil
 
 | Skill | Description |
 |-------|-------------|
+| **agentskills-spec** | The agentskills.io specification adapted to this repo — SKILL.md format, progressive disclosure, validation gates |
 | **bitwarden** | Unlock and operate the Bitwarden vault / Secrets Manager from a non-interactive agent shell |
 | **dev-workflow** | Branch-based development: issue → branch → green CI → merged PR, with local-first preflight |
 | **diagnose** | Disciplined debugging loop: reproduce → minimise → hypothesise → instrument → fix → regression-test |
