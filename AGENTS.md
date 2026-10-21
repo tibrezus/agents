@@ -184,3 +184,11 @@ Depth: the skill's `references/review-threads.md` (hard rule 0).
 A direct commit to the default branch requires an explicit user instruction,
 recorded on the issue.
 <!-- END dev-workflow -->
+
+## Skill authoring
+
+Skills live in `skills/<name>/SKILL.md`. Before creating a new skill or
+editing an existing one, load the `agentskills-spec` skill — the
+[agentskills.io specification](https://agentskills.io/specification.md)
+adapted to this repo (frontmatter rules, progressive disclosure, line budget,
+validation gates).
