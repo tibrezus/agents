@@ -118,6 +118,11 @@ and the merge gate read it, and the class fixes the lawful way to close:
   "(Nth round…)" or "still open" in the body, an issue already exists —
   find it and reference it. Everything else resolves as a review-record
   carry: reply "carried in the review record" + **resolve**, no issue.
+  A minted tracker joins the repo's ARCHITECTURE TRACKER — the OPEN
+  milestone titled exactly "Architecture & Design improvements" — when
+  the repo declares one (the milestone is the finding's class, not a
+  scope guess); without one it lands unmilestoned. Never scope a carry
+  by milestone recency.
   Findings whose subject is deterministically GENERATED content
   (arch-sync artifacts: `raw/arch/`, `rig.json`, `model.c4`, `.mmd`,
   arch-graph commits and pages) never mint — they belong to the
