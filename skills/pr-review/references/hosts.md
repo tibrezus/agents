@@ -56,10 +56,16 @@ gh api graphql -f query='
   mutation($id:ID!){ resolveReviewThread(input:{threadId:$id}){ thread{ isResolved } } }' \
   -f id=$THREAD_ID
 
-# Carry-mint a tracker issue — NO milestone (#73: "newest-created open"
-# scoped carries into the arc under review, not the finding's scope).
+# Carry-mint a tracker issue. Milestone: the repo's ARCHITECTURE TRACKER
+# — an OPEN milestone titled exactly "Architecture & Design improvements"
+# — assigned when the repo declares one (exact-title opt-in; the tracker
+# is the finding's class, not a scope guess). No tracker → unmilestoned
+# (#73: never the "newest-created open" heuristic — it scoped carries
+# into the arc under review).
+MS=$(gh api "repos/$O/$R/milestones?state=open" \
+  | jq -r '[.[] | select(.title=="Architecture & Design improvements")][0].number // empty')
 gh api repos/$O/$R/issues -f title="architecture: <the finding>" \
-  -f body="from PR #$N thread $ID — <evidence/anchor>"
+  -f body="from PR #$N thread $ID — <evidence/anchor>" $( [ -n "$MS" ] && echo -f milestone=$MS )
 ```
 
 ## Forgejo / Gitea
@@ -99,13 +105,18 @@ curl -sS -X DELETE -H "authorization: token $TOK" \
   # unresolve — reopen if a claimed fix fails verification
 
 # Carry an Architecture-carry thread: mint or reference the tracker issue,
-# reply the reference, resolve the thread. The minted issue carries NO
-# milestone (#73 — "newest-created open" scoped carries into whatever arc
-# was running when the review minted; a carried finding outlives the
-# milestone, and scoping it is a maintainer decision, not a mint default):
+# reply the reference, resolve the thread. Milestone: the repo's
+# ARCHITECTURE TRACKER — an OPEN milestone titled exactly "Architecture &
+# Design improvements" — assigned by .id when the repo declares one
+# (exact-title opt-in; the tracker is the finding's class, not a scope
+# guess). No tracker → unmilestoned (#73: never the "newest-created open"
+# heuristic — it scoped carries into the arc under review):
+MS=$(curl -sS -H "authorization: token $TOK" \
+  "$BASE/api/v1/repos/$REPO/milestones?state=open" \
+  | jq -r '[.[] | select(.title=="Architecture & Design improvements")][0].id // empty')
 curl -sS -X POST -H "authorization: token $TOK" -H "content-type: application/json" \
   "$BASE/api/v1/repos/$REPO/issues" \
-  -d "{\"title\":\"architecture: <the finding>\",\"body\":\"from PR #$N thread $COMMENT_ID — <evidence/anchor>\"}"
+  -d "{\"title\":\"architecture: <the finding>\",\"body\":\"from PR #$N thread $COMMENT_ID — <evidence/anchor>\"$( [ -n "$MS" ] && echo \",\\\"milestone\\\":$MS\" )}"
 ```
 
 ## GitLab
