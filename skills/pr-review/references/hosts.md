@@ -56,12 +56,10 @@ gh api graphql -f query='
   mutation($id:ID!){ resolveReviewThread(input:{threadId:$id}){ thread{ isResolved } } }' \
   -f id=$THREAD_ID
 
-# Carry-mint a tracker issue (milestone = the NEWEST-CREATED open one by
-# NUMBER — an id is 422 field-invalid on github.com, probed live):
-MS=$(gh api "repos/$O/$R/milestones?state=open" \
-  | jq -r 'sort_by(.created_at) | last | .number // empty')
+# Carry-mint a tracker issue — NO milestone (#73: "newest-created open"
+# scoped carries into the arc under review, not the finding's scope).
 gh api repos/$O/$R/issues -f title="architecture: <the finding>" \
-  -f body="from PR #$N thread $ID — <evidence/anchor>" $( [ -n "$MS" ] && echo -f milestone=$MS )
+  -f body="from PR #$N thread $ID — <evidence/anchor>"
 ```
 
 ## Forgejo / Gitea
@@ -101,17 +99,13 @@ curl -sS -X DELETE -H "authorization: token $TOK" \
   # unresolve — reopen if a claimed fix fails verification
 
 # Carry an Architecture-carry thread: mint or reference the tracker issue,
-# reply the reference, resolve the thread. Issue mint — milestone = the
-# NEWEST-CREATED open one, computed client-side (the listing's default
-# sort is due_on ASC: .[0] is the OLDEST — verified live on both hosts).
-# This verb is the FORK's: it mints the milestone .id — github.com wants
-# the NUMBER instead (the GitHub carry-mint verb above does this):
-MS=$(curl -sS -H "authorization: token $TOK" \
-  "$BASE/api/v1/repos/$REPO/milestones?state=open" \
-  | jq -r 'sort_by(.created_at) | last | .id // empty')
+# reply the reference, resolve the thread. The minted issue carries NO
+# milestone (#73 — "newest-created open" scoped carries into whatever arc
+# was running when the review minted; a carried finding outlives the
+# milestone, and scoping it is a maintainer decision, not a mint default):
 curl -sS -X POST -H "authorization: token $TOK" -H "content-type: application/json" \
   "$BASE/api/v1/repos/$REPO/issues" \
-  -d "{\"title\":\"architecture: <the finding>\",\"body\":\"from PR #$N thread $COMMENT_ID — <evidence/anchor>\"$( [ -n "$MS" ] && echo \",\\\"milestone\\\":$MS\" )}"
+  -d "{\"title\":\"architecture: <the finding>\",\"body\":\"from PR #$N thread $COMMENT_ID — <evidence/anchor>\"}"
 ```
 
 ## GitLab
