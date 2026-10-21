@@ -172,6 +172,38 @@ review-record carry and says so). Only findings that are new or still
 unaddressed become new threads. Do not trust a UI's resolved markers over
 the API — query the threads; the UI can lag.
 
+## Coverage — rounds accumulate, never restart (#704)
+
+A re-review does not re-read the surface: the workspace carries the
+**coverage ledger** (`/workspace/coverage-ledger.json`) — files prior
+rounds fully reviewed and at which SHA, plus the declared **frontier**
+(files seen but not examined) — and `review-delta.patch`, the diff since
+the last-reviewed SHA. Spend the budget **frontier-first**:
+
+1. Open threads (the sweep above).
+2. The delta: `review-delta.patch` — fix verification and every ledger
+   entry stamped `touched: true` (their file changed since they were
+   covered; the coverage claim does not survive an untouched-file
+   assumption across a change).
+3. The frontier: the files prior rounds named but never examined — this
+   is where saturation comes from; a surface read once, not 28 times.
+4. Whatever budget remains goes to the full surface, as today.
+
+Close the round by writing the `coverage` block into review.json — the
+round's honest statement, and the next round's starting point:
+
+    "coverage": {
+      "covered":  [{"path": "internal/x.go", "note": "full read + mechanical checks"}],
+      "frontier": [{"path": "internal/y.go", "reason": "wall reached before examination"}]
+    }
+
+`covered` = fully reviewed at this round's head. `frontier` = named but
+not examined — an APPROVE with a declared frontier is refused (an
+approval over unexamined files is a lie about coverage); a frontier-only
+round is a legitimate REQUEST_CHANGES whose blocking statement IS the
+frontier. Never pad covered: a file you skimmed is frontier, not
+coverage — the frontier is how the next round finds what you didn't.
+
 ## Hardened rules
 
 Learned the hard way; apply without exception:
