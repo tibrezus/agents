@@ -22,11 +22,12 @@ are *data* in a declarative definition, never code). Sync uses the
 mechanically when possible, via the agentic protocol when semantic —
 either way the resolution lands in the PR, never on the release branch.
 
-**Canonical source of truth:** co-located with the reference
-implementation at `platform/harmostes/fork-maintenance/skill/` in the
-GitOps repo (live scripts one directory up).
-`skill/scripts/check-drift.sh` keeps the script templates byte-identical
-to the live scripts; the `~/.agents/` copy is a synced derivative.
+**Canonical source of truth:** the harmostes chart itself —
+`harmostes/chart/fork-maintenance/skill/` (docs) and `chart/fork-maintenance/{scripts,checks,hooks}/`
+(the live scripts the per-Attempt Jobs run). The `templates/` here are verbatim
+copies of the live scripts; `scripts/check-drift.sh` verifies the copies have
+not drifted (run it in the harmostes CI, where both sides of the comparison
+are visible: this repo via the `.agents` submodule, the chart in-tree).
 
 ## The two-branch topology (load this into your head first)
 

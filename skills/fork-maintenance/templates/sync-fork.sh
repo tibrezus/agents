@@ -62,15 +62,15 @@ echo "=== [$PHASE] fork: $FORK_NAME ==="
 # Parse YAML definition into shell variables
 read_yaml() { yq -r "$1" "$DEF_FILE"; }
 
-# Mode dispatch (schema v2): merge (default, whole-repo forks) vs subtree
-# (vendored upstream trees) vs mapping (the forgejo self-sync — sync.yml's
-# mapping-table walk in the plugin). The subtree/mapping machinery lives at
-# the END of this script — dispatching there and exiting; every merge-mode
-# path below is unreachable for those defs, keeping the merge-mode code
-# byte-untouched.
+# Mode dispatch: merge (default, whole-repo forks) vs mapping (the forgejo
+# self-sync — sync.yml's mapping-table walk in the plugin). Mapping machinery
+# dispatches at the END of this script; merge-mode code below is unreachable
+# for mapping defs. (subtree mode retired: no def ever shipped with it —
+# vendored-tree forks are served by merge mode; history holds the old file.)
 MODE="$(read_yaml '.mode // "merge"' 2>/dev/null || echo merge)"
 case "$MODE" in
-  merge|subtree|mapping) ;;
+  merge|mapping) ;;
+  subtree) echo "ERROR: mode 'subtree' retired from the payload — use merge mode" >&2; exit 1 ;;
   *) echo "ERROR: unknown mode '$MODE' for fork '$FORK_NAME'" >&2; exit 1 ;;
 esac
 
@@ -88,50 +88,18 @@ FORK_URL=$(read_yaml '.fork.url')
 FORK_DEFAULT_BRANCH=$(read_yaml '.fork.default_branch')
 FORK_MIRROR_BRANCH=$(read_yaml '.fork.mirror_branch' 2>/dev/null || echo "")
 
-# Deliver a fork.conflict.needs-resolution event (structured needs-fix payload) to
-# the conflict-resolver. Delivered by direct HTTP POST to the resolver's /events
-# endpoint (conflict-subscriber.py), with retries. We previously routed this
-# through Dapr pub/sub (pubsub.redis), but Redis pub/sub is fire-and-forget —
-# events published while the resolver was restarting were silently lost, AND
-# the daprd sidecar in the sync Job never terminated so the Job hung and re-emission
-# (every 30m) never happened. Direct HTTP fixes both. The payload is ALWAYS
-# written to manifests/<fork>-needs-fix.json first (audit / manual-runs fallback).
-# See skill/references/conflict-resolution.md "Agentic integration shape".
-emit_conflict_event() {
-  local cfiles="${1:-}" payload patches_json pcount i
-  patches_json="[]"
-  pcount=$(read_yaml '.patches | length' 2>/dev/null || true)
-  for i in $(seq 0 $((pcount - 1))); do
-    local pf ps pd st="LOST"
-    pf=$(read_yaml ".patches[$i].file"); ps=$(read_yaml ".patches[$i].signature"); pd=$(read_yaml ".patches[$i].description")
-    if [ -f "$pf" ]; then { [ "$(grep -cF "$ps" "$pf" 2>/dev/null || true)" -gt 0 ] && st="OK"; } || st="LOST"; else st="MISSING"; fi
-    patches_json=$(echo "$patches_json" | jq --arg f "$pf" --arg s "$ps" --arg d "$pd" --arg st "$st" '. += [{file:$f,signature:$s,description:$d,status:$st}]')
-  done
-  payload=$(jq -n \
-    --arg fork "$FORK_NAME" \
-    --arg upstream_url "$UPSTREAM_URL" --arg upstream_branch "$UPSTREAM_BRANCH" \
-    --arg upstream_range "${MERGE_BASE:0:12}..${UPSTREAM_HEAD:0:12}" \
-    --argjson patches "$patches_json" \
-    --arg conflict_files "$cfiles" \
-    '{fork:$fork, upstream_url:$upstream_url, upstream_branch:$upstream_branch,
-      upstream_range:$upstream_range, patches_at_risk:$patches,
-      conflict_files: ($conflict_files | split("\n") | map(select(length>0)))}')
-  mkdir -p "$MAINT_DIR/manifests" 2>/dev/null || true
-  echo "$payload" > "$MAINT_DIR/manifests/${FORK_NAME}-needs-fix.json"
-  # Direct HTTP delivery to the resolver (replaces Dapr pub/sub — see header).
-  RESOLVER_URL="${RESOLVER_URL:-http://fork-conflict-resolver.harmostes.svc.cluster.local/events}"
-  ce=$(echo "$payload" | jq -c '{source:"fork-sync", type:"fork.conflict.needs-resolution", data:.}')
-  delivered=false
-  for attempt in 1 2 3 4 5; do
-    if curl -sf -m 5 -X POST "$RESOLVER_URL" -H "Content-Type: application/json" -d "$ce" >/dev/null 2>&1; then
-      echo "  delivered fork.conflict.needs-resolution → resolver"
-      delivered=true; break
-    fi
-    echo "  resolver unreachable (attempt $attempt); retrying in ${attempt}s"
-    sleep "$attempt"
-  done
-  $delivered || echo "  WARNING: resolver unreachable after retries — needs-fix payload at manifests/${FORK_NAME}-needs-fix.json"
-}
+# The conflict-escalation contract lives in scripts/conflict-event.sh (#637):
+# emit_conflict_event (structured needs-fix payload → manifest + direct HTTP
+# POST to the resolver's /events endpoint, with retries — routed there because
+# Dapr pub/sub is fire-and-forget: events published while the resolver was
+# restarting were silently lost, AND the daprd sidecar in the sync Job never
+# terminated so the Job hung and re-emission (every 30m) never happened).
+# Row context (theirs/ours/conflict branch) rides the payload so the resolver
+# is def-shape-agnostic. See skill/references/conflict-resolution.md
+# "Agentic integration shape".
+# shellcheck source=scripts/conflict-event.sh
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/conflict-event.sh"
 
 # ── Phase-mode plumbing ──────────────────────────────────────────────────────
 # The clone lives under HARMOSTES_WORKDIR (the graph executor shares one workdir
@@ -244,14 +212,50 @@ phase_merge() {
   fi
   UPSTREAM_HEAD=$(git rev-parse "upstream/$UPSTREAM_BRANCH")
 
+  # ── Release-line coverage (#627 exact identity mapping) ────────────────
+  # upstream.release_refs (def-declared, e.g. dapr's release-1.18): release
+  # lines upstream cuts OFF the synced branch — their tags are never
+  # reachable from it, so without merging them here the release identity
+  # anchors at the last line ever merged (observed: v1.18.0-forever while
+  # upstream shipped 1.18.1..1.18.4). A pending ref BLOCKS the up-to-date
+  # skip: a converged master still owes the release line a merge.
+  RELEASE_REFS=$(read_yaml '.upstream.release_refs // []' 2>/dev/null | sed 's/[][]//g' | tr -d '"' | tr ',' ' ')
+  REFS_PENDING=""
+  MASTER_UPTODATE=0
+  for rel_ref in $RELEASE_REFS; do
+    [ -z "$rel_ref" ] && continue
+    if git fetch --quiet upstream "+refs/heads/$rel_ref:refs/remotes/upstream/$rel_ref" 2>/dev/null; then
+      if ! git merge-base --is-ancestor "upstream/$rel_ref" "HEAD" 2>/dev/null; then
+        REFS_PENDING="$REFS_PENDING $rel_ref"
+      fi
+    else
+      echo "WARNING: release ref $rel_ref not found on the upstream host — identity may anchor stale" >&2
+    fi
+  done
+
   if git merge-base --is-ancestor "upstream/$UPSTREAM_BRANCH" "HEAD" 2>/dev/null; then
+    MASTER_UPTODATE=1
+  fi
+
+  if [ "$MASTER_UPTODATE" = 1 ] && [ -z "${REFS_PENDING// /}" ]; then
     echo ""
-    echo "=== Already up to date — mirror has no new commits ==="
+    echo "=== Already up to date — mirror has no new commits, release lines contained ==="
     if [ "$PHASED" = "1" ]; then
       result_json false "fork-sync-$FORK_NAME" merge "up to date — nothing to merge"
       exit 0
     fi
+    # all-mode (#627): a fully converged fork may still owe its RELEASE CUT —
+    # the identity can have moved since the last cut (upstream tagged a
+    # release whose line the fork already carries). Fall through to the tag
+    # phase; its own derivation + ordinal + already-tagged guards decide.
+    AUTO_RELEASE=$(read_yaml '.auto.release // false')
+    if [ "$AUTO_RELEASE" = "true" ]; then
+      phase_tag
+    fi
     exit 0
+  fi
+  if [ "$MASTER_UPTODATE" = 1 ]; then
+    echo "=== master already contained — syncing the pending release line(s):$REFS_PENDING ==="
   fi
 
   NEW_COMMITS=$(git rev-list --count "${MERGE_BASE}..upstream/${UPSTREAM_BRANCH}" 2>/dev/null || echo "?")
@@ -275,10 +279,38 @@ phase_merge() {
   # result is release + upstream-delta — a clean superset that PRs back.
   git checkout -b "$SYNC_BRANCH" "$FORK_DEFAULT_BRANCH"
 
+  # The merge sources: the synced branch (unless already contained) + every
+  # pending release line (#627). Each merges --no-ff; a conflict anywhere
+  # routes to the resolver path below (one PR per sync, as before).
+  MERGE_SRCS=""
+  [ "$MASTER_UPTODATE" = 0 ] && MERGE_SRCS="$MERGE_SRCS upstream/${UPSTREAM_BRANCH}"
+  for rel_ref in $REFS_PENDING; do
+    MERGE_SRCS="$MERGE_SRCS upstream/$rel_ref"
+  done
+  [ -z "${MERGE_SRCS// /}" ] && { echo "ERROR: nothing queued to merge" >&2; exit 1; }
+
+  for merge_src in $MERGE_SRCS; do
   # --no-ff guarantees an explicit, auditable merge commit (revertible via -m 1).
+  # Shallow-graph guard (#566 class): a release ref fetched at --depth shares
+  # no visible ancestor with the fork clone — on "unrelated histories" pull
+  # the ref's full history and retry once; a REAL unrelated history still
+  # fails loudly on the retry.
   if ! git merge --no-ff --no-edit \
-       -m "RZ/sync: merge upstream ${UPSTREAM_BRANCH} into ${FORK_DEFAULT_BRANCH} (${SYNC_DATE})" \
-       "upstream/${UPSTREAM_BRANCH}"; then
+       -m "RZ/sync: merge $merge_src into ${FORK_DEFAULT_BRANCH} (${SYNC_DATE})" \
+       "$merge_src"; then
+    if git merge-base "$merge_src" HEAD >/dev/null 2>&1; then
+      true   # real conflict — resolver path below
+    else
+      echo "=== no common ancestor with $merge_src — unshallowing and retrying ==="
+      git merge --abort 2>/dev/null || true
+      git fetch --unshallow upstream 2>/dev/null \
+        || git fetch --deepen=5000 upstream 2>/dev/null || true
+      if git merge --no-ff --no-edit \
+           -m "RZ/sync: merge $merge_src into ${FORK_DEFAULT_BRANCH} (${SYNC_DATE})" \
+           "$merge_src"; then
+        continue   # merged on the retry — next source
+      fi
+    fi
     # The merge stopped on conflicts (localized 3-way regions). Conclude it WITH
     # markers on the sync branch, open a needs-conflict-resolution PR for the LLM
     # resolver, and emit fork.conflict.needs-resolution. The resolver re-creates
@@ -300,6 +332,7 @@ phase_merge() {
     emit_conflict_event "$CONFLICT_FILES"
     exit 2
   fi
+  done # merge sources
 
   # ── Permanent divergences (deletions from fork definition) ──────────────
   DELETIONS=$(read_yaml '.deletions[]' 2>/dev/null || true)
@@ -524,7 +557,10 @@ phase_tag() {
   MERGE_SHA="${MERGE_SHA:-}"
   RELEASE_TAG=""
 
-  if [ "$AUTO_RELEASE" != "true" ] || [ -z "$MERGE_SHA" ]; then
+  # MERGE_SHA is informational: a converged fork (up-to-date all-mode, #627)
+  # reaches this phase with no fresh merge and still owes its release cut —
+  # the tag targets the fork default branch HEAD either way.
+  if [ "$AUTO_RELEASE" != "true" ]; then
     echo ""
     echo "=== No release (auto.release=$AUTO_RELEASE, merged=${MERGE_SHA:+yes}${MERGE_SHA:-no}) ==="
     if [ "$PHASED" = "1" ]; then
@@ -538,68 +574,96 @@ phase_tag() {
   git checkout --quiet "$FORK_DEFAULT_BRANCH" 2>/dev/null || true
   git reset --hard --quiet "origin/$FORK_DEFAULT_BRANCH"
 
-  # Nearest upstream tag → release identity. Two failure modes in shallow
-  # clones: (1) describe can't reach the real tag (--tags at depth N only
-  # fetches within the window — v16.0.2 wasn't even in the clone), (2) describe
-  # succeeds but returns a NON-RELEASE tag (v16.0.0-dev) reachable in the
-  # window. So: describe under || true (never under pipefail into set -e),
-  # then VALIDATE the result is a pure version; anything else (-dev/-rc/-rezus
-  # suffixes) falls back to the highest pure-version tag ON THE REMOTE for this
-  # release line (branch prefix v16.0/forgejo → v16.0.*, via ls-remote).
-  UPSTREAM_VER=$( { git describe --tags --abbrev=0 "upstream/$UPSTREAM_BRANCH" 2>/dev/null || true; } \
-    | sed -E 's/(-rc\.[0-9]+|-rezus\.[0-9]+).*$//')
-  TAG_PREFIX="${UPSTREAM_BRANCH%%/*}"
-  if ! echo "$UPSTREAM_VER" | grep -qE "^v[0-9]+\.[0-9]+\.[0-9]+$"; then
-    # Pure-version tags live on the UPSTREAM repo (the fork only carries our
-    # v*-rezus.N triggers + possibly legacy hand tags) — query the real host.
-    # Version = three segments: <prefix=vMAJOR.MINOR>.<PATCH>.
-    UPSTREAM_VER=$(git ls-remote --tags "$UPSTREAM_URL" "refs/tags/${TAG_PREFIX}.*" 2>/dev/null \
-      | awk -F/ '{print $NF}' | grep -E "^${TAG_PREFIX//./\\.}\.[0-9]+$" | sort -V | tail -1)
-  fi
-  if [ -z "$UPSTREAM_VER" ]; then
-    echo "WARNING: could not determine upstream version for release tag — skipping auto-release"
-  else
-    # Highest existing rezus build for this upstream version — query the
-    # REMOTE (shallow clones may not have fetched a prior run's tags); default 0.
-    LAST_REZUS=$(git ls-remote --tags origin "refs/tags/${UPSTREAM_VER}-rezus.*" 2>/dev/null \
-      | awk -F/ '{print $NF}' | sort -V | tail -1)
-    LAST_N=$(echo "${LAST_REZUS}" | sed -nE 's/.*-rezus\.([0-9]+).*/\1/p')
-    [ -z "$LAST_N" ] && LAST_N=0
-    # Base-10, not octal: a padded ordinal (08/09) would be invalid octal
-    # in arithmetic and crash the phase.
-    NEXT_N=$((10#$LAST_N + 1))
-    # Ordinal tag-shape contract (#595) — two rules:
-    # 1. Ordinals are UNPADDED. A digit-only prerelease identifier
-    #    (…-rezus.10) is ranked NUMERICALLY by semver — monotonic at every
-    #    boundary. A zero-padded one (…-rezus.01) is INVALID semver
-    #    (leading zeros) and invisible to any semver ImagePolicy.
-    # 2. The IMAGE tag is the git tag VERBATIM (v…-rezus.11) — no variant
-    #    suffix at all (rezuscloud/signoz#67 dropped one; the ordinal IS
-    #    the version). If a variant is ever truly unavoidable, DOT-join it
-    #    (v…-rezus.11.community), never dash-fused (…-rezus.11-community):
-    #    a fused identifier is alphanumeric, ranks lexically, and
-    #    "10-community" < "9-community" silently stalls the policy at
-    #    every 9→10 boundary (observed: rezuscloud/signoz — flux marker
-    #    stuck at v0.127.0-rezus.3-community since 2026-06-29).
-    RELEASE_TAG="${UPSTREAM_VER}-rezus.${NEXT_N}"
+  # Source the #627 identity-mapping helper — the single derivation for ALL
+  # fork-maintenance modes (sync mints here; mapping-mode reuses the same
+  # functions in its own walk).
+  # shellcheck source=scripts/derive-release-version.sh
+  # shellcheck disable=SC1091
+  source "$SCRIPT_DIR/derive-release-version.sh"
 
-    HEAD_TAG=$(git tag --points-at HEAD | grep -E "${UPSTREAM_VER}-rezus\." || true)
-    if [ -n "$HEAD_TAG" ]; then
-      echo "=== HEAD already tagged ($HEAD_TAG) — skipping auto-release ==="
-      RELEASE_TAG=""
+  # ── Upstream identity, mapped exactly (#627 contract) ─────────────────────
+  # Tags mirror upstream major.minor.patch exactly; -rezus.NN counts addon
+  # builds on top and RESETS at every upstream change. Identity = the highest
+  # upstream release tag whose CONTENT is in the tree, cross-checked against
+  # the upstream HOST (a shallow clone's tag window never decides — the
+  # #601/#603 lesson class). Pattern: versioning.upstream_pattern (def-
+  # declared, e.g. "b[0-9]*" for a revision-tag upstream) or "auto" (pure
+  # vX.Y.Z). upstream.release_refs (def-declared, e.g. dapr's release-1.18):
+  # release lines upstream cuts OFF the synced branch — merged here so their
+  # content and tags become claimable; without this the identity would stick
+  # at the last release ever merged into the branch (v1.18.0-forever).
+  RELEASE_REFS=$(read_yaml '.upstream.release_refs // []' 2>/dev/null | sed 's/[][]//g' | tr -d '"' | tr ',' ' ')
+  for rel_ref in $RELEASE_REFS; do
+    [ -z "$rel_ref" ] && continue
+    # Merge-phase coverage: the refs were already merged into the tree (the
+    # #627 phase_merge loop). This pass only VERIFIES — a ref that is still
+    # missing means the merge phase didn't run it (all-mode up-to-date exit
+    # before the release-refs loop landed) — surface, never mint.
+    if ! git fetch --quiet "$UPSTREAM_URL" "+refs/heads/$rel_ref:refs/remotes/upstream-rel-$rel_ref" 2>/dev/null; then
+      echo "WARNING: release ref $rel_ref not found on the upstream host" >&2
+      continue
+    fi
+    if ! git merge-base --is-ancestor "refs/remotes/upstream-rel-$rel_ref" HEAD 2>/dev/null; then
+      echo "WARNING: release ref $rel_ref is NOT contained in HEAD — identity cannot map exactly; run a sync to merge the line first" >&2
+      REL_REF_UNMERGED=1
+    fi
+  done
+  if [ "${REL_REF_UNMERGED:-0}" = 1 ]; then
+    if [ "$PHASED" = "1" ]; then
+      result_json false "fork-sync-$FORK_NAME" tag "release line not merged — sync first"
+    fi
+    return 0
+  fi
+
+  UPSTREAM_PATTERN=$(read_yaml '.versioning.upstream_pattern // "auto"' 2>/dev/null || echo auto)
+  if ! derive_upstream_identity "HEAD" "$UPSTREAM_URL" "$UPSTREAM_PATTERN"; then
+    echo "WARNING: could not determine upstream release identity — skipping auto-release (#627: never mint blind)" >&2
+    if [ "$PHASED" = "1" ]; then
+      result_json false "fork-sync-$FORK_NAME" tag "no upstream release derivable"
+    fi
+    return 0
+  fi
+  PREV_ANCHOR=$(previous_anchor "$FORK_URL")
+  if [ "$IDENTITY_STATE" = "behind" ]; then
+    echo "WARNING: upstream $REMOTE_LATEST is newer than anything reachable from $FORK_DEFAULT_BRANCH — its content is NOT in this tree (#627 exact mapping); declare upstream.release_refs or a mapping row for its line. NOT minting a stale-identity tag." >&2
+    if [ "$PHASED" = "1" ]; then
+      result_json false "fork-sync-$FORK_NAME" tag "identity behind ($REMOTE_LATEST not in tree)"
+    fi
+    return 0
+  fi
+  if [ -n "$PREV_ANCHOR" ] && [ "$PREV_ANCHOR" != "$IDENTITY" ]; then
+    echo "=== Upstream change $PREV_ANCHOR → $IDENTITY: -rezus ordinal resets to 1 ==="
+  fi
+  # Ordinal: highest existing <IDENTITY>-rezus.* on the fork remote + 1 —
+  # the reset at upstream changes falls out of the scoping (a new identity
+  # has no rezus tags yet → 0+1 = 1).
+  NEXT_N=$(next_rezus_ordinal "$IDENTITY" "$FORK_URL")
+  # Ordinal tag-shape contract (#595) — enforced by the helpers: ordinals are
+  # UNPADDED (a digit-only prerelease identifier ranks NUMERICALLY by semver,
+  # monotonic at every boundary; zero-padded …-rezus.01 is INVALID semver and
+  # invisible to semver ImagePolicies) and the image tag is the git tag
+  # VERBATIM — no variant suffix at all (rezuscloud/signoz#67; a dash-fused
+  # variant ranks lexically and "10-community" < "9-community" silently
+  # stalled a policy at every 9→10 boundary — flux marker stuck at
+  # v0.127.0-rezus.3-community since 2026-06-29).
+  RELEASE_TAG="${IDENTITY}-rezus.${NEXT_N}"
+
+  HEAD_TAG=$(git tag --points-at HEAD | grep -E -- "${IDENTITY}-rezus\." || true)
+  if [ -n "$HEAD_TAG" ]; then
+    echo "=== HEAD already tagged ($HEAD_TAG) — skipping auto-release ==="
+    RELEASE_TAG=""
+  else
+    echo "=== Auto-releasing: tagging $FORK_DEFAULT_BRANCH as $RELEASE_TAG (identity $IDENTITY, $IDENTITY_STATE) ==="
+    git tag "$RELEASE_TAG"
+    if git push --quiet origin "$RELEASE_TAG" 2>&1; then
+      echo "  tagged $RELEASE_TAG → fork release workflow will build + publish image"
     else
-      echo "=== Auto-releasing: tagging $FORK_DEFAULT_BRANCH as $RELEASE_TAG ==="
-      git tag "$RELEASE_TAG"
-      if git push --quiet origin "$RELEASE_TAG" 2>&1; then
-        echo "  tagged $RELEASE_TAG → fork release workflow will build + publish image"
-      else
-        echo "WARNING: failed to push tag $RELEASE_TAG"
-        RELEASE_TAG=""
-      fi
+      echo "WARNING: failed to push tag $RELEASE_TAG"
+      RELEASE_TAG=""
     fi
   fi
   if [ "$PHASED" = "1" ]; then
-    [ -n "$RELEASE_TAG" ] && result_json true "$RELEASE_TAG" tag "release tag cut" \
+    [ -n "$RELEASE_TAG" ] && result_json true "$RELEASE_TAG" tag "release tag cut (identity $IDENTITY, $IDENTITY_STATE)" \
                          || result_json false "fork-sync-$FORK_NAME" tag "no release"
   fi
 }
@@ -665,17 +729,6 @@ if [ "$MODE" = "mapping" ]; then
   # shellcheck disable=SC1091
   source "$SCRIPT_DIR/mapping-mode.sh"
   mapping_dispatch
-  exit 0
-fi
-
-if [ "$MODE" = "subtree" ]; then
-  # Vendored-tree mode: everything lives in scripts/subtree-mode.sh (sourced
-  # here so the phases see this script's helpers: read_yaml, result_json,
-  # push_sync_branch). Merge-mode code below is never reached for subtree defs.
-  # shellcheck source=scripts/subtree-mode.sh
-  # shellcheck disable=SC1091
-  source "$SCRIPT_DIR/subtree-mode.sh"
-  subtree_dispatch
   exit 0
 fi
 
