@@ -119,3 +119,27 @@ updated. A stale second home is a finding.
 environment, volumes, topology, or configuration is verified against the
 actual manifests and runtime wiring — never against a doc's prose. Prose
 says what was intended; the manifest says what is.
+
+## Repository wiki (context gathering, #726)
+
+When the workspace carries `/workspace/repo-wiki/` — the reviewed
+repository's OWN architecture documentation (a different artifact from
+the project wiki): consult it BEFORE structural grepping. Order of
+consultation across the whole review: the coverage ledger and research
+layer (what prior rounds established), then the repo wiki's standard
+docs — `DESIGN.md`, `TOBE.md`, `ARCHITECTURE.md`, and the other
+top-level `*.md` — then the tree itself.
+
+Use it for: component boundaries (the Boundaries pillar's "map" mode —
+the documented architecture IS a map), documented decisions (Design
+intent's contradiction check), and naming/structure expectations. A
+finding may cite the doc and section a change deviates from ("conflicts
+with TOBE.md §deploy").
+
+Direction beats divergence: the docs are context, not gospel. A PR
+moving the code TOWARD the documented TOBE state complies even where it
+diverges from the current AS-IS tree. Report a doc/code divergence as a
+finding only when the PR moves AWAY from the documented direction — and
+when the docs themselves look stale (paths that no longer exist,
+components renamed), say so in the finding or coverage note and let the
+author decide which side moves.
