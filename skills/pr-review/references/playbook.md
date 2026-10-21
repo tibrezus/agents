@@ -143,3 +143,19 @@ finding only when the PR moves AWAY from the documented direction — and
 when the docs themselves look stale (paths that no longer exist,
 components renamed), say so in the finding or coverage note and let the
 author decide which side moves.
+
+## Pillar scan (#727 discipline)
+
+Walk the pillars breadth-first, one proven gap at a time: scan a
+pillar → when a finding is PROVEN (it survived its falsification
+attempt), POST its anchored thread immediately → switch to the next
+pillar. After the first pass, return for the deep proofs of the
+remaining uncertainties. The proof bar never moves — nothing
+unverified is posted, ever.
+
+Posting per pillar is what makes the review asynchronous for the
+author: fix work on proven findings starts while the round continues
+on the next pillar. Record each posted thread's reference in
+review.json (`thread_ref`) — the pipeline's gate counts posted threads
+exactly as it counts pipeline-posted ones, and its publisher publishes
+only what was never posted.
