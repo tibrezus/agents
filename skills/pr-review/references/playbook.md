@@ -146,12 +146,15 @@ author decide which side moves.
 
 ## Pillar scan (#727 discipline)
 
-Walk the pillars breadth-first, one proven gap at a time: scan a
+Your todo list arrives SEEDED with the pillar checklist (extracted
+from this playbook's pillar block; on a resumed session the prior
+round's ticks persist through the session). Work it top-down: scan a
 pillar → when a finding is PROVEN (it survived its falsification
-attempt), POST its anchored thread immediately → switch to the next
-pillar. After the first pass, return for the deep proofs of the
-remaining uncertainties. The proof bar never moves — nothing
-unverified is posted, ever.
+attempt), POST its anchored thread immediately and tick that pillar →
+switch to the next. After the first pass, return for the deep proofs
+of the remaining uncertainties. Never spend turns rebuilding the
+list; clear and reseed only for a deliberate full re-sweep. The proof
+bar never moves — nothing unverified is posted, ever.
 
 Posting per pillar is what makes the review asynchronous for the
 author: fix work on proven findings starts while the round continues
