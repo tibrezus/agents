@@ -88,16 +88,26 @@ MAJOR, or any todo left open → REQUEST_CHANGES; otherwise APPROVE.
 
 ## Posting protocol — threads are the review
 
-If your environment carries a **posting credential** (a comment-scoped
-token), post each verified blocking finding **immediately** as a native
-anchored thread on the PR — do not batch. If no posting credential is
-present, record findings in the ledger only; the pipeline publishes them.
+Post with the **review-post tools** — `review_finding_post`,
+`review_findings_list`, `review_thread_reply`, `review_thread_resolve`,
+`review_verdict_post` — one contract on every host (#749). Post each
+verified finding **immediately** as a native anchored thread — do not
+batch. While the tools are armed they maintain the ledger's `findings[]`,
+`decision`, and `reviewed_sha`; hand-write only `todos[]` and the
+`coverage` block. If the tools report they are **not armed**, record
+findings and decision in the ledger only (python3, never a bash
+heredoc); the pipeline publishes them.
 
-Before posting, list the existing threads; **never post a finding that
-already has an open thread** — reply on that thread instead. Threads are
-append-only: a finding you later disprove is closed by a reply saying so,
-never deleted. Exact verbs per host are in
-[references/hosts.md](references/hosts.md).
+Before posting, `review_findings_list` — the host's word is what is
+landed; **never post a finding that already has an open thread** — reply
+on that thread instead. Threads are append-only: a finding you later
+disprove is closed by a reply saying so, never deleted. `review_verdict_post`
+posts the verdict COMMENT (the trailer-carrying one); the binding review
+EVENT is the pipeline's, never yours.
+
+The per-host curl verbs in [references/hosts.md](references/hosts.md)
+are the **human/debug reference** — reach for them when debugging the
+platform by hand, not as the posting path.
 
 Every thread you raise opens with its **class prefix** — the verdict gate
 and the merge gate read it, and the class fixes the lawful way to close:
@@ -232,8 +242,10 @@ Learned the hard way; apply without exception:
 
 ## References
 
-- [references/hosts.md](references/hosts.md) — talking to the forge:
-  host detection, fetching diff and metadata, posting/replying/resolving
-  threads, token and curl fallbacks. Load when you first touch the platform.
+- [references/hosts.md](references/hosts.md) — talking to the forge BY
+  HAND (debug reference): host detection, fetching diff and metadata,
+  the posting/replying/resolving curl verbs, token fallbacks. The
+  reviewer's posting path is the review-post tools; load this only to
+  debug the platform.
 - [references/playbook.md](references/playbook.md) — per-pillar depth
   recipes. Load when a pillar needs more than its quick pass.

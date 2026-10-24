@@ -158,7 +158,8 @@ bar never moves — nothing unverified is posted, ever.
 
 Posting per pillar is what makes the review asynchronous for the
 author: fix work on proven findings starts while the round continues
-on the next pillar. Record each posted thread's reference in
-review.json (`thread_ref`) — the pipeline's gate counts posted threads
+on the next pillar. The `review_finding_post` tool records each posted
+thread in the ledger (`thread_ref` in review.json) — you never
+hand-edit that field; the pipeline's gate counts posted threads
 exactly as it counts pipeline-posted ones, and its publisher publishes
 only what was never posted.
