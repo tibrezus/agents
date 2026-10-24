@@ -1,7 +1,9 @@
-# Hosts — talking to the forge
+# Hosts — talking to the forge (human/debug reference)
 
-Load this when you need anything from the platform: PR metadata, the
-diff, the thread list, or when posting, replying, or resolving. Every
+**The reviewer's posting path is the review-post tools (#749).** This
+page is the debug reference — for when YOU (a human, or an agent
+debugging the platform by hand) need to touch the forge directly:
+PR metadata, the diff, the thread list, posting, replying, resolving. Every
 shape below anchors at the **reviewed head SHA** and posts as the
 identity your environment provides. If a CLI is missing, use the curl
 fallback with the same paths.
